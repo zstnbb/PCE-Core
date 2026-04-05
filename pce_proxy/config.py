@@ -18,6 +18,12 @@ ALLOWED_HOSTS: set[str] = {
     "api.anthropic.com",
 }
 
+# Allow extending the allowlist via env var (comma-separated hostnames).
+# Useful for custom AI endpoints or testing with local mock servers.
+_extra_hosts = os.environ.get("PCE_EXTRA_HOSTS", "")
+if _extra_hosts:
+    ALLOWED_HOSTS.update(h.strip() for h in _extra_hosts.split(",") if h.strip())
+
 # ---------------------------------------------------------------------------
 # Headers that MUST be redacted before persistence
 # ---------------------------------------------------------------------------

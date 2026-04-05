@@ -35,6 +35,21 @@ init_db()
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _resolve_host(flow: http.HTTPFlow) -> str | None:
+    """Return the target AI host if it matches the allowlist, else None.
+
+    Checks pretty_host first (works in forward-proxy mode), then falls
+    back to the Host header (needed in reverse-proxy / test mode).
+    """
+    candidate = flow.request.pretty_host
+    if candidate in ALLOWED_HOSTS:
+        return candidate
+    host_header = flow.request.headers.get("Host", "").split(":")[0]
+    if host_header in ALLOWED_HOSTS:
+        return host_header
+    return None
+
+
 def _provider_from_host(host: str) -> str:
     """Derive a short provider label from hostname."""
     if "openai" in host:
@@ -67,8 +82,8 @@ class PCEAddon:
     # --- request phase ----------------------------------------------------
 
     def request(self, flow: http.HTTPFlow) -> None:
-        host = flow.request.pretty_host
-        if host not in ALLOWED_HOSTS:
+        host = _resolve_host(flow)
+        if host is None:
             return
 
         pair_id = new_pair_id()
@@ -79,7 +94,7 @@ class PCEAddon:
 
         try:
             headers_json = redact_headers_json(dict(flow.request.headers))
-            body_raw = flow.request.get_content(raise_if_missing=False) or b""
+            body_raw = flow.request.content or b""
             body_text, body_fmt = safe_body_text(body_raw)
             model = _extract_model(body_raw)
 
@@ -106,13 +121,13 @@ class PCEAddon:
         if meta is None:
             return  # not a tracked flow
 
-        host = flow.request.pretty_host
+        host = _resolve_host(flow) or flow.request.pretty_host
         pair_id = meta["pair_id"]
         latency = (time.time() - meta["request_time"]) * 1000  # ms
 
         try:
             headers_json = redact_headers_json(dict(flow.response.headers))
-            body_raw = flow.response.get_content(raise_if_missing=False) or b""
+            body_raw = flow.response.content or b""
             body_text, body_fmt = safe_body_text(body_raw)
 
             insert_capture(
