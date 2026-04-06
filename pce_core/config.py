@@ -17,7 +17,7 @@ DB_PATH = DATA_DIR / "pce.db"
 # AI domain allowlist – only these hosts will be captured by the proxy
 # ---------------------------------------------------------------------------
 ALLOWED_HOSTS: set[str] = {
-    # Direct Provider APIs
+    # ── Direct Provider APIs ──────────────────────────────
     "api.openai.com",
     "api.anthropic.com",
     "generativelanguage.googleapis.com",
@@ -30,14 +30,44 @@ ALLOWED_HOSTS: set[str] = {
     "api.together.xyz",
     "api.fireworks.ai",
     "api.perplexity.ai",
-    # Vendor Relay
+    "api.replicate.com",
+    "api-inference.huggingface.co",
+    "api.ai21.com",
+    "api.aleph-alpha.com",
+    "api.minimax.chat",
+    "api.moonshot.cn",
+    "api.baichuan-ai.com",
+    "api.zhipuai.cn",
+    # ── Vendor Relay / IDE ────────────────────────────────
     "api2.cursor.sh",
     "api.codeium.com",
     "copilot-proxy.githubusercontent.com",
-    # Aggregators
+    "codewhisperer.amazonaws.com",
+    "api.tabnine.com",
+    "api.sourcegraph.com",
+    # ── Aggregators / Routers ─────────────────────────────
     "openrouter.ai",
-    # Audio / Media
+    "api.openrouter.ai",
+    # ── Audio / Media / Image ─────────────────────────────
     "api.elevenlabs.io",
+    "api.stability.ai",
+    "api.midjourney.com",
+    "cl.imagineapi.dev",
+    # ── Local Model Servers ───────────────────────────────
+    "localhost",
+    "127.0.0.1",
+}
+
+# ---------------------------------------------------------------------------
+# Known local model ports (Ollama, LM Studio, vLLM, LocalAI, etc.)
+# ---------------------------------------------------------------------------
+LOCAL_MODEL_PORTS: set[int] = {
+    11434,  # Ollama default
+    1234,   # LM Studio default
+    8000,   # vLLM / FastChat default
+    8080,   # LocalAI default
+    5000,   # Text Generation WebUI default
+    3000,   # Jan default
 }
 
 # Allow extending the allowlist via env var (comma-separated hostnames).
