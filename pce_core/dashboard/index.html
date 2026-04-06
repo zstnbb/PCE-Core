@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PCE Dashboard</title>
+  <link rel="stylesheet" href="/dashboard/style.css">
+</head>
+<body>
+  <div id="app">
+    <nav class="sidebar">
+      <div class="logo">
+        <h1>PCE</h1>
+        <span class="version">v0.1.0</span>
+      </div>
+      <ul class="nav-links">
+        <li><a href="#" data-view="stats" class="active">Overview</a></li>
+        <li><a href="#" data-view="sessions">Sessions</a></li>
+        <li><a href="#" data-view="captures">Raw Captures</a></li>
+      </ul>
+      <div class="server-info">
+        <div class="status-dot" id="status-dot"></div>
+        <span id="server-status">Connecting...</span>
+      </div>
+    </nav>
+
+    <main class="content">
+      <!-- Stats View -->
+      <section id="view-stats" class="view active">
+        <h2>Overview</h2>
+        <div class="stats-grid" id="stats-grid">
+          <div class="stat-card">
+            <div class="stat-value" id="stat-total">-</div>
+            <div class="stat-label">Total Captures</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="stat-sessions">-</div>
+            <div class="stat-label">Sessions</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="stat-providers">-</div>
+            <div class="stat-label">Providers</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="stat-sources">-</div>
+            <div class="stat-label">Sources</div>
+          </div>
+        </div>
+        <div class="breakdown-row">
+          <div class="breakdown-card">
+            <h3>By Provider</h3>
+            <div id="by-provider" class="breakdown-list"></div>
+          </div>
+          <div class="breakdown-card">
+            <h3>By Direction</h3>
+            <div id="by-direction" class="breakdown-list"></div>
+          </div>
+          <div class="breakdown-card">
+            <h3>By Source</h3>
+            <div id="by-source" class="breakdown-list"></div>
+          </div>
+        </div>
+        <div class="recent-section">
+          <h3>Recent Captures</h3>
+          <div id="recent-captures" class="capture-list"></div>
+        </div>
+      </section>
+
+      <!-- Sessions View -->
+      <section id="view-sessions" class="view">
+        <h2>Sessions</h2>
+        <div class="filters-bar">
+          <select id="session-provider-filter">
+            <option value="">All Providers</option>
+          </select>
+          <button id="session-refresh" class="btn-sm">Refresh</button>
+        </div>
+        <div id="sessions-list" class="sessions-list"></div>
+
+        <!-- Session Detail (inline) -->
+        <div id="session-detail" class="session-detail hidden">
+          <div class="detail-header">
+            <button id="session-back" class="btn-sm">&larr; Back</button>
+            <h3 id="session-title">Session</h3>
+          </div>
+          <div id="session-messages" class="messages-list"></div>
+        </div>
+      </section>
+
+      <!-- Raw Captures View -->
+      <section id="view-captures" class="view">
+        <h2>Raw Captures</h2>
+        <div class="filters-bar">
+          <select id="capture-provider-filter">
+            <option value="">All Providers</option>
+          </select>
+          <select id="capture-direction-filter">
+            <option value="">All Directions</option>
+            <option value="request">Request</option>
+            <option value="response">Response</option>
+            <option value="conversation">Conversation</option>
+          </select>
+          <button id="capture-refresh" class="btn-sm">Refresh</button>
+        </div>
+        <div id="captures-list" class="capture-list"></div>
+
+        <!-- Capture Pair Detail -->
+        <div id="capture-detail" class="capture-detail hidden">
+          <div class="detail-header">
+            <button id="capture-back" class="btn-sm">&larr; Back</button>
+            <h3 id="capture-pair-title">Capture Pair</h3>
+          </div>
+          <div id="capture-pair-content" class="pair-content"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="/dashboard/app.js"></script>
+</body>
+</html>

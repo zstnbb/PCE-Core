@@ -9,10 +9,13 @@ Start with:
 import json
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
 from . import __version__
 from .config import DB_PATH, INGEST_HOST, INGEST_PORT
@@ -201,6 +204,20 @@ def get_session_messages(session_id: str):
     if not msgs:
         raise HTTPException(status_code=404, detail="Session not found or empty")
     return msgs
+
+
+# ---------------------------------------------------------------------------
+# Dashboard – static files
+# ---------------------------------------------------------------------------
+
+_DASHBOARD_DIR = Path(__file__).parent / "dashboard"
+
+if _DASHBOARD_DIR.is_dir():
+    app.mount("/dashboard", StaticFiles(directory=str(_DASHBOARD_DIR)), name="dashboard")
+
+    @app.get("/", response_class=HTMLResponse, include_in_schema=False)
+    def dashboard_root():
+        return FileResponse(str(_DASHBOARD_DIR / "index.html"))
 
 
 # ---------------------------------------------------------------------------
