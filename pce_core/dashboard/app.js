@@ -35,6 +35,7 @@ function switchView(name) {
   if (name === "stats") loadStats();
   if (name === "sessions") loadSessions();
   if (name === "captures") loadCaptures();
+  if (name === "services") loadServices();
 }
 
 // ── API helpers ─────────────────────────────────────────
@@ -310,10 +311,80 @@ document.getElementById("session-provider-filter").addEventListener("change", lo
 document.getElementById("capture-provider-filter").addEventListener("change", loadCaptures);
 document.getElementById("capture-direction-filter").addEventListener("change", loadCaptures);
 
+// ── Services View ───────────────────────────────────────
+
+const SERVICE_DESCRIPTIONS = {
+  core: "FastAPI server providing Ingest & Query APIs and serving this dashboard.",
+  proxy: "mitmproxy-based network proxy that captures all AI API traffic.",
+  local_hook: "Reverse-proxy for local model servers (Ollama, LM Studio, vLLM, etc.).",
+};
+
+async function loadServices() {
+  try {
+    const data = await api("/services");
+    const modeEl = document.getElementById("services-mode");
+    const gridEl = document.getElementById("services-grid");
+
+    if (data.mode === "standalone") {
+      modeEl.innerHTML = "Running in <strong>standalone</strong> mode. Start with <code>python -m pce_app</code> for full service management.";
+    } else {
+      modeEl.innerHTML = "Running in <strong>desktop</strong> mode. All services can be controlled below.";
+    }
+
+    const services = data.services || {};
+    gridEl.innerHTML = Object.entries(services)
+      .map(([key, svc]) => {
+        const st = svc.status || "stopped";
+        const isRunning = st === "running";
+        const isCore = key === "core";
+        const desc = SERVICE_DESCRIPTIONS[key] || "";
+
+        return `
+          <div class="service-card">
+            <div class="service-card-header">
+              <span class="service-name">${escapeHtml(svc.name)}</span>
+              <span class="service-status ${st}">${st}</span>
+            </div>
+            <div class="service-detail">
+              <span>Port: ${svc.port || "-"}</span>
+              <span>PID: ${svc.pid || "-"}</span>
+              ${svc.error ? `<span style="color:var(--red)">Error: ${escapeHtml(svc.error)}</span>` : ""}
+              <span style="margin-top:4px;color:var(--text-muted)">${desc}</span>
+            </div>
+            <div class="service-actions">
+              ${data.mode === "desktop" ? `
+                ${!isRunning ? `<button class="btn-service" onclick="serviceAction('${key}','start')">Start</button>` : ""}
+                ${isRunning && !isCore ? `<button class="btn-service btn-stop" onclick="serviceAction('${key}','stop')">Stop</button>` : ""}
+                ${isCore && isRunning ? `<span style="font-size:11px;color:var(--text-muted)">Core cannot be stopped from dashboard</span>` : ""}
+              ` : `<span style="font-size:11px;color:var(--text-muted)">Standalone mode</span>`}
+            </div>
+          </div>
+        `;
+      })
+      .join("");
+  } catch (e) {
+    console.error("Failed to load services:", e);
+  }
+}
+
+async function serviceAction(key, action) {
+  try {
+    await fetch(`${API}/services/${key}/${action}`, { method: "POST" });
+    // Refresh after a brief delay to let the service start/stop
+    setTimeout(loadServices, 1000);
+  } catch (e) {
+    console.error(`Failed to ${action} ${key}:`, e);
+  }
+}
+
+// Make serviceAction available globally for onclick handlers
+window.serviceAction = serviceAction;
+
 // ── Auto-refresh ────────────────────────────────────────
 setInterval(() => {
   checkHealth();
   if (currentView === "stats") loadStats();
+  if (currentView === "services") loadServices();
 }, 15000);
 
 // ── Init ────────────────────────────────────────────────

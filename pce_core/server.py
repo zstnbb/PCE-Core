@@ -207,6 +207,58 @@ def get_session_messages(session_id: str):
 
 
 # ---------------------------------------------------------------------------
+# Service Management API (used by dashboard to control pce_app services)
+# ---------------------------------------------------------------------------
+
+# The service manager is injected by pce_app when running as desktop app.
+# When running standalone (python -m pce_core), these endpoints return minimal info.
+_service_manager = None
+
+
+def set_service_manager(manager):
+    """Called by pce_app to inject the service manager."""
+    global _service_manager
+    _service_manager = manager
+
+
+@app.get("/api/v1/services")
+def get_services():
+    if _service_manager is None:
+        return {
+            "mode": "standalone",
+            "services": {
+                "core": {"name": "Core API Server", "status": "running", "port": INGEST_PORT},
+            },
+        }
+    return {"mode": "desktop", "services": _service_manager.get_status()}
+
+
+@app.post("/api/v1/services/{key}/start")
+def start_service(key: str):
+    if _service_manager is None:
+        raise HTTPException(400, "Not running in desktop mode")
+    if key == "core":
+        _service_manager.start_core()
+    elif key == "proxy":
+        _service_manager.start_proxy()
+    elif key == "local_hook":
+        _service_manager.start_local_hook()
+    else:
+        raise HTTPException(404, f"Unknown service: {key}")
+    return {"ok": True, "services": _service_manager.get_status()}
+
+
+@app.post("/api/v1/services/{key}/stop")
+def stop_service(key: str):
+    if _service_manager is None:
+        raise HTTPException(400, "Not running in desktop mode")
+    if key == "core":
+        raise HTTPException(400, "Cannot stop core server from within itself")
+    _service_manager.stop_service(key)
+    return {"ok": True, "services": _service_manager.get_status()}
+
+
+# ---------------------------------------------------------------------------
 # Dashboard – static files
 # ---------------------------------------------------------------------------
 

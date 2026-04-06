@@ -17,6 +17,7 @@
         <li><a href="#" data-view="stats" class="active">Overview</a></li>
         <li><a href="#" data-view="sessions">Sessions</a></li>
         <li><a href="#" data-view="captures">Raw Captures</a></li>
+        <li><a href="#" data-view="services">Services</a></li>
       </ul>
       <div class="server-info">
         <div class="status-dot" id="status-dot"></div>
@@ -111,6 +112,21 @@
             <h3 id="capture-pair-title">Capture Pair</h3>
           </div>
           <div id="capture-pair-content" class="pair-content"></div>
+        </div>
+      </section>
+      <!-- Services View -->
+      <section id="view-services" class="view">
+        <h2>Services</h2>
+        <div id="services-mode" class="services-mode"></div>
+        <div id="services-grid" class="services-grid"></div>
+        <div class="settings-section">
+          <h3>About</h3>
+          <div class="about-card">
+            <div class="about-row"><span class="about-key">Version</span><span class="about-val">0.1.0</span></div>
+            <div class="about-row"><span class="about-key">Data Directory</span><span id="about-data-dir" class="about-val mono">~/.pce/data</span></div>
+            <div class="about-row"><span class="about-key">Dashboard</span><span class="about-val mono">http://127.0.0.1:9800</span></div>
+            <div class="about-row"><span class="about-key">API Docs</span><span class="about-val"><a href="/docs" target="_blank">OpenAPI /docs</a></span></div>
+          </div>
         </div>
       </section>
     </main>
