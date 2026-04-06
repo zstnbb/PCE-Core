@@ -4,12 +4,13 @@ Manages three services:
 1. Core API Server (FastAPI on :9800) – always runs
 2. Network Proxy (mitmproxy on :8080) – optional
 3. Local Model Hook (reverse-proxy) – optional
+
+NOTE: All process targets MUST be top-level functions (not closures/lambdas)
+so that they can be pickled by multiprocessing on Windows / PyInstaller.
 """
 
 import logging
 import multiprocessing
-import os
-import signal
 import sys
 import threading
 import time
@@ -20,6 +21,50 @@ from typing import Callable, Optional
 
 logger = logging.getLogger("pce.app")
 
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Top-level process targets (must be picklable for Windows multiprocessing)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _run_core_process():
+    """Top-level target for the Core API server subprocess."""
+    import uvicorn
+    from pce_core.server import app
+    from pce_core.config import INGEST_HOST, INGEST_PORT
+    uvicorn.run(app, host=INGEST_HOST, port=INGEST_PORT, log_level="info")
+
+
+def _run_proxy_process():
+    """Top-level target for the mitmproxy subprocess."""
+    from mitmproxy.tools.main import mitmdump
+    from pce_core.config import PROXY_LISTEN_HOST, PROXY_LISTEN_PORT
+
+    addon_path = str(Path(__file__).resolve().parent.parent / "run_proxy.py")
+    if not Path(addon_path).exists():
+        addon_path = str(
+            Path(__file__).resolve().parent.parent / "pce_proxy" / "addon.py"
+        )
+
+    args = [
+        "--listen-host", PROXY_LISTEN_HOST,
+        "--listen-port", str(PROXY_LISTEN_PORT),
+        "--set", "flow_detail=0",
+        "-s", addon_path,
+    ]
+    mitmdump(args)
+
+
+def _run_local_hook_process(target_port: int = 11434, listen_port: int = 11435):
+    """Top-level target for the Local Model Hook subprocess."""
+    import uvicorn
+    from pce_core.local_hook.hook import create_hook_app
+    app = create_hook_app(target_host="127.0.0.1", target_port=target_port)
+    uvicorn.run(app, host="127.0.0.1", port=listen_port, log_level="info")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Service status types
+# ═══════════════════════════════════════════════════════════════════════════
 
 class ServiceStatus(str, Enum):
     STOPPED = "stopped"
@@ -37,6 +82,10 @@ class ServiceInfo:
     error: Optional[str] = None
     process: Optional[multiprocessing.Process] = field(default=None, repr=False)
 
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Service Manager
+# ═══════════════════════════════════════════════════════════════════════════
 
 class ServiceManager:
     """Manages all PCE background services."""
@@ -79,62 +128,42 @@ class ServiceManager:
     # -- Core API Server --
 
     def start_core(self):
-        self._start_service("core", self._run_core)
-
-    def _run_core(self):
-        """Run FastAPI server in this process."""
-        import uvicorn
-        from pce_core.server import app
-        from pce_core.config import INGEST_HOST, INGEST_PORT
-
-        uvicorn.run(app, host=INGEST_HOST, port=INGEST_PORT, log_level="info")
+        self._start_service("core", _run_core_process)
 
     # -- Network Proxy (mitmproxy) --
 
-    def start_proxy(self):
-        self._start_service("proxy", self._run_proxy)
-
-    def _run_proxy(self):
-        """Run mitmproxy programmatically."""
+    def proxy_available(self) -> bool:
+        """Check if mitmproxy is installed."""
         try:
-            from mitmproxy.tools.main import mitmdump
-            from pce_core.config import PROXY_LISTEN_HOST, PROXY_LISTEN_PORT
-
-            addon_path = str(Path(__file__).resolve().parent.parent / "run_proxy.py")
-            if not Path(addon_path).exists():
-                # Fallback: try pce_proxy.addon directly
-                addon_path = str(
-                    Path(__file__).resolve().parent.parent / "pce_proxy" / "addon.py"
-                )
-
-            args = [
-                "--listen-host", PROXY_LISTEN_HOST,
-                "--listen-port", str(PROXY_LISTEN_PORT),
-                "--set", "flow_detail=0",
-                "-s", addon_path,
-            ]
-            mitmdump(args)
+            import mitmproxy  # noqa: F401
+            return True
         except ImportError:
-            raise RuntimeError("mitmproxy not installed – proxy unavailable")
+            return False
+
+    def start_proxy(self):
+        if not self.proxy_available():
+            with self._lock:
+                svc = self.services["proxy"]
+                svc.status = ServiceStatus.ERROR
+                svc.error = "mitmproxy not installed (pip install mitmproxy)"
+            self._notify()
+            return
+        self._start_service("proxy", _run_proxy_process)
 
     # -- Local Model Hook --
 
     def start_local_hook(self, target_port: int = 11434, listen_port: int = 11435):
         svc = self.services["local_hook"]
         svc.port = listen_port
-
-        def _run():
-            import uvicorn
-            from pce_core.local_hook.hook import create_hook_app
-
-            app = create_hook_app(target_host="127.0.0.1", target_port=target_port)
-            uvicorn.run(app, host="127.0.0.1", port=listen_port, log_level="info")
-
-        self._start_service("local_hook", _run)
+        self._start_service(
+            "local_hook",
+            _run_local_hook_process,
+            args=(target_port, listen_port),
+        )
 
     # -- Generic start/stop --
 
-    def _start_service(self, key: str, target: Callable):
+    def _start_service(self, key: str, target: Callable, args: tuple = ()):
         with self._lock:
             svc = self.services[key]
             if svc.status == ServiceStatus.RUNNING and svc.process and svc.process.is_alive():
@@ -143,16 +172,7 @@ class ServiceManager:
             svc.status = ServiceStatus.STARTING
             svc.error = None
 
-        def _wrapper():
-            try:
-                target()
-            except Exception as e:
-                with self._lock:
-                    svc.status = ServiceStatus.ERROR
-                    svc.error = str(e)
-                self._notify()
-
-        proc = multiprocessing.Process(target=_wrapper, daemon=True)
+        proc = multiprocessing.Process(target=target, args=args, daemon=True)
         proc.start()
 
         with self._lock:

@@ -262,7 +262,11 @@ def stop_service(key: str):
 # Dashboard – static files
 # ---------------------------------------------------------------------------
 
-_DASHBOARD_DIR = Path(__file__).parent / "dashboard"
+import sys as _sys
+if getattr(_sys, "frozen", False):
+    _DASHBOARD_DIR = Path(_sys._MEIPASS) / "pce_core" / "dashboard"
+else:
+    _DASHBOARD_DIR = Path(__file__).parent / "dashboard"
 
 if _DASHBOARD_DIR.is_dir():
     app.mount("/dashboard", StaticFiles(directory=str(_DASHBOARD_DIR)), name="dashboard")
