@@ -261,6 +261,7 @@ def query_captures(
     provider: Optional[str] = None,
     source_type: Optional[str] = None,
     host: Optional[str] = None,
+    direction: Optional[str] = None,
     db_path: Optional[Path] = None,
 ) -> list[dict]:
     """Filtered query on raw_captures."""
@@ -278,6 +279,9 @@ def query_captures(
         if host:
             clauses.append("rc.host = ?")
             params.append(host)
+        if direction:
+            clauses.append("rc.direction = ?")
+            params.append(direction)
 
         where = ""
         if clauses:
