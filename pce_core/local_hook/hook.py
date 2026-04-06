@@ -92,7 +92,7 @@ def create_hook_app(
 
         # Forward to real server
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
+            async with httpx.AsyncClient(timeout=120.0, proxy=None) as client:
                 resp = await client.request(
                     method=request.method,
                     url=target_url,
