@@ -26,8 +26,22 @@ logger = logging.getLogger("pce.app")
 # Top-level process targets (must be picklable for Windows multiprocessing)
 # ═══════════════════════════════════════════════════════════════════════════
 
+def _patch_stdio():
+    """Ensure sys.stdout/stderr are never None.
+
+    PyInstaller with console=False sets them to None, which crashes
+    uvicorn's logging formatter (calls sys.stderr.isatty()).
+    """
+    import io, os
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w", encoding="utf-8")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w", encoding="utf-8")
+
+
 def _run_core_process():
     """Top-level target for the Core API server subprocess."""
+    _patch_stdio()
     import uvicorn
     from pce_core.server import app
     from pce_core.config import INGEST_HOST, INGEST_PORT
@@ -56,6 +70,7 @@ def _run_proxy_process():
 
 def _run_local_hook_process(target_port: int = 11434, listen_port: int = 11435):
     """Top-level target for the Local Model Hook subprocess."""
+    _patch_stdio()
     import uvicorn
     from pce_core.local_hook.hook import create_hook_app
     app = create_hook_app(target_host="127.0.0.1", target_port=target_port)

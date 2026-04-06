@@ -9,7 +9,19 @@ Usage:
 import argparse
 import logging
 import multiprocessing
+import os
 import sys
+
+
+def _patch_stdio():
+    """Ensure sys.stdout/stderr are never None (PyInstaller console=False)."""
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w", encoding="utf-8")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w", encoding="utf-8")
+
+
+_patch_stdio()
 
 logging.basicConfig(
     level=logging.INFO,

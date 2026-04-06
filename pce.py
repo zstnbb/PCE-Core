@@ -5,6 +5,14 @@ desktop application with system tray icon and auto-opened dashboard.
 """
 
 import multiprocessing
+import os
+import sys
+
+# PyInstaller console=False sets stdout/stderr to None – patch early.
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w", encoding="utf-8")
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, "w", encoding="utf-8")
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
