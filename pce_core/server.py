@@ -39,6 +39,7 @@ from .models import (
     SessionRecord,
     StatsOut,
 )
+from .normalizer.pipeline import try_normalize_pair
 
 logger = logging.getLogger("pce.server")
 logging.basicConfig(
@@ -137,6 +138,14 @@ def ingest_capture(payload: CaptureIn):
         "ingested %s %s from %s (%s)",
         payload.direction, payload.host, payload.source_type, capture_id[:8],
     )
+
+    # Auto-normalize when a response completes a pair
+    if payload.direction == "response":
+        try:
+            try_normalize_pair(pair_id, source_id=source_id, created_via=payload.source_type)
+        except Exception:
+            logger.exception("Auto-normalization failed for pair %s – non-fatal", pair_id[:8])
+
     return CaptureOut(id=capture_id, pair_id=pair_id, source_id=source_id)
 
 
