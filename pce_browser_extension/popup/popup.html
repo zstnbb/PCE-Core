@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PCE Capture</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>PCE</h1>
+      <span class="version">v0.1.0</span>
+    </div>
+
+    <div class="status-row">
+      <span class="label">Server</span>
+      <span id="server-status" class="status-badge offline">Checking...</span>
+    </div>
+
+    <div class="status-row">
+      <span class="label">Captures</span>
+      <span id="capture-count" class="count">0</span>
+    </div>
+
+    <div class="toggle-row">
+      <span class="label">Capture Enabled</span>
+      <label class="switch">
+        <input type="checkbox" id="enabled-toggle" checked>
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div class="footer">
+      <a id="dashboard-link" href="#" title="Open PCE Dashboard">Dashboard ↗</a>
+      <span class="separator">·</span>
+      <span id="last-error" class="error-text"></span>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
