@@ -77,6 +77,27 @@ def _run_local_hook_process(target_port: int = 11434, listen_port: int = 11435):
     uvicorn.run(app, host="127.0.0.1", port=listen_port, log_level="info")
 
 
+def _run_multi_hook_process():
+    """Top-level target for the Multi-Hook manager subprocess."""
+    _patch_stdio()
+    from pce_core.local_hook.multi_hook import MultiHookManager
+    manager = MultiHookManager()
+    manager.start()
+    # Block forever (rescan thread runs in background)
+    import threading
+    threading.Event().wait()
+
+
+def _run_clipboard_monitor_process():
+    """Top-level target for the clipboard monitor subprocess."""
+    _patch_stdio()
+    from pce_core.clipboard_monitor import ClipboardMonitor
+    monitor = ClipboardMonitor()
+    monitor.start()
+    import threading
+    threading.Event().wait()
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Service status types
 # ═══════════════════════════════════════════════════════════════════════════
@@ -110,6 +131,8 @@ class ServiceManager:
             "core": ServiceInfo(name="Core API Server", port=9800),
             "proxy": ServiceInfo(name="Network Proxy", port=8080),
             "local_hook": ServiceInfo(name="Local Model Hook", port=11435),
+            "multi_hook": ServiceInfo(name="Multi-Port Model Hook", port=0),
+            "clipboard": ServiceInfo(name="Clipboard Monitor", port=0),
         }
         self._lock = threading.Lock()
         self._callbacks: list[Callable] = []
@@ -176,6 +199,18 @@ class ServiceManager:
             args=(target_port, listen_port),
         )
 
+    # -- Multi-Port Model Hook (auto-discovery) --
+
+    def start_multi_hook(self):
+        """Start multi-hook manager with auto-discovery of local model servers."""
+        self._start_service("multi_hook", _run_multi_hook_process)
+
+    # -- Clipboard Monitor --
+
+    def start_clipboard(self):
+        """Start the clipboard monitor (experimental)."""
+        self._start_service("clipboard", _run_clipboard_monitor_process)
+
     # -- Generic start/stop --
 
     def _start_service(self, key: str, target: Callable, args: tuple = ()):
@@ -231,6 +266,10 @@ class ServiceManager:
             self.start_proxy()
         elif key == "local_hook":
             self.start_local_hook()
+        elif key == "multi_hook":
+            self.start_multi_hook()
+        elif key == "clipboard":
+            self.start_clipboard()
 
     def is_running(self, key: str) -> bool:
         with self._lock:
