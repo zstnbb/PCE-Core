@@ -4,7 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PCE Dashboard</title>
-  <link rel="stylesheet" href="/dashboard/style.css?v=2">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/dashboard/style.css?v=3">
 </head>
 <body>
   <div id="app">
@@ -14,11 +17,26 @@
         <span class="version">v0.1.0</span>
       </div>
       <ul class="nav-links">
-        <li><a href="#" data-view="stats" class="active">Overview</a></li>
-        <li><a href="#" data-view="sessions">Sessions</a></li>
-        <li><a href="#" data-view="captures">Raw Captures</a></li>
-        <li><a href="#" data-view="domains">Domains</a></li>
-        <li><a href="#" data-view="services">Services</a></li>
+        <li><a href="#" data-view="stats" class="active">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+          <span>Overview</span>
+        </a></li>
+        <li><a href="#" data-view="sessions">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span>Sessions</span>
+        </a></li>
+        <li><a href="#" data-view="captures">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          <span>Raw Captures</span>
+        </a></li>
+        <li><a href="#" data-view="domains">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+          <span>Domains</span>
+        </a></li>
+        <li><a href="#" data-view="services">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span>Services</span>
+        </a></li>
       </ul>
       <div class="server-info">
         <div class="status-dot" id="status-dot"></div>
@@ -32,20 +50,48 @@
         <h2>Overview</h2>
         <div class="stats-grid" id="stats-grid">
           <div class="stat-card">
-            <div class="stat-value" id="stat-total">-</div>
-            <div class="stat-label">Total Captures</div>
+            <div class="stat-card-inner">
+              <div>
+                <div class="stat-value" id="stat-total">-</div>
+                <div class="stat-label">Total Captures</div>
+              </div>
+              <div class="stat-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+              </div>
+            </div>
           </div>
           <div class="stat-card">
-            <div class="stat-value" id="stat-sessions">-</div>
-            <div class="stat-label">Sessions</div>
+            <div class="stat-card-inner">
+              <div>
+                <div class="stat-value" id="stat-sessions">-</div>
+                <div class="stat-label">Sessions</div>
+              </div>
+              <div class="stat-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              </div>
+            </div>
           </div>
           <div class="stat-card">
-            <div class="stat-value" id="stat-providers">-</div>
-            <div class="stat-label">Providers</div>
+            <div class="stat-card-inner">
+              <div>
+                <div class="stat-value" id="stat-providers">-</div>
+                <div class="stat-label">Providers</div>
+              </div>
+              <div class="stat-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              </div>
+            </div>
           </div>
           <div class="stat-card">
-            <div class="stat-value" id="stat-sources">-</div>
-            <div class="stat-label">Sources</div>
+            <div class="stat-card-inner">
+              <div>
+                <div class="stat-value" id="stat-sources">-</div>
+                <div class="stat-label">Sources</div>
+              </div>
+              <div class="stat-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+              </div>
+            </div>
           </div>
         </div>
         <div class="breakdown-row">
@@ -63,19 +109,21 @@
           </div>
         </div>
         <div class="recent-section">
-          <h3>Recent Captures</h3>
+          <h3>Recent Activity</h3>
           <div id="recent-captures" class="capture-list"></div>
         </div>
       </section>
 
       <!-- Sessions View -->
       <section id="view-sessions" class="view">
-        <h2>Sessions</h2>
-        <div class="filters-bar">
-          <select id="session-provider-filter">
-            <option value="">All Providers</option>
-          </select>
-          <button id="session-refresh" class="btn-sm">Refresh</button>
+        <div class="view-header">
+          <h2>Sessions</h2>
+          <div class="filters-bar" style="margin-bottom:0">
+            <select id="session-provider-filter">
+              <option value="">All Providers</option>
+            </select>
+            <button id="session-refresh" class="btn-sm">Refresh</button>
+          </div>
         </div>
         <div id="sessions-list" class="sessions-list"></div>
 
@@ -91,19 +139,22 @@
 
       <!-- Raw Captures View -->
       <section id="view-captures" class="view">
-        <h2>Raw Captures</h2>
-        <div class="filters-bar">
-          <select id="capture-provider-filter">
-            <option value="">All Providers</option>
-          </select>
-          <select id="capture-direction-filter">
-            <option value="">All Directions</option>
-            <option value="request">Request</option>
-            <option value="response">Response</option>
-            <option value="conversation">Conversation</option>
-            <option value="clipboard">Clipboard</option>
-          </select>
-          <button id="capture-refresh" class="btn-sm">Refresh</button>
+        <div class="view-header">
+          <h2>Raw Captures</h2>
+          <div class="filters-bar" style="margin-bottom:0">
+            <select id="capture-provider-filter">
+              <option value="">All Providers</option>
+            </select>
+            <select id="capture-direction-filter">
+              <option value="">All Directions</option>
+              <option value="request">Request</option>
+              <option value="response">Response</option>
+              <option value="conversation">Conversation</option>
+              <option value="clipboard">Clipboard</option>
+              <option value="network_intercept">Network Intercept</option>
+            </select>
+            <button id="capture-refresh" class="btn-sm">Refresh</button>
+          </div>
         </div>
         <div id="captures-list" class="capture-list"></div>
 
@@ -116,13 +167,14 @@
           <div id="capture-pair-content" class="pair-content"></div>
         </div>
       </section>
+
       <!-- Domains View -->
       <section id="view-domains" class="view">
         <h2>Domain Management</h2>
         <div class="domain-mode" id="domain-mode"></div>
         <div class="domain-add-bar">
           <input type="text" id="domain-add-input" placeholder="e.g. api.newai.com" />
-          <button id="domain-add-btn" class="btn-sm">Add Domain</button>
+          <button id="domain-add-btn" class="btn-primary">Add Domain</button>
           <button id="domain-refresh-btn" class="btn-sm">Refresh</button>
         </div>
         <div class="domain-section">
@@ -146,12 +198,12 @@
             <div class="about-row"><span class="about-key">Version</span><span class="about-val">0.1.0</span></div>
             <div class="about-row"><span class="about-key">Data Directory</span><span id="about-data-dir" class="about-val mono">~/.pce/data</span></div>
             <div class="about-row"><span class="about-key">Dashboard</span><span class="about-val mono">http://127.0.0.1:9800</span></div>
-            <div class="about-row"><span class="about-key">API Docs</span><span class="about-val"><a href="/docs" target="_blank">OpenAPI /docs</a></span></div>
+            <div class="about-row"><span class="about-key">API Docs</span><span class="about-val"><a href="/docs" target="_blank">OpenAPI /docs &rarr;</a></span></div>
           </div>
         </div>
       </section>
     </main>
   </div>
-  <script src="/dashboard/app.js?v=2"></script>
+  <script src="/dashboard/app.js?v=3"></script>
 </body>
 </html>

@@ -165,6 +165,28 @@ function mdToHtml(src) {
   return s;
 }
 
+// ── Animated counter ────────────────────────────────────
+function animateValue(elementId, target) {
+  const el = document.getElementById(elementId);
+  const current = parseInt(el.textContent) || 0;
+  if (current === target) return;
+  const diff = target - current;
+  const steps = Math.min(Math.abs(diff), 20);
+  const duration = 400;
+  const stepTime = duration / steps;
+  let step = 0;
+  const timer = setInterval(() => {
+    step++;
+    const progress = step / steps;
+    const eased = 1 - Math.pow(1 - progress, 3);
+    el.textContent = Math.round(current + diff * eased).toLocaleString();
+    if (step >= steps) {
+      el.textContent = target.toLocaleString();
+      clearInterval(timer);
+    }
+  }, stepTime);
+}
+
 // ── Health check ────────────────────────────────────────
 async function checkHealth() {
   try {
@@ -186,12 +208,10 @@ async function loadStats() {
       api("/sessions?last=5"),
     ]);
 
-    document.getElementById("stat-total").textContent = stats.total_captures;
-    document.getElementById("stat-sessions").textContent = sessions.length;
-    document.getElementById("stat-providers").textContent =
-      Object.keys(stats.by_provider || {}).length;
-    document.getElementById("stat-sources").textContent =
-      Object.keys(stats.by_source || {}).length;
+    animateValue("stat-total", stats.total_captures);
+    animateValue("stat-sessions", sessions.length);
+    animateValue("stat-providers", Object.keys(stats.by_provider || {}).length);
+    animateValue("stat-sources", Object.keys(stats.by_source || {}).length);
 
     renderBreakdown("by-provider", stats.by_provider);
     renderBreakdown("by-direction", stats.by_direction);
@@ -212,10 +232,19 @@ function renderBreakdown(containerId, data) {
     return;
   }
   const sorted = Object.entries(data).sort((a, b) => b[1] - a[1]);
+  const max = sorted[0][1] || 1;
   el.innerHTML = sorted
     .map(
-      ([key, val]) =>
-        `<div class="breakdown-item"><span class="key">${escapeHtml(key)}</span><span class="val">${val}</span></div>`
+      ([key, val]) => {
+        const pct = Math.max((val / max) * 100, 2);
+        return `<div class="breakdown-item">
+          <div class="breakdown-item-header">
+            <span class="key">${escapeHtml(key)}</span>
+            <span class="val">${val.toLocaleString()}</span>
+          </div>
+          <div class="breakdown-bar"><div class="breakdown-bar-fill" style="width:${pct}%"></div></div>
+        </div>`;
+      }
     )
     .join("");
 }
@@ -268,10 +297,10 @@ function renderCaptureList(containerId, captures, limit) {
         <span class="capture-time">${formatTime(c.created_at)}</span>
         <span class="tag tag-${c.direction}">${c.direction}</span>
         <span class="tag tag-provider">${escapeHtml(c.provider)}</span>
-        <span class="capture-host">${escapeHtml(c.host)}</span>
-        <span class="capture-path">${escapeHtml(c.path)}</span>
+        <span class="capture-host">${escapeHtml(c.host || "")}</span>
+        <span class="capture-path">${escapeHtml(c.path || "")}</span>
         ${c.model_name ? `<span class="capture-model">${escapeHtml(c.model_name)}</span>` : ""}
-        ${c.status_code ? `<span class="tag">${c.status_code}</span>` : ""}
+        ${c.status_code ? `<span class="tag tag-response">${c.status_code}</span>` : ""}
       </div>
     `
     )
