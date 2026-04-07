@@ -289,34 +289,22 @@ function renderCaptureList(containerId, captures, limit) {
     return;
   }
 
-  const header = `<div class="data-table-header">
-    <span class="col-time">Time</span>
-    <span class="col-dir">Direction</span>
-    <span class="col-provider">Provider</span>
-    <span class="col-host">Host</span>
-    <span class="col-path">Path</span>
-    <span class="col-model">Model</span>
-    <span class="col-status">Status</span>
-  </div>`;
-
-  const rows = captures
+  el.innerHTML = captures
     .slice(0, limit)
     .map(
       (c) => `
       <div class="capture-row" data-pair-id="${escapeHtml(c.pair_id)}">
-        <span class="capture-time col-time">${formatTime(c.created_at)}</span>
-        <span class="tag tag-${c.direction} col-dir">${c.direction}</span>
-        <span class="col-provider">${escapeHtml(c.provider)}</span>
-        <span class="capture-host col-host">${escapeHtml(c.host || "-")}</span>
-        <span class="capture-path col-path">${escapeHtml(c.path || "-")}</span>
-        <span class="col-model">${c.model_name ? `<span class="capture-model">${escapeHtml(c.model_name)}</span>` : '<span style="color:var(--text-faint)">-</span>'}</span>
-        <span class="col-status">${c.status_code || '<span style="color:var(--text-faint)">-</span>'}</span>
+        <span class="capture-time">${formatTime(c.created_at)}</span>
+        <span class="tag tag-${c.direction}">${c.direction}</span>
+        <span class="tag tag-provider">${escapeHtml(c.provider)}</span>
+        <span class="capture-host">${escapeHtml(c.host || "")}</span>
+        <span class="capture-path">${escapeHtml(c.path || "")}</span>
+        ${c.model_name ? `<span class="capture-model">${escapeHtml(c.model_name)}</span>` : ""}
+        ${c.status_code ? `<span class="tag tag-response">${c.status_code}</span>` : ""}
       </div>
     `
     )
     .join("");
-
-  el.innerHTML = `<div class="data-table">${header}${rows}</div>`;
 
   // Click handlers
   el.querySelectorAll(".capture-row").forEach((row) => {
@@ -376,29 +364,19 @@ function renderSessionList(sessions) {
     return;
   }
 
-  const header = `<div class="data-table-header">
-    <span class="col-time">Started</span>
-    <span class="col-provider">Provider</span>
-    <span class="col-title">Title</span>
-    <span class="col-msgs">Messages</span>
-    <span class="col-tool">Tool</span>
-  </div>`;
-
-  const rows = sessions
+  el.innerHTML = sessions
     .map(
       (s) => `
       <div class="session-row" data-session-id="${escapeHtml(s.id)}">
-        <span class="session-time col-time">${formatTime(s.started_at)}</span>
-        <span class="col-provider">${escapeHtml(s.provider)}</span>
-        <span class="session-title col-title">${escapeHtml(s.title_hint || "Untitled session")}</span>
-        <span class="session-meta col-msgs">${s.message_count}</span>
-        <span class="session-meta col-tool">${escapeHtml(s.tool_family || "-")}</span>
+        <span class="session-time">${formatTime(s.started_at)}</span>
+        <span class="tag tag-provider">${escapeHtml(s.provider)}</span>
+        <span class="session-title">${escapeHtml(s.title_hint || "Untitled session")}</span>
+        <span class="session-meta">${s.message_count} msgs</span>
+        <span class="session-meta">${escapeHtml(s.tool_family || "")}</span>
       </div>
     `
     )
     .join("");
-
-  el.innerHTML = `<div class="data-table">${header}${rows}</div>`;
 
   el.querySelectorAll(".session-row").forEach((row) => {
     row.addEventListener("click", () => {
@@ -416,25 +394,19 @@ async function loadSessionMessages(sessionId) {
       `Session ${sessionId.slice(0, 8)} – ${messages.length} messages`;
 
     container.innerHTML = messages
-      .map((m, idx) => {
+      .map((m) => {
         const roleClass = m.role === "user" ? "user" : m.role === "system" ? "system" : "assistant";
-        const isUser = roleClass === "user";
-        const contentHtml = isUser
+        const contentHtml = roleClass === "user"
           ? escapeHtml(m.content_text || "")
           : renderMarkdown(m.content_text || "");
         return `
-          <div class="msg-record">
-            <div class="msg-record-header">
-              <span class="msg-record-seq">#${idx + 1}</span>
-              <span class="msg-record-role ${roleClass}">${escapeHtml(m.role)}</span>
-              <div class="msg-record-meta">
-                ${m.model_name ? `<span class="meta-model">${escapeHtml(m.model_name)}</span>` : ""}
-                ${m.token_estimate ? `<span class="meta-tokens">${m.token_estimate} tokens</span>` : ""}
-                <span>${formatShortTime(m.ts)}</span>
-              </div>
-            </div>
-            <div class="msg-record-body${isUser ? ' pre-wrap' : ''}">
-              <div class="message-content">${contentHtml}</div>
+          <div class="message-bubble ${roleClass}">
+            <div class="message-role">${escapeHtml(m.role)}</div>
+            <div class="message-content">${contentHtml}</div>
+            <div class="message-meta">
+              ${m.model_name ? `<span>${escapeHtml(m.model_name)}</span>` : ""}
+              ${m.token_estimate ? `<span>${m.token_estimate} tokens</span>` : ""}
+              <span>${formatShortTime(m.ts)}</span>
             </div>
           </div>
         `;
@@ -555,7 +527,17 @@ document.getElementById("domain-add-input").addEventListener("keydown", (e) => {
 });
 document.getElementById("domain-refresh-btn").addEventListener("click", loadDomains);
 
-// ── Services View ───────────────────────────────────────
+// ── Services / Capabilities View ────────────────────────
+
+const CAP_ICONS = {
+  server: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>',
+  shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
+  globe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>',
+  cpu: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>',
+  clipboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>',
+  link: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
+  settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
+};
 
 const SERVICE_DESCRIPTIONS = {
   core: "FastAPI server providing Ingest & Query APIs and serving this dashboard.",
@@ -565,49 +547,131 @@ const SERVICE_DESCRIPTIONS = {
   clipboard: "Monitors clipboard for AI conversation text (experimental).",
 };
 
+function formatRelativeTime(ts) {
+  if (!ts) return "Never";
+  const diff = Date.now() / 1000 - ts;
+  if (diff < 60) return "Just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
+function renderCapabilityCard(cap) {
+  const st = cap.status; // connected | disconnected | info
+  const icon = CAP_ICONS[cap.icon] || CAP_ICONS.server;
+  const badgeLabel = st === "connected" ? "Connected" : st === "info" ? "Available" : "Disconnected";
+
+  let statsHtml = "";
+  if (cap.capture_count !== null) {
+    statsHtml = `
+      <div class="cap-card-stats">
+        <div class="cap-stat">
+          <span class="cap-stat-value">${(cap.capture_count || 0).toLocaleString()}</span>
+          <span class="cap-stat-label">Captures</span>
+        </div>
+        <div class="cap-stat">
+          <span class="cap-stat-value">${formatRelativeTime(cap.last_seen)}</span>
+          <span class="cap-stat-label">Last Seen</span>
+        </div>
+        ${cap.port ? `<div class="cap-stat"><span class="cap-stat-value">${cap.port}</span><span class="cap-stat-label">Port</span></div>` : ""}
+      </div>`;
+  }
+
+  let setupDetailHtml = "";
+  if (cap.setup_detail) {
+    const steps = Object.entries(cap.setup_detail)
+      .map(([k, v]) => `<div class="setup-step"><span class="setup-key">${escapeHtml(k)}:</span><span>${escapeHtml(v)}</span></div>`)
+      .join("");
+    setupDetailHtml = `<div class="cap-setup-detail">${steps}</div>`;
+  }
+
+  return `
+    <div class="cap-card status-${st}">
+      <div class="cap-card-header">
+        <div class="cap-card-icon">${icon}</div>
+        <div class="cap-card-title">
+          <div class="cap-card-name">${escapeHtml(cap.name)}</div>
+          <div class="cap-card-desc">${escapeHtml(cap.description)}</div>
+        </div>
+        <span class="cap-card-badge ${st}">${badgeLabel}</span>
+      </div>
+      ${statsHtml}
+      <div class="cap-card-setup">${escapeHtml(cap.setup)}${setupDetailHtml}</div>
+    </div>`;
+}
+
 async function loadServices() {
   try {
-    const data = await api("/services");
-    const modeEl = document.getElementById("services-mode");
-    const gridEl = document.getElementById("services-grid");
+    const [capData, svcData] = await Promise.all([
+      api("/capabilities"),
+      api("/services"),
+    ]);
 
-    if (data.mode === "standalone") {
-      modeEl.innerHTML = "Running in <strong>standalone</strong> mode. Start with <code>python -m pce_app</code> for full service management.";
+    // Mode banner
+    const modeEl = document.getElementById("services-mode");
+    if (capData.mode === "standalone") {
+      modeEl.innerHTML = `Running in <strong>standalone</strong> mode. Capture mode: <strong>${escapeHtml(capData.capture_mode)}</strong>. Start with <code>python -m pce_app</code> for full service management.`;
     } else {
-      modeEl.innerHTML = "Running in <strong>desktop</strong> mode. All services can be controlled below.";
+      modeEl.innerHTML = `Running in <strong>desktop</strong> mode. Capture mode: <strong>${escapeHtml(capData.capture_mode)}</strong>. All services can be controlled below.`;
     }
 
-    const services = data.services || {};
-    gridEl.innerHTML = Object.entries(services)
-      .map(([key, svc]) => {
-        const st = svc.status || "stopped";
-        const isRunning = st === "running";
-        const isCore = key === "core";
-        const desc = SERVICE_DESCRIPTIONS[key] || "";
+    // Summary chips
+    const caps = capData.capabilities || [];
+    const connected = caps.filter((c) => c.status === "connected").length;
+    const total = caps.filter((c) => c.status !== "info").length;
+    const summaryEl = document.getElementById("cap-summary");
+    summaryEl.innerHTML = caps
+      .filter((c) => c.status !== "info")
+      .map((c) => `
+        <div class="cap-summary-chip ${c.status}">
+          <span class="cap-summary-dot ${c.status}"></span>
+          ${escapeHtml(c.name)}
+        </div>`)
+      .join("") +
+      `<div class="cap-summary-chip" style="margin-left:auto;color:var(--text-secondary)">
+        <strong>${connected}</strong>/${total} channels active
+      </div>`;
 
-        return `
-          <div class="service-card">
-            <div class="service-card-header">
-              <span class="service-name">${escapeHtml(svc.name)}</span>
-              <span class="service-status ${st}">${st}</span>
-            </div>
-            <div class="service-detail">
-              <span>Port: ${svc.port || "-"}</span>
-              <span>PID: ${svc.pid || "-"}</span>
-              ${svc.error ? `<span style="color:var(--red)">Error: ${escapeHtml(svc.error)}</span>` : ""}
-              <span style="margin-top:4px;color:var(--text-muted)">${desc}</span>
-            </div>
-            <div class="service-actions">
-              ${data.mode === "desktop" ? `
-                ${!isRunning ? `<button class="btn-service" onclick="serviceAction('${key}','start')">Start</button>` : ""}
-                ${isRunning && !isCore ? `<button class="btn-service btn-stop" onclick="serviceAction('${key}','stop')">Stop</button>` : ""}
-                ${isCore && isRunning ? `<span style="font-size:11px;color:var(--text-muted)">Core cannot be stopped from dashboard</span>` : ""}
-              ` : `<span style="font-size:11px;color:var(--text-muted)">Standalone mode</span>`}
-            </div>
-          </div>
-        `;
-      })
-      .join("");
+    // Capability cards
+    const capGridEl = document.getElementById("capabilities-grid");
+    capGridEl.innerHTML = caps.map(renderCapabilityCard).join("");
+
+    // Service control grid (only in desktop mode with actual services)
+    const services = svcData.services || {};
+    const gridEl = document.getElementById("services-grid");
+    const svcEntries = Object.entries(services);
+    if (svcEntries.length === 0 || (svcEntries.length === 1 && svcEntries[0][0] === "core")) {
+      gridEl.innerHTML = '<div class="empty-state">Service control is available in desktop mode (<code>python -m pce_app</code>).</div>';
+    } else {
+      gridEl.innerHTML = svcEntries
+        .map(([key, svc]) => {
+          const st = svc.status || "stopped";
+          const isRunning = st === "running";
+          const isCore = key === "core";
+          const desc = SERVICE_DESCRIPTIONS[key] || "";
+          return `
+            <div class="service-card">
+              <div class="service-card-header">
+                <span class="service-name">${escapeHtml(svc.name)}</span>
+                <span class="service-status ${st}">${st}</span>
+              </div>
+              <div class="service-detail">
+                <span>Port: ${svc.port || "-"}</span>
+                <span>PID: ${svc.pid || "-"}</span>
+                ${svc.error ? `<span style="color:var(--red)">Error: ${escapeHtml(svc.error)}</span>` : ""}
+                <span style="margin-top:4px;color:var(--text-muted)">${desc}</span>
+              </div>
+              <div class="service-actions">
+                ${svcData.mode === "desktop" ? `
+                  ${!isRunning ? `<button class="btn-service" onclick="serviceAction('${key}','start')">Start</button>` : ""}
+                  ${isRunning && !isCore ? `<button class="btn-service btn-stop" onclick="serviceAction('${key}','stop')">Stop</button>` : ""}
+                  ${isCore && isRunning ? `<span style="font-size:11px;color:var(--text-muted)">Core cannot be stopped from dashboard</span>` : ""}
+                ` : `<span style="font-size:11px;color:var(--text-muted)">Standalone mode</span>`}
+              </div>
+            </div>`;
+        })
+        .join("");
+    }
   } catch (e) {
     console.error("Failed to load services:", e);
   }
@@ -616,14 +680,12 @@ async function loadServices() {
 async function serviceAction(key, action) {
   try {
     await fetch(`${API}/services/${key}/${action}`, { method: "POST" });
-    // Refresh after a brief delay to let the service start/stop
     setTimeout(loadServices, 1000);
   } catch (e) {
     console.error(`Failed to ${action} ${key}:`, e);
   }
 }
 
-// Make serviceAction available globally for onclick handlers
 window.serviceAction = serviceAction;
 
 // ── Auto-refresh ────────────────────────────────────────

@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/dashboard/style.css?v=4">
+  <link rel="stylesheet" href="/dashboard/style.css?v=3">
 </head>
 <body>
   <div id="app">
@@ -187,11 +187,18 @@
         </div>
       </section>
 
-      <!-- Services View -->
+      <!-- Services / Capabilities View -->
       <section id="view-services" class="view">
-        <h2>Services</h2>
+        <h2>Capture Channels</h2>
         <div id="services-mode" class="services-mode"></div>
-        <div id="services-grid" class="services-grid"></div>
+        <div id="cap-summary" class="cap-summary"></div>
+        <div id="capabilities-grid" class="capabilities-grid"></div>
+
+        <div class="settings-section">
+          <h3>Service Control</h3>
+          <div id="services-grid" class="services-grid"></div>
+        </div>
+
         <div class="settings-section">
           <h3>About</h3>
           <div class="about-card">
@@ -204,6 +211,6 @@
       </section>
     </main>
   </div>
-  <script src="/dashboard/app.js?v=4"></script>
+  <script src="/dashboard/app.js?v=3"></script>
 </body>
 </html>

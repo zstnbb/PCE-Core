@@ -388,6 +388,27 @@ def get_stats(db_path: Optional[Path] = None) -> dict:
         conn.close()
 
 
+def get_source_activity(db_path: Optional[Path] = None) -> dict:
+    """Return per-source_id capture count and last activity timestamp."""
+    conn = get_connection(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """
+            SELECT rc.source_id,
+                   s.source_type,
+                   COUNT(*) as capture_count,
+                   MAX(rc.created_at) as last_seen
+            FROM raw_captures rc
+            JOIN sources s ON rc.source_id = s.id
+            GROUP BY rc.source_id
+            """
+        ).fetchall()
+        return {r["source_id"]: dict(r) for r in rows}
+    finally:
+        conn.close()
+
+
 # ---------------------------------------------------------------------------
 # Tier 1: sessions / messages
 # ---------------------------------------------------------------------------

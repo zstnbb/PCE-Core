@@ -25,6 +25,7 @@ from .db import (
     SOURCE_PROXY,
     add_custom_domain,
     get_custom_domains,
+    get_source_activity,
     get_stats,
     init_db,
     insert_capture,
@@ -338,6 +339,178 @@ def stop_service(key: str):
         raise HTTPException(400, "Cannot stop core server from within itself")
     _service_manager.stop_service(key)
     return {"ok": True, "services": _service_manager.get_status()}
+
+
+# ---------------------------------------------------------------------------
+# Capabilities overview (dashboard capture channels status)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/capabilities")
+def get_capabilities():
+    """Return comprehensive status for all capture channels."""
+    import time as _time
+
+    activity = get_source_activity()
+    services = {}
+    mode = "standalone"
+    if _service_manager is not None:
+        mode = "desktop"
+        services = _service_manager.get_status()
+
+    now = _time.time()
+
+    def _source_info(source_id: str):
+        a = activity.get(source_id, {})
+        count = a.get("capture_count", 0)
+        last = a.get("last_seen")
+        # Consider "active" if data received in last 24 hours
+        active = last is not None and (now - last) < 86400
+        return {"capture_count": count, "last_seen": last, "active": active}
+
+    def _svc_status(key: str):
+        svc = services.get(key)
+        if svc is None:
+            return "not_configured"
+        return svc.get("status", "stopped")
+
+    proxy_info = _source_info(SOURCE_PROXY)
+    ext_info = _source_info(SOURCE_BROWSER_EXT)
+    mcp_info = _source_info(SOURCE_MCP)
+
+    # Local hook sources use source_id pattern "local-hook-*"
+    local_hook_count = sum(
+        v.get("capture_count", 0) for k, v in activity.items()
+        if k.startswith("local-hook")
+    )
+    local_hook_last = max(
+        (v.get("last_seen", 0) for k, v in activity.items() if k.startswith("local-hook")),
+        default=None,
+    )
+    local_active = local_hook_last is not None and local_hook_last > 0 and (now - local_hook_last) < 86400
+
+    # Clipboard sources
+    clip_count = sum(
+        v.get("capture_count", 0) for k, v in activity.items()
+        if "clipboard" in k or v.get("source_type") == "clipboard"
+    )
+    clip_last = max(
+        (v.get("last_seen", 0) for k, v in activity.items()
+         if "clipboard" in k or v.get("source_type") == "clipboard"),
+        default=None,
+    )
+    clip_active = clip_last is not None and clip_last > 0 and (now - clip_last) < 86400
+
+    capabilities = [
+        {
+            "id": "core",
+            "name": "Core API Server",
+            "icon": "server",
+            "description": "FastAPI server providing Ingest & Query APIs, serving this dashboard.",
+            "status": "connected",
+            "service_status": _svc_status("core"),
+            "capture_count": None,
+            "last_seen": None,
+            "port": INGEST_PORT,
+            "setup": f"Running on http://{INGEST_HOST}:{INGEST_PORT}",
+        },
+        {
+            "id": "proxy",
+            "name": "Network Proxy",
+            "icon": "shield",
+            "description": "mitmproxy-based HTTPS proxy that captures all AI API traffic transparently.",
+            "status": "connected" if (proxy_info["active"] or _svc_status("proxy") == "running") else "disconnected",
+            "service_status": _svc_status("proxy"),
+            "capture_count": proxy_info["capture_count"],
+            "last_seen": proxy_info["last_seen"],
+            "port": PROXY_LISTEN_PORT,
+            "setup": f"Start with `python -m pce_app` or configure system proxy to http://{PROXY_LISTEN_HOST}:{PROXY_LISTEN_PORT}",
+            "setup_detail": {
+                "auto": f"Use PAC file: http://{INGEST_HOST}:{INGEST_PORT}/proxy.pac",
+                "manual": f"Set HTTP/HTTPS proxy to {PROXY_LISTEN_HOST}:{PROXY_LISTEN_PORT}",
+            },
+        },
+        {
+            "id": "browser_extension",
+            "name": "Browser Extension",
+            "icon": "globe",
+            "description": "Chrome extension with site-specific extractors for ChatGPT, Claude, Gemini, etc.",
+            "status": "connected" if ext_info["active"] else "disconnected",
+            "service_status": "connected" if ext_info["active"] else "not_installed",
+            "capture_count": ext_info["capture_count"],
+            "last_seen": ext_info["last_seen"],
+            "port": None,
+            "setup": "Load unpacked extension from pce_browser_extension/ in Chrome → chrome://extensions",
+            "setup_detail": {
+                "step1": "Open Chrome → chrome://extensions",
+                "step2": "Enable Developer mode",
+                "step3": "Click 'Load unpacked' → select pce_browser_extension/ folder",
+            },
+        },
+        {
+            "id": "local_hook",
+            "name": "Local Model Hook",
+            "icon": "cpu",
+            "description": "Reverse proxy for local AI servers (Ollama, LM Studio, vLLM, etc.).",
+            "status": "connected" if (local_active or _svc_status("local_hook") == "running" or _svc_status("multi_hook") == "running") else "disconnected",
+            "service_status": _svc_status("local_hook"),
+            "multi_hook_status": _svc_status("multi_hook"),
+            "capture_count": local_hook_count,
+            "last_seen": local_hook_last if local_hook_last and local_hook_last > 0 else None,
+            "port": 11434,
+            "setup": "Start with `python -m pce_app` → Local Hook auto-proxies Ollama on port 11434",
+            "setup_detail": {
+                "single": "Proxies a single local model (default: Ollama on 11434)",
+                "multi": "Multi-hook auto-discovers servers on ports: 11434, 1234, 8000, 8080, 5000, 3000",
+            },
+        },
+        {
+            "id": "clipboard",
+            "name": "Clipboard Monitor",
+            "icon": "clipboard",
+            "description": "Watches system clipboard for AI conversation text patterns (experimental).",
+            "status": "connected" if (clip_active or _svc_status("clipboard") == "running") else "disconnected",
+            "service_status": _svc_status("clipboard"),
+            "capture_count": clip_count,
+            "last_seen": clip_last if clip_last and clip_last > 0 else None,
+            "port": None,
+            "setup": "Start with `python -m pce_app` → enable clipboard monitor from Services",
+        },
+        {
+            "id": "mcp",
+            "name": "MCP Server",
+            "icon": "link",
+            "description": "Model Context Protocol server for IDE integrations (Cursor, VS Code, etc.).",
+            "status": "connected" if mcp_info["active"] else "disconnected",
+            "service_status": "connected" if mcp_info["active"] else "not_configured",
+            "capture_count": mcp_info["capture_count"],
+            "last_seen": mcp_info["last_seen"],
+            "port": None,
+            "setup": "Add to IDE MCP config: `python -m pce_mcp`",
+        },
+        {
+            "id": "pac",
+            "name": "System Proxy (PAC)",
+            "icon": "settings",
+            "description": "Auto-configuration file that routes only AI traffic through the PCE proxy.",
+            "status": "info",
+            "service_status": "available",
+            "capture_count": None,
+            "last_seen": None,
+            "port": None,
+            "setup": f"PAC URL: http://{INGEST_HOST}:{INGEST_PORT}/proxy.pac",
+            "setup_detail": {
+                "windows": f"Settings → Network → Proxy → Use setup script → http://{INGEST_HOST}:{INGEST_PORT}/proxy.pac",
+                "macos": f"System Preferences → Network → Proxies → Auto Proxy → http://{INGEST_HOST}:{INGEST_PORT}/proxy.pac",
+            },
+        },
+    ]
+
+    return {
+        "mode": mode,
+        "capture_mode": CAPTURE_MODE.value,
+        "capabilities": capabilities,
+        "services": services,
+    }
 
 
 # ---------------------------------------------------------------------------
