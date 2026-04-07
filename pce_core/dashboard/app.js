@@ -289,22 +289,34 @@ function renderCaptureList(containerId, captures, limit) {
     return;
   }
 
-  el.innerHTML = captures
+  const header = `<div class="data-table-header">
+    <span class="col-time">Time</span>
+    <span class="col-dir">Direction</span>
+    <span class="col-provider">Provider</span>
+    <span class="col-host">Host</span>
+    <span class="col-path">Path</span>
+    <span class="col-model">Model</span>
+    <span class="col-status">Status</span>
+  </div>`;
+
+  const rows = captures
     .slice(0, limit)
     .map(
       (c) => `
       <div class="capture-row" data-pair-id="${escapeHtml(c.pair_id)}">
-        <span class="capture-time">${formatTime(c.created_at)}</span>
-        <span class="tag tag-${c.direction}">${c.direction}</span>
-        <span class="tag tag-provider">${escapeHtml(c.provider)}</span>
-        <span class="capture-host">${escapeHtml(c.host || "")}</span>
-        <span class="capture-path">${escapeHtml(c.path || "")}</span>
-        ${c.model_name ? `<span class="capture-model">${escapeHtml(c.model_name)}</span>` : ""}
-        ${c.status_code ? `<span class="tag tag-response">${c.status_code}</span>` : ""}
+        <span class="capture-time col-time">${formatTime(c.created_at)}</span>
+        <span class="tag tag-${c.direction} col-dir">${c.direction}</span>
+        <span class="col-provider">${escapeHtml(c.provider)}</span>
+        <span class="capture-host col-host">${escapeHtml(c.host || "-")}</span>
+        <span class="capture-path col-path">${escapeHtml(c.path || "-")}</span>
+        <span class="col-model">${c.model_name ? `<span class="capture-model">${escapeHtml(c.model_name)}</span>` : '<span style="color:var(--text-faint)">-</span>'}</span>
+        <span class="col-status">${c.status_code || '<span style="color:var(--text-faint)">-</span>'}</span>
       </div>
     `
     )
     .join("");
+
+  el.innerHTML = `<div class="data-table">${header}${rows}</div>`;
 
   // Click handlers
   el.querySelectorAll(".capture-row").forEach((row) => {
@@ -364,19 +376,29 @@ function renderSessionList(sessions) {
     return;
   }
 
-  el.innerHTML = sessions
+  const header = `<div class="data-table-header">
+    <span class="col-time">Started</span>
+    <span class="col-provider">Provider</span>
+    <span class="col-title">Title</span>
+    <span class="col-msgs">Messages</span>
+    <span class="col-tool">Tool</span>
+  </div>`;
+
+  const rows = sessions
     .map(
       (s) => `
       <div class="session-row" data-session-id="${escapeHtml(s.id)}">
-        <span class="session-time">${formatTime(s.started_at)}</span>
-        <span class="tag tag-provider">${escapeHtml(s.provider)}</span>
-        <span class="session-title">${escapeHtml(s.title_hint || "Untitled session")}</span>
-        <span class="session-meta">${s.message_count} msgs</span>
-        <span class="session-meta">${escapeHtml(s.tool_family || "")}</span>
+        <span class="session-time col-time">${formatTime(s.started_at)}</span>
+        <span class="col-provider">${escapeHtml(s.provider)}</span>
+        <span class="session-title col-title">${escapeHtml(s.title_hint || "Untitled session")}</span>
+        <span class="session-meta col-msgs">${s.message_count}</span>
+        <span class="session-meta col-tool">${escapeHtml(s.tool_family || "-")}</span>
       </div>
     `
     )
     .join("");
+
+  el.innerHTML = `<div class="data-table">${header}${rows}</div>`;
 
   el.querySelectorAll(".session-row").forEach((row) => {
     row.addEventListener("click", () => {
@@ -394,19 +416,25 @@ async function loadSessionMessages(sessionId) {
       `Session ${sessionId.slice(0, 8)} – ${messages.length} messages`;
 
     container.innerHTML = messages
-      .map((m) => {
+      .map((m, idx) => {
         const roleClass = m.role === "user" ? "user" : m.role === "system" ? "system" : "assistant";
-        const contentHtml = roleClass === "user"
+        const isUser = roleClass === "user";
+        const contentHtml = isUser
           ? escapeHtml(m.content_text || "")
           : renderMarkdown(m.content_text || "");
         return `
-          <div class="message-bubble ${roleClass}">
-            <div class="message-role">${escapeHtml(m.role)}</div>
-            <div class="message-content">${contentHtml}</div>
-            <div class="message-meta">
-              ${m.model_name ? `<span>${escapeHtml(m.model_name)}</span>` : ""}
-              ${m.token_estimate ? `<span>${m.token_estimate} tokens</span>` : ""}
-              <span>${formatShortTime(m.ts)}</span>
+          <div class="msg-record">
+            <div class="msg-record-header">
+              <span class="msg-record-seq">#${idx + 1}</span>
+              <span class="msg-record-role ${roleClass}">${escapeHtml(m.role)}</span>
+              <div class="msg-record-meta">
+                ${m.model_name ? `<span class="meta-model">${escapeHtml(m.model_name)}</span>` : ""}
+                ${m.token_estimate ? `<span class="meta-tokens">${m.token_estimate} tokens</span>` : ""}
+                <span>${formatShortTime(m.ts)}</span>
+              </div>
+            </div>
+            <div class="msg-record-body${isUser ? ' pre-wrap' : ''}">
+              <div class="message-content">${contentHtml}</div>
             </div>
           </div>
         `;
