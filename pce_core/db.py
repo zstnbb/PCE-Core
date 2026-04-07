@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS raw_captures (
     id                      TEXT PRIMARY KEY,
     created_at              REAL NOT NULL,
     source_id               TEXT NOT NULL,
-    direction               TEXT NOT NULL CHECK (direction IN ('request', 'response', 'conversation')),
+    direction               TEXT NOT NULL CHECK (direction IN ('request', 'response', 'conversation', 'network_intercept', 'clipboard')),
     pair_id                 TEXT NOT NULL,
     host                    TEXT,
     path                    TEXT,
@@ -98,6 +98,17 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_messages_ts      ON messages(ts);
+
+-- Custom domains (dynamic allowlist) -----------------------------------------
+
+CREATE TABLE IF NOT EXISTS custom_domains (
+    domain          TEXT PRIMARY KEY,
+    added_at        REAL NOT NULL,
+    source          TEXT NOT NULL DEFAULT 'user',
+    confidence      TEXT,
+    reason          TEXT,
+    active          INTEGER NOT NULL DEFAULT 1
+);
 """
 
 # ---------------------------------------------------------------------------
@@ -138,6 +149,39 @@ def init_db(db_path: Optional[Path] = None) -> None:
     conn = get_connection(db_path)
     try:
         conn.executescript(SCHEMA_SQL)
+        # Migrate: rebuild raw_captures if CHECK constraint is outdated
+        # (pre-v0.1.1 databases lacked 'conversation' in the direction CHECK)
+        try:
+            _needs_rebuild = False
+            table_sql = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='raw_captures'"
+            ).fetchone()
+            if table_sql and table_sql[0] and ("'network_intercept'" not in table_sql[0] or "'clipboard'" not in table_sql[0]):
+                _needs_rebuild = True
+            if _needs_rebuild:
+                conn.execute("ALTER TABLE raw_captures RENAME TO _raw_captures_old")
+                conn.executescript(SCHEMA_SQL)
+                conn.execute("""
+                    INSERT INTO raw_captures
+                        (id, created_at, source_id, direction, pair_id, host, path,
+                         method, provider, model_name, status_code, latency_ms,
+                         headers_redacted_json, body_text_or_json, body_format,
+                         error, session_hint)
+                    SELECT id, created_at, source_id, direction, pair_id, host, path,
+                           method, provider, model_name, status_code, latency_ms,
+                           headers_redacted_json, body_text_or_json, body_format,
+                           error, session_hint
+                    FROM _raw_captures_old
+                """)
+                conn.execute("DROP TABLE _raw_captures_old")
+                logger.info("Migrated raw_captures: rebuilt table with updated CHECK constraint")
+        except Exception:
+            logger.exception("Migration check failed (non-fatal)")
+        # Migrate: add meta_json column if missing
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(raw_captures)").fetchall()}
+        if "meta_json" not in cols:
+            conn.execute("ALTER TABLE raw_captures ADD COLUMN meta_json TEXT")
+            logger.info("Migrated raw_captures: added meta_json column")
         for src_id, src_type, tool, mode, notes in _DEFAULT_SOURCES:
             conn.execute(
                 "INSERT OR IGNORE INTO sources (id, source_type, tool_name, install_mode, notes) "
@@ -456,6 +500,117 @@ def query_messages(session_id: str, db_path: Optional[Path] = None) -> list[dict
         rows = conn.execute(
             "SELECT * FROM messages WHERE session_id = ? ORDER BY ts", (session_id,)
         ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Custom domains (dynamic allowlist)
+# ---------------------------------------------------------------------------
+
+# In-memory cache refreshed lazily
+_custom_domains_cache: set[str] = set()
+_custom_domains_loaded: bool = False
+
+
+def _load_custom_domains(db_path: Optional[Path] = None) -> set[str]:
+    """Load active custom domains from DB into cache."""
+    global _custom_domains_cache, _custom_domains_loaded
+    conn = get_connection(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT domain FROM custom_domains WHERE active = 1"
+        ).fetchall()
+        _custom_domains_cache = {r[0] for r in rows}
+        _custom_domains_loaded = True
+        return _custom_domains_cache
+    except Exception:
+        logger.exception("Failed to load custom domains")
+        return set()
+    finally:
+        conn.close()
+
+
+def get_custom_domains(db_path: Optional[Path] = None) -> set[str]:
+    """Return set of active custom domain strings (cached)."""
+    global _custom_domains_loaded
+    if not _custom_domains_loaded:
+        return _load_custom_domains(db_path)
+    return _custom_domains_cache
+
+
+def refresh_custom_domains(db_path: Optional[Path] = None) -> set[str]:
+    """Force-refresh the custom domains cache from DB."""
+    global _custom_domains_loaded
+    _custom_domains_loaded = False
+    return _load_custom_domains(db_path)
+
+
+def add_custom_domain(
+    domain: str,
+    *,
+    source: str = "user",
+    confidence: Optional[str] = None,
+    reason: Optional[str] = None,
+    db_path: Optional[Path] = None,
+) -> bool:
+    """Add a domain to the custom allowlist. Returns True on success."""
+    global _custom_domains_cache
+    conn = get_connection(db_path)
+    try:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO custom_domains
+                (domain, added_at, source, confidence, reason, active)
+            VALUES (?, ?, ?, ?, ?, 1)
+            """,
+            (domain, time.time(), source, confidence, reason),
+        )
+        conn.commit()
+        _custom_domains_cache.add(domain)
+        logger.info("Added custom domain: %s (source=%s)", domain, source)
+        return True
+    except Exception:
+        logger.exception("Failed to add custom domain %s", domain)
+        return False
+    finally:
+        conn.close()
+
+
+def remove_custom_domain(domain: str, db_path: Optional[Path] = None) -> bool:
+    """Deactivate a custom domain. Returns True on success."""
+    global _custom_domains_cache
+    conn = get_connection(db_path)
+    try:
+        conn.execute(
+            "UPDATE custom_domains SET active = 0 WHERE domain = ?", (domain,)
+        )
+        conn.commit()
+        _custom_domains_cache.discard(domain)
+        logger.info("Removed custom domain: %s", domain)
+        return True
+    except Exception:
+        logger.exception("Failed to remove custom domain %s", domain)
+        return False
+    finally:
+        conn.close()
+
+
+def list_custom_domains(
+    include_inactive: bool = False,
+    db_path: Optional[Path] = None,
+) -> list[dict]:
+    """Return all custom domains as dicts."""
+    conn = get_connection(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        if include_inactive:
+            rows = conn.execute("SELECT * FROM custom_domains ORDER BY added_at DESC").fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM custom_domains WHERE active = 1 ORDER BY added_at DESC"
+            ).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()

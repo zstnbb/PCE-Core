@@ -18,20 +18,25 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import __version__
-from .config import DB_PATH, INGEST_HOST, INGEST_PORT
+from .config import ALLOWED_HOSTS, CAPTURE_MODE, DB_PATH, INGEST_HOST, INGEST_PORT, PROXY_LISTEN_HOST, PROXY_LISTEN_PORT
 from .db import (
     SOURCE_BROWSER_EXT,
     SOURCE_MCP,
     SOURCE_PROXY,
+    add_custom_domain,
+    get_custom_domains,
     get_stats,
     init_db,
     insert_capture,
+    list_custom_domains,
     new_pair_id,
     query_by_pair,
     query_captures,
     query_messages,
     query_recent,
     query_sessions,
+    refresh_custom_domains,
+    remove_custom_domain,
 )
 from .models import (
     CaptureIn,
@@ -42,7 +47,7 @@ from .models import (
     SessionRecord,
     StatsOut,
 )
-from .normalizer.pipeline import try_normalize_pair
+from .normalizer.pipeline import normalize_conversation, try_normalize_pair
 
 logger = logging.getLogger("pce.server")
 logging.basicConfig(
@@ -149,6 +154,30 @@ def ingest_capture(payload: CaptureIn):
         except Exception:
             logger.exception("Auto-normalization failed for pair %s – non-fatal", pair_id[:8])
 
+    # Normalize conversation captures (e.g. from browser extension DOM extraction)
+    elif payload.direction == "conversation":
+        try:
+            from .db import query_by_pair
+            rows = query_by_pair(pair_id)
+            if rows:
+                normalize_conversation(
+                    rows[0], source_id=source_id, created_via=payload.source_type,
+                )
+        except Exception:
+            logger.exception("Conversation normalization failed for %s – non-fatal", pair_id[:8])
+
+    # Normalize network-intercepted captures (browser extension fetch/XHR/WS interception)
+    elif payload.direction == "network_intercept":
+        try:
+            from .db import query_by_pair
+            rows = query_by_pair(pair_id)
+            if rows:
+                normalize_conversation(
+                    rows[0], source_id=source_id, created_via="browser_extension_network",
+                )
+        except Exception:
+            logger.exception("Network intercept normalization failed for %s – non-fatal", pair_id[:8])
+
     return CaptureOut(id=capture_id, pair_id=pair_id, source_id=source_id)
 
 
@@ -207,6 +236,55 @@ def get_session_messages(session_id: str):
 
 
 # ---------------------------------------------------------------------------
+# Domain management API (dynamic allowlist)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/domains")
+def list_domains(include_inactive: bool = False):
+    """List all custom domains and the static allowlist."""
+    custom = list_custom_domains(include_inactive=include_inactive)
+    return {
+        "capture_mode": CAPTURE_MODE.value,
+        "static_domains": sorted(ALLOWED_HOSTS),
+        "custom_domains": custom,
+    }
+
+
+@app.post("/api/v1/domains", status_code=201)
+def add_domain(payload: dict):
+    """Add a domain to the custom allowlist.
+
+    Body: {"domain": "example.com", "source": "user"|"browser_extension"|"smart_heuristic"}
+    """
+    domain = payload.get("domain", "").strip().lower()
+    if not domain:
+        raise HTTPException(400, "domain is required")
+    source = payload.get("source", "user")
+    confidence = payload.get("confidence")
+    reason = payload.get("reason")
+    ok = add_custom_domain(domain, source=source, confidence=confidence, reason=reason)
+    if not ok:
+        raise HTTPException(500, "Failed to add domain")
+    return {"ok": True, "domain": domain}
+
+
+@app.delete("/api/v1/domains/{domain}")
+def delete_domain(domain: str):
+    """Deactivate a custom domain."""
+    ok = remove_custom_domain(domain)
+    if not ok:
+        raise HTTPException(500, "Failed to remove domain")
+    return {"ok": True, "domain": domain}
+
+
+@app.post("/api/v1/domains/refresh")
+def refresh_domains():
+    """Force-refresh the custom domains cache."""
+    domains = refresh_custom_domains()
+    return {"ok": True, "count": len(domains)}
+
+
+# ---------------------------------------------------------------------------
 # Service Management API (used by dashboard to control pce_app services)
 # ---------------------------------------------------------------------------
 
@@ -243,6 +321,10 @@ def start_service(key: str):
         _service_manager.start_proxy()
     elif key == "local_hook":
         _service_manager.start_local_hook()
+    elif key == "multi_hook":
+        _service_manager.start_multi_hook()
+    elif key == "clipboard":
+        _service_manager.start_clipboard()
     else:
         raise HTTPException(404, f"Unknown service: {key}")
     return {"ok": True, "services": _service_manager.get_status()}
@@ -256,6 +338,40 @@ def stop_service(key: str):
         raise HTTPException(400, "Cannot stop core server from within itself")
     _service_manager.stop_service(key)
     return {"ok": True, "services": _service_manager.get_status()}
+
+
+# ---------------------------------------------------------------------------
+# PAC file (Proxy Auto-Configuration)
+# ---------------------------------------------------------------------------
+
+from .pac_generator import generate_pac
+
+
+@app.get("/proxy.pac", include_in_schema=False)
+def serve_pac():
+    """Serve a dynamically generated PAC file for system proxy configuration."""
+    from fastapi.responses import Response
+    pac_content = generate_pac()
+    return Response(
+        content=pac_content,
+        media_type="application/x-ns-proxy-autoconfig",
+        headers={"Content-Disposition": "inline; filename=proxy.pac"},
+    )
+
+
+@app.get("/api/v1/pac")
+def get_pac_info():
+    """Return PAC file URL and current proxy configuration."""
+    return {
+        "pac_url": f"http://{INGEST_HOST}:{INGEST_PORT}/proxy.pac",
+        "proxy_host": ALLOWED_HOSTS and PROXY_LISTEN_HOST or "127.0.0.1",
+        "proxy_port": PROXY_LISTEN_PORT,
+        "instructions": {
+            "windows": f"Settings → Network → Proxy → Use setup script → http://{INGEST_HOST}:{INGEST_PORT}/proxy.pac",
+            "macos": f"System Preferences → Network → Proxies → Automatic Proxy Configuration → http://{INGEST_HOST}:{INGEST_PORT}/proxy.pac",
+            "linux": f"Set auto_proxy=http://{INGEST_HOST}:{INGEST_PORT}/proxy.pac in network settings or export http_proxy=http://127.0.0.1:{PROXY_LISTEN_PORT}",
+        },
+    }
 
 
 # ---------------------------------------------------------------------------

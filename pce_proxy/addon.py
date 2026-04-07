@@ -20,6 +20,9 @@ from mitmproxy import http
 from .config import ALLOWED_HOSTS
 from .db import init_db, insert_capture, new_pair_id
 from .redact import redact_headers_json, safe_body_text
+from pce_core.normalizer.pipeline import try_normalize_pair
+from pce_core.db import SOURCE_PROXY
+from pce_core.config import CAPTURE_MODE, CaptureMode
 
 logger = logging.getLogger("pce.addon")
 logging.basicConfig(
@@ -30,23 +33,54 @@ logging.basicConfig(
 # Ensure DB is ready when the addon is loaded
 init_db()
 
+logger.info("PCE Proxy capture mode: %s", CAPTURE_MODE.value)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _resolve_host(flow: http.HTTPFlow) -> str | None:
-    """Return the target AI host if it matches the allowlist, else None.
-
-    Checks pretty_host first (works in forward-proxy mode), then falls
-    back to the Host header (needed in reverse-proxy / test mode).
-    """
+def _get_host(flow: http.HTTPFlow) -> str:
+    """Extract the effective hostname from a flow."""
     candidate = flow.request.pretty_host
-    if candidate in ALLOWED_HOSTS:
+    if candidate:
         return candidate
-    host_header = flow.request.headers.get("Host", "").split(":")[0]
-    if host_header in ALLOWED_HOSTS:
-        return host_header
+    return flow.request.headers.get("Host", "").split(":")[0]
+
+
+def _is_allowlisted(host: str) -> bool:
+    """Check if host is on the static allowlist or dynamic custom domains."""
+    if host in ALLOWED_HOSTS:
+        return True
+    # Check dynamic custom domains (loaded from DB via server API)
+    try:
+        from pce_core.db import get_custom_domains
+        return host in get_custom_domains()
+    except Exception:
+        return False
+
+
+def _resolve_host(flow: http.HTTPFlow) -> str | None:
+    """Return the target host if it should be captured, else None.
+
+    Behaviour depends on CAPTURE_MODE:
+      - ALLOWLIST: only static allowlist + custom domains
+      - SMART: allowlist + heuristic AI detection
+      - ALL: capture everything
+    """
+    host = _get_host(flow)
+    if not host:
+        return None
+
+    # Always capture allowlisted hosts
+    if _is_allowlisted(host):
+        return host
+
+    # In SMART mode, defer decision — return None here, heuristic runs in request()
+    # In ALL mode, capture everything
+    if CAPTURE_MODE == CaptureMode.ALL:
+        return host
+
     return None
 
 
@@ -71,6 +105,25 @@ def _extract_model(body_bytes: bytes) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
+# SMART mode: auto-register newly discovered AI domains
+# ---------------------------------------------------------------------------
+_discovered_domains: set[str] = set()  # in-memory cache to avoid repeated DB writes
+
+
+def _register_discovered_domain(host: str, confidence: str, reasons: list[str]) -> None:
+    """Record a newly discovered AI domain (SMART mode)."""
+    if host in _discovered_domains or _is_allowlisted(host):
+        return
+    _discovered_domains.add(host)
+    logger.info("SMART: new AI domain discovered: %s (confidence=%s)", host, confidence)
+    try:
+        from pce_core.db import add_custom_domain
+        add_custom_domain(host, source="smart_heuristic", confidence=confidence, reason=", ".join(reasons))
+    except Exception:
+        logger.exception("Failed to register discovered domain %s", host)
+
+
+# ---------------------------------------------------------------------------
 # State kept per-flow to link request ↔ response
 # ---------------------------------------------------------------------------
 _flow_meta: dict[str, dict] = {}
@@ -83,6 +136,36 @@ class PCEAddon:
 
     def request(self, flow: http.HTTPFlow) -> None:
         host = _resolve_host(flow)
+
+        # SMART mode: if not on allowlist, run heuristics on request
+        if host is None and CAPTURE_MODE == CaptureMode.SMART:
+            host = _get_host(flow)
+            if host:
+                from .heuristic import detect_ai_request
+                body_raw = flow.request.content or b""
+                confidence, reasons = detect_ai_request(
+                    host, flow.request.path, flow.request.method, body_raw,
+                )
+                if confidence:
+                    logger.info(
+                        "SMART detected AI request: %s %s (confidence=%s, reasons=%s)",
+                        host, flow.request.path, confidence, reasons,
+                    )
+                    # Auto-register discovered domain
+                    _register_discovered_domain(host, confidence, reasons)
+                else:
+                    # Not detected as AI at request phase — still track for
+                    # response-phase heuristics in SMART mode
+                    _flow_meta[flow.id] = {
+                        "pair_id": None,
+                        "request_time": time.time(),
+                        "smart_pending": True,
+                        "host": host,
+                    }
+                    return
+            else:
+                return
+
         if host is None:
             return
 
@@ -90,6 +173,8 @@ class PCEAddon:
         _flow_meta[flow.id] = {
             "pair_id": pair_id,
             "request_time": time.time(),
+            "smart_pending": False,
+            "host": host,
         }
 
         try:
@@ -121,8 +206,56 @@ class PCEAddon:
         if meta is None:
             return  # not a tracked flow
 
-        host = _resolve_host(flow) or flow.request.pretty_host
+        # SMART mode: response-phase heuristic for flows not yet confirmed
+        if meta.get("smart_pending"):
+            host = meta["host"]
+            content_type = flow.response.headers.get("content-type", "")
+            body_raw = flow.response.content or b""
+
+            from .heuristic import detect_ai_response
+            confidence, reasons = detect_ai_response(body_raw, content_type)
+
+            if not confidence:
+                return  # not AI traffic, skip
+
+            logger.info(
+                "SMART detected AI response: %s %s (confidence=%s, reasons=%s)",
+                host, flow.request.path, confidence, reasons,
+            )
+            _register_discovered_domain(host, confidence, reasons)
+
+            # Now capture both request and response retroactively
+            pair_id = new_pair_id()
+            try:
+                req_headers = redact_headers_json(dict(flow.request.headers))
+                req_body_raw = flow.request.content or b""
+                req_body_text, req_fmt = safe_body_text(req_body_raw)
+                model = _extract_model(req_body_raw)
+
+                insert_capture(
+                    direction="request",
+                    pair_id=pair_id,
+                    host=host,
+                    path=flow.request.path,
+                    method=flow.request.method,
+                    provider=_provider_from_host(host),
+                    model_name=model,
+                    headers_redacted_json=req_headers,
+                    body_text_or_json=req_body_text,
+                    body_format=req_fmt,
+                    meta_json=json.dumps({"smart_detected": True, "confidence": confidence, "reasons": reasons}),
+                )
+            except Exception:
+                logger.exception("SMART retroactive request capture failed")
+
+            # Fall through to normal response capture with this pair_id
+            meta["pair_id"] = pair_id
+
+        host = meta.get("host") or _get_host(flow)
         pair_id = meta["pair_id"]
+        if pair_id is None:
+            return
+
         latency = (time.time() - meta["request_time"]) * 1000  # ms
 
         try:
@@ -148,6 +281,13 @@ class PCEAddon:
                 flow.request.method, host, flow.request.path,
                 flow.response.status_code, latency,
             )
+
+            # Auto-normalize the completed pair into sessions + messages
+            try:
+                try_normalize_pair(pair_id, source_id=SOURCE_PROXY, created_via="proxy")
+            except Exception:
+                logger.exception("auto-normalization failed for pair %s – non-fatal", pair_id[:8])
+
         except Exception:
             logger.exception("response capture failed – letting response through")
 

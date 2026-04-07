@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PCE Dashboard</title>
-  <link rel="stylesheet" href="/dashboard/style.css">
+  <link rel="stylesheet" href="/dashboard/style.css?v=2">
 </head>
 <body>
   <div id="app">
@@ -17,6 +17,7 @@
         <li><a href="#" data-view="stats" class="active">Overview</a></li>
         <li><a href="#" data-view="sessions">Sessions</a></li>
         <li><a href="#" data-view="captures">Raw Captures</a></li>
+        <li><a href="#" data-view="domains">Domains</a></li>
         <li><a href="#" data-view="services">Services</a></li>
       </ul>
       <div class="server-info">
@@ -100,6 +101,7 @@
             <option value="request">Request</option>
             <option value="response">Response</option>
             <option value="conversation">Conversation</option>
+            <option value="clipboard">Clipboard</option>
           </select>
           <button id="capture-refresh" class="btn-sm">Refresh</button>
         </div>
@@ -114,6 +116,25 @@
           <div id="capture-pair-content" class="pair-content"></div>
         </div>
       </section>
+      <!-- Domains View -->
+      <section id="view-domains" class="view">
+        <h2>Domain Management</h2>
+        <div class="domain-mode" id="domain-mode"></div>
+        <div class="domain-add-bar">
+          <input type="text" id="domain-add-input" placeholder="e.g. api.newai.com" />
+          <button id="domain-add-btn" class="btn-sm">Add Domain</button>
+          <button id="domain-refresh-btn" class="btn-sm">Refresh</button>
+        </div>
+        <div class="domain-section">
+          <h3>Custom Domains (Dynamic Allowlist)</h3>
+          <div id="custom-domains-list" class="domain-list"></div>
+        </div>
+        <div class="domain-section">
+          <h3>Static Allowlist (Built-in)</h3>
+          <div id="static-domains-list" class="domain-list"></div>
+        </div>
+      </section>
+
       <!-- Services View -->
       <section id="view-services" class="view">
         <h2>Services</h2>
@@ -131,6 +152,6 @@
       </section>
     </main>
   </div>
-  <script src="/dashboard/app.js"></script>
+  <script src="/dashboard/app.js?v=2"></script>
 </body>
 </html>

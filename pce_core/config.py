@@ -4,7 +4,20 @@ Shared by all capture frontends (proxy, browser extension, MCP, etc.).
 """
 
 import os
+from enum import Enum
 from pathlib import Path
+
+
+# ---------------------------------------------------------------------------
+# Capture mode (controls proxy heuristic behaviour)
+# ---------------------------------------------------------------------------
+
+class CaptureMode(Enum):
+    ALLOWLIST = "allowlist"   # Only capture traffic to known AI domains
+    SMART = "smart"           # Allowlist + heuristic detection of unknown AI traffic
+    ALL = "all"               # Capture all HTTPS traffic (advanced/experimental)
+
+CAPTURE_MODE = CaptureMode(os.environ.get("PCE_CAPTURE_MODE", "allowlist"))
 
 # ---------------------------------------------------------------------------
 # Data directory
