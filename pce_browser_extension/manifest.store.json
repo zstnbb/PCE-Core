@@ -7,11 +7,32 @@
     "storage",
     "activeTab",
     "scripting",
-    "tabs",
     "contextMenus"
   ],
   "host_permissions": [
-    "<all_urls>"
+    "http://127.0.0.1:9800/*",
+    "http://localhost:9800/*",
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*",
+    "https://claude.ai/*",
+    "https://gemini.google.com/*",
+    "https://chat.deepseek.com/*",
+    "https://www.perplexity.ai/*",
+    "https://grok.com/*",
+    "https://poe.com/*",
+    "https://copilot.microsoft.com/*",
+    "https://huggingface.co/chat/*",
+    "https://chat.mistral.ai/*",
+    "https://kimi.moonshot.cn/*",
+    "https://you.com/*",
+    "https://pi.ai/*",
+    "https://character.ai/*",
+    "https://beta.character.ai/*",
+    "https://phind.com/*",
+    "https://devv.ai/*",
+    "https://coral.cohere.com/*",
+    "https://aistudio.google.com/*",
+    "https://notebooklm.google.com/*"
   ],
   "action": {
     "default_popup": "popup/popup.html",
@@ -70,16 +91,28 @@
       "matches": [
         "https://grok.com/*",
         "https://chat.mistral.ai/*",
-        "https://kimi.moonshot.cn/*"
+        "https://kimi.moonshot.cn/*",
+        "https://you.com/*",
+        "https://pi.ai/*",
+        "https://character.ai/*",
+        "https://beta.character.ai/*",
+        "https://phind.com/*",
+        "https://devv.ai/*",
+        "https://coral.cohere.com/*",
+        "https://aistudio.google.com/*",
+        "https://notebooklm.google.com/*"
       ],
       "js": ["content_scripts/detector.js", "content_scripts/behavior_tracker.js", "content_scripts/bridge.js", "content_scripts/generic.js"],
       "run_at": "document_start"
-    },
+    }
+  ],
+  "web_accessible_resources": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content_scripts/detector.js"],
-      "run_at": "document_idle",
-      "exclude_matches": [
+      "resources": [
+        "interceptor/ai_patterns.js",
+        "interceptor/network_interceptor.js"
+      ],
+      "matches": [
         "https://chatgpt.com/*",
         "https://chat.openai.com/*",
         "https://claude.ai/*",
@@ -91,17 +124,17 @@
         "https://copilot.microsoft.com/*",
         "https://huggingface.co/chat/*",
         "https://chat.mistral.ai/*",
-        "https://kimi.moonshot.cn/*"
+        "https://kimi.moonshot.cn/*",
+        "https://you.com/*",
+        "https://pi.ai/*",
+        "https://character.ai/*",
+        "https://beta.character.ai/*",
+        "https://phind.com/*",
+        "https://devv.ai/*",
+        "https://coral.cohere.com/*",
+        "https://aistudio.google.com/*",
+        "https://notebooklm.google.com/*"
       ]
-    }
-  ],
-  "web_accessible_resources": [
-    {
-      "resources": [
-        "interceptor/ai_patterns.js",
-        "interceptor/network_interceptor.js"
-      ],
-      "matches": ["<all_urls>"]
     }
   ],
   "icons": {

@@ -135,6 +135,9 @@
       meta: {
         message_count: messages.length,
         extraction_strategy: "dom",
+        behavior: window.__PCE_BEHAVIOR
+          ? window.__PCE_BEHAVIOR.getBehaviorSnapshot(true)
+          : {},
       },
     };
 

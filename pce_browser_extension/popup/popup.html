@@ -10,9 +10,10 @@
   <div class="container">
     <div class="header">
       <h1>PCE</h1>
-      <span class="version">v0.1.0</span>
+      <span class="version">v0.3.0</span>
     </div>
 
+    <!-- Server + capture status -->
     <div class="status-row">
       <span class="label">Server</span>
       <span id="server-status" class="status-badge offline">Checking...</span>
@@ -31,6 +32,32 @@
       </label>
     </div>
 
+    <!-- Current page detection status -->
+    <div class="section-divider"></div>
+
+    <div class="page-section">
+      <div class="page-status-row">
+        <span id="page-detection-icon" class="detection-icon">?</span>
+        <div class="page-info">
+          <span id="page-domain" class="page-domain">-</span>
+          <span id="page-detection-text" class="page-detection-text">Checking page...</span>
+        </div>
+      </div>
+
+      <button id="capture-page-btn" class="action-btn" disabled>
+        Capture This Page
+      </button>
+
+      <button id="blacklist-btn" class="action-btn secondary" style="display:none;">
+        Block This Site
+      </button>
+
+      <button id="unblacklist-btn" class="action-btn secondary" style="display:none;">
+        Unblock This Site
+      </button>
+    </div>
+
+    <!-- Footer -->
     <div class="footer">
       <a id="dashboard-link" href="#" title="Open PCE Dashboard">Dashboard ↗</a>
       <span class="separator">·</span>
