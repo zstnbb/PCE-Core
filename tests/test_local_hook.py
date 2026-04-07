@@ -88,7 +88,8 @@ def test_capture_roundtrip():
     # Use default DB path (from PCE_DATA_DIR env var set at top of file)
     init_db()
 
-    pair_id = "test-hook-pair-001"
+    import uuid
+    pair_id = f"test-hook-pair-{uuid.uuid4().hex[:8]}"
 
     _capture_async(
         direction="request",

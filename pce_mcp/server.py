@@ -30,7 +30,7 @@ from pce_core.db import (
     insert_message,
     SOURCE_MCP,
 )
-from pce_core.normalizer.pipeline import try_normalize_pair
+from pce_core.normalizer.pipeline import normalize_conversation, try_normalize_pair
 
 logger = logging.getLogger("pce.mcp")
 
@@ -102,6 +102,15 @@ def pce_capture(
         )
         if cid:
             results.append(f"Captured conversation: {cid[:8]}")
+            # Auto-normalize conversation into sessions + messages
+            try:
+                rows = query_by_pair(pair_id)
+                if rows:
+                    sid = normalize_conversation(rows[0], source_id=SOURCE_MCP, created_via="mcp")
+                    if sid:
+                        results.append(f"Normalized → session: {sid[:8]}")
+            except Exception as e:
+                results.append(f"Conversation normalization skipped: {e}")
         else:
             return "Error: Failed to insert capture"
 

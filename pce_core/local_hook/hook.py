@@ -21,6 +21,7 @@ from fastapi.responses import StreamingResponse
 
 from ..config import DB_PATH, LOCAL_MODEL_PORTS
 from ..db import init_db, insert_capture, new_pair_id, SOURCE_PROXY
+from ..normalizer.pipeline import try_normalize_pair
 
 logger = logging.getLogger("pce.local_hook")
 
@@ -136,6 +137,12 @@ def create_hook_app(
             latency_ms=round(latency_ms, 2),
             body_text=resp_text,
         )
+
+        # Auto-normalize the completed pair into sessions + messages
+        try:
+            try_normalize_pair(pair_id, source_id=SOURCE_PROXY, created_via="local_hook")
+        except Exception:
+            logger.exception("Auto-normalization failed for pair %s – non-fatal", pair_id[:8])
 
         # Build response headers (strip hop-by-hop)
         resp_headers = dict(resp.headers)

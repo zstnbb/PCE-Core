@@ -46,6 +46,9 @@ class AnthropicMessagesNormalizer(BaseNormalizer):
             return True
         if "anthropic" in host and "messages" in path:
             return True
+        # Browser extension captures from web UI (conversation direction)
+        if host == "claude.ai" or provider == "anthropic":
+            return True
         return False
 
     def normalize(

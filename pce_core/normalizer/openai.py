@@ -57,6 +57,9 @@ class OpenAIChatNormalizer(BaseNormalizer):
         }
         if host in compatible_hosts and "chat" in path:
             return True
+        # Browser extension captures from web UI (conversation direction)
+        if host in ("chatgpt.com", "chat.openai.com") or provider == "openai":
+            return True
         return False
 
     def normalize(
@@ -127,15 +130,19 @@ class OpenAIChatNormalizer(BaseNormalizer):
         # Derive tool_family from host
         tool_family = _tool_family(host, provider)
 
-        # Session key: use conversation_id if present, else model+timestamp bucket
-        session_key = req_data.get("conversation_id") or req_data.get("session_id")
+        # Session key: conversation_id groups all messages from one chat
+        session_key = (
+            req_data.get("conversation_id")
+            or req_data.get("session_id")
+        )
 
-        # Title hint: first user message (truncated)
-        title_hint = None
-        for m in messages:
-            if m.role == "user" and m.content_text:
-                title_hint = m.content_text[:100]
-                break
+        # Title hint: prefer explicit title from browser ext, else first user message
+        title_hint = req_data.get("title")
+        if not title_hint:
+            for m in messages:
+                if m.role == "user" and m.content_text:
+                    title_hint = m.content_text[:100]
+                    break
 
         return NormalizedResult(
             provider=provider or "openai",

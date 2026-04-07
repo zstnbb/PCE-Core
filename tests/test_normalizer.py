@@ -25,7 +25,7 @@ from pce_core.normalizer.anthropic import AnthropicMessagesNormalizer
 from pce_core.normalizer.pipeline import try_normalize_pair
 
 
-def test_openai_normalizer():
+def _test_openai_normalizer():
     n = OpenAIChatNormalizer()
 
     # can_handle
@@ -108,7 +108,7 @@ def test_openai_normalizer():
     print("[PASS] OpenAI: local model (localhost)")
 
 
-def test_anthropic_normalizer():
+def _test_anthropic_normalizer():
     n = AnthropicMessagesNormalizer()
 
     # can_handle
@@ -175,7 +175,7 @@ def test_anthropic_normalizer():
     print("[PASS] Anthropic: graceful on invalid JSON")
 
 
-def test_registry_dispatch():
+def _test_registry_dispatch():
     """Test that normalize_pair dispatches to the correct normalizer."""
     req = {
         "provider": "openai",
@@ -226,7 +226,7 @@ def test_registry_dispatch():
     print("[PASS] Registry: returns None for unknown provider")
 
 
-def test_pipeline_integration():
+def _test_pipeline_integration():
     """Test the full pipeline: insert captures → auto-normalize → query sessions/messages."""
     db_path = Path(_tmp) / "test_pipeline.db"
     init_db(db_path)
@@ -342,10 +342,10 @@ def test_pipeline_integration():
 
 
 def test_all():
-    test_openai_normalizer()
-    test_anthropic_normalizer()
-    test_registry_dispatch()
-    test_pipeline_integration()
+    _test_openai_normalizer()
+    _test_anthropic_normalizer()
+    _test_registry_dispatch()
+    _test_pipeline_integration()
 
 
 if __name__ == "__main__":
