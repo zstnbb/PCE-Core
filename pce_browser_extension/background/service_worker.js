@@ -165,13 +165,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "PCE_GET_STATUS") {
-    sendResponse({
-      enabled: isEnabled,
-      captureCount,
-      serverOnline: pceServerOnline,
-      lastError,
+    // Do a fresh health check before responding so popup always shows current state
+    checkHealth().then(() => {
+      sendResponse({
+        enabled: isEnabled,
+        captureCount,
+        serverOnline: pceServerOnline,
+        lastError,
+      });
     });
-    return false;
+    return true; // async response
   }
 
   if (message.type === "PCE_SET_ENABLED") {
