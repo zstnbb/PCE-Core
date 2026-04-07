@@ -2,7 +2,9 @@
  * PCE Content Script – DeepSeek Chat (chat.deepseek.com)
  *
  * Site-specific extractor with incremental delta capture.
- * DeepSeek uses a React-based chat UI with markdown rendering.
+ * DeepSeek uses a React-based chat UI with hashed CSS class names.
+ * The ONLY stable selector is `.ds-markdown` for assistant responses.
+ * We anchor on that and walk up the DOM to find conversation turns.
  */
 
 (function () {
@@ -21,75 +23,131 @@
   console.log("[PCE] DeepSeek content script loaded");
 
   // -------------------------------------------------------------------------
-  // Message extraction
+  // Message extraction – anchored on .ds-markdown
   // -------------------------------------------------------------------------
 
   function extractMessages() {
     const messages = [];
 
-    // DeepSeek uses .ds-chat-message or similar containers
-    const turnSelectors = [
-      '[class*="chatMessage"], [class*="chat-message"]',
-      '[class*="ChatMessage"]',
-      '[data-role]',
-      '.msg-item',
-    ];
+    // Strategy 1: Use .ds-markdown blocks as anchors for assistant messages
+    const mdBlocks = document.querySelectorAll(".ds-markdown");
+    if (mdBlocks.length > 0) {
+      console.debug(`[PCE] DeepSeek: found ${mdBlocks.length} .ds-markdown blocks`);
 
-    for (const sel of turnSelectors) {
-      try {
-        const els = document.querySelectorAll(sel);
-        if (els.length < 1) continue;
+      mdBlocks.forEach((md) => {
+        // The assistant text is inside the .ds-markdown block
+        const assistantText = md.innerText.trim();
+        if (!assistantText || assistantText.length < 2) return;
 
-        els.forEach((el) => {
-          const role = _detectRole(el);
-          const text = _extractText(el);
-          if (text && text.length > 1) {
-            messages.push({ role, content: text });
+        // Walk up to find the "turn" container — the common ancestor
+        // that holds both the user message and this assistant response.
+        // DeepSeek typically nests: turn > [user-block, assistant-block > .ds-markdown]
+        const turnEl = _findTurnContainer(md);
+        if (turnEl) {
+          const userText = _extractUserFromTurn(turnEl, md);
+          if (userText && userText.length > 0) {
+            messages.push({ role: "user", content: userText });
           }
-        });
+        }
 
-        if (messages.length >= 2) return messages;
-        messages.length = 0;
-      } catch {}
+        messages.push({ role: "assistant", content: assistantText });
+      });
+
+      if (messages.length >= 2) return messages;
     }
 
-    // Fallback: look for alternating user/assistant blocks
-    const userBlocks = document.querySelectorAll('[class*="user"], [class*="User"]');
-    const assistantBlocks = document.querySelectorAll('[class*="assistant"], [class*="Assistant"], [class*="bot"], [class*="Bot"]');
-
-    if (userBlocks.length > 0 && assistantBlocks.length > 0) {
-      // Interleave based on DOM order
-      const all = [...document.querySelectorAll('[class*="user"], [class*="assistant"], [class*="User"], [class*="Assistant"]')];
-      all.forEach((el) => {
-        const role = _detectRole(el);
-        const text = _extractText(el);
-        if (text && text.length > 2 && role !== "unknown") {
+    // Strategy 2: Look for common role-attributed elements
+    const roleEls = document.querySelectorAll("[data-role]");
+    if (roleEls.length >= 2) {
+      roleEls.forEach((el) => {
+        const role = el.getAttribute("data-role");
+        const text = _cleanText(el);
+        if (text && text.length > 1 && (role === "user" || role === "assistant")) {
           messages.push({ role, content: text });
         }
       });
+      if (messages.length >= 2) return messages;
+      messages.length = 0;
     }
+
+    // Strategy 3: Fallback — find any large text blocks in the conversation area
+    const main = document.querySelector("main") || document.body;
+    const allTextBlocks = main.querySelectorAll("div > div > div");
+    const candidates = [];
+    allTextBlocks.forEach((el) => {
+      const text = el.innerText?.trim();
+      if (text && text.length > 10 && el.children.length < 20 && el.offsetHeight > 20) {
+        // Check if this element contains a .ds-markdown (assistant) or is plain text (user)
+        if (el.querySelector(".ds-markdown")) {
+          candidates.push({ role: "assistant", content: el.querySelector(".ds-markdown").innerText.trim(), el });
+        } else if (!el.closest(".ds-markdown") && text.length < 2000) {
+          candidates.push({ role: "user", content: text, el });
+        }
+      }
+    });
+
+    // Filter out duplicate/nested candidates
+    const seen = new Set();
+    candidates.forEach((c) => {
+      const key = c.content.slice(0, 100);
+      if (!seen.has(key)) {
+        seen.add(key);
+        messages.push({ role: c.role, content: c.content });
+      }
+    });
 
     return messages;
   }
 
-  function _detectRole(el) {
-    const cls = (el.className || "").toLowerCase();
-    const role = (el.getAttribute("data-role") || "").toLowerCase();
+  function _findTurnContainer(mdElement) {
+    // Walk up from .ds-markdown to find a container that has siblings
+    // (the sibling typically holds the user message).
+    // Usually 2-4 levels up from .ds-markdown.
+    let el = mdElement.parentElement;
+    for (let i = 0; i < 6 && el; i++) {
+      const parent = el.parentElement;
+      if (!parent) break;
 
-    if (role === "user" || cls.includes("user") || cls.includes("human") || cls.includes("query")) {
-      return "user";
+      // A turn container typically has 2+ direct children where one
+      // subtree contains .ds-markdown and another holds user text.
+      const siblings = Array.from(parent.children);
+      if (siblings.length >= 2) {
+        // Check if one sibling contains .ds-markdown and another doesn't
+        const mdSibling = siblings.find((s) => s.contains(mdElement));
+        const otherSiblings = siblings.filter((s) => s !== mdSibling);
+        const hasUserContent = otherSiblings.some((s) => {
+          const text = s.innerText?.trim();
+          return text && text.length > 0 && !s.querySelector(".ds-markdown");
+        });
+        if (hasUserContent) {
+          return parent;
+        }
+      }
+      el = parent;
     }
-    if (role === "assistant" || cls.includes("assistant") || cls.includes("bot") || cls.includes("deepseek") || cls.includes("response")) {
-      return "assistant";
-    }
-    return "unknown";
+    return null;
   }
 
-  function _extractText(el) {
-    const clone = el.cloneNode(true);
-    clone.querySelectorAll("script, style, [hidden], .sr-only, button, [class*='action'], [class*='copy']").forEach((e) => e.remove());
+  function _extractUserFromTurn(turnEl, mdElement) {
+    // Find the child of turnEl that does NOT contain the .ds-markdown
+    const children = Array.from(turnEl.children);
+    for (const child of children) {
+      if (child.contains(mdElement)) continue;
+      // This child might be the user message area
+      const text = _cleanText(child);
+      // Filter out very short text (buttons, icons) and very long text (might be another assistant)
+      if (text && text.length > 0 && !child.querySelector(".ds-markdown")) {
+        return text;
+      }
+    }
+    return null;
+  }
 
-    const markdown = clone.querySelector(".markdown, .markdown-body, [class*='markdown'], [class*='Markdown']");
+  function _cleanText(el) {
+    const clone = el.cloneNode(true);
+    clone.querySelectorAll("script, style, [hidden], .sr-only, button, svg, img, [class*='icon'], [class*='avatar'], [class*='action'], [class*='copy'], [class*='toolbar']").forEach((e) => e.remove());
+
+    const markdown = clone.querySelector(".ds-markdown");
     if (markdown) return markdown.innerText.trim();
 
     return clone.innerText.trim();
@@ -100,17 +158,42 @@
   // -------------------------------------------------------------------------
 
   function extractModelName() {
-    const el = document.querySelector('[class*="model-select"] [class*="name"], [class*="modelName"], [class*="model-tag"]');
-    if (el) return el.textContent.trim() || null;
+    // Try multiple strategies to find the model name
+    // 1. Look for model selector UI elements
+    const selectors = [
+      '[class*="model"] [class*="name"]',
+      '[class*="model-select"]',
+      '[class*="modelName"]',
+      '[class*="model-tag"]',
+    ];
+    for (const sel of selectors) {
+      try {
+        const el = document.querySelector(sel);
+        if (el) {
+          const text = el.textContent.trim();
+          if (text && text.length > 2 && text.length < 50) return text;
+        }
+      } catch {}
+    }
 
-    // DeepSeek may show model in title
+    // 2. Check page title
     const title = document.title;
-    if (title.includes("DeepSeek-V")) return title.match(/DeepSeek-V\S+/)?.[0] || null;
-    return null;
+    if (title.includes("DeepSeek")) {
+      const match = title.match(/DeepSeek[-\s]?\w+/i);
+      if (match) return match[0];
+    }
+
+    // 3. Look for "R1" or "V3" indicators in the UI
+    const body = document.body.innerText;
+    if (body.includes("DeepSeek-R1")) return "DeepSeek-R1";
+    if (body.includes("DeepSeek-V3")) return "DeepSeek-V3";
+
+    return "DeepSeek";
   }
 
   function getSessionHint() {
-    const match = location.pathname.match(/\/chat\/([a-zA-Z0-9_-]+)/);
+    // DeepSeek uses /chat/s/<session_id> or /chat/<id>
+    const match = location.pathname.match(/\/chat(?:\/s)?\/([a-zA-Z0-9_-]+)/);
     return match ? match[1] : location.pathname;
   }
 
@@ -124,7 +207,10 @@
 
   function captureConversation() {
     const allMsgs = extractMessages();
-    if (allMsgs.length === 0) return;
+    if (allMsgs.length === 0) {
+      console.debug("[PCE] DeepSeek: no messages extracted");
+      return;
+    }
 
     const fp = fingerprint(allMsgs);
     if (fp === lastFingerprint) return;
@@ -135,6 +221,8 @@
 
     const prevCount = sentCount;
     sentCount = allMsgs.length;
+
+    console.log(`[PCE] DeepSeek: sending ${newMsgs.length} new msgs (${prevCount}→${sentCount})`);
 
     const payload = {
       provider: PROVIDER,
@@ -186,7 +274,8 @@
   function startObserver() {
     if (observerActive) return;
 
-    const container = document.querySelector("main, [class*='chat-container']") || document.body;
+    // DeepSeek's chat area — try main first, then body
+    const container = document.querySelector("main") || document.body;
 
     const observer = new MutationObserver((mutations) => {
       if (mutations.some((m) => m.addedNodes.length > 0 || m.type === "characterData")) {
@@ -198,6 +287,7 @@
     observerActive = true;
     console.log("[PCE] DeepSeek observer started");
 
+    // SPA navigation detection
     let lastUrl = location.href;
     setInterval(() => {
       if (location.href !== lastUrl) {
@@ -208,7 +298,8 @@
       }
     }, POLL_INTERVAL_MS);
 
-    debouncedCapture();
+    // Initial capture attempt (with short delay for DOM to settle)
+    setTimeout(debouncedCapture, 1000);
   }
 
   document.addEventListener("pce-manual-capture", () => {
