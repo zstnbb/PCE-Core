@@ -32,9 +32,13 @@ def _auto_register():
     """Import and register all built-in normalizers."""
     from .openai import OpenAIChatNormalizer
     from .anthropic import AnthropicMessagesNormalizer
+    from .conversation import ConversationNormalizer
 
     register_normalizer(OpenAIChatNormalizer())
     register_normalizer(AnthropicMessagesNormalizer())
+    # Conversation normalizer is registered last as a catch-all for
+    # browser extension DOM-extracted captures (DeepSeek, Gemini, etc.)
+    register_normalizer(ConversationNormalizer())
 
 
 # Auto-register on import
