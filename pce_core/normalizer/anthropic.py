@@ -107,6 +107,13 @@ class AnthropicMessagesNormalizer(BaseNormalizer):
 
         # --- Parse response ---
         resp_data = _safe_json(response_body)
+
+        # SSE fallback: if response isn't valid JSON, try assembling SSE chunks
+        if resp_data is None and response_body:
+            from .sse import is_sse_text, assemble_any_sse
+            if is_sse_text(response_body):
+                resp_data = assemble_any_sse(response_body)
+
         if resp_data and isinstance(resp_data, dict):
             resp_model = resp_data.get("model", model)
             resp_role = resp_data.get("role", "assistant")

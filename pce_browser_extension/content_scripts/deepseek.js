@@ -30,7 +30,7 @@
     const messages = [];
 
     // Strategy 1: Use .ds-markdown blocks as anchors for assistant messages
-    const mdBlocks = document.querySelectorAll(".ds-markdown");
+    const mdBlocks = document.querySelectorAll(".ds-markdown, [class*='ds-markdown'], [class*='markdown-body'], .chat-markdown");
     if (mdBlocks.length > 0) {
       console.debug(`[PCE] DeepSeek: found ${mdBlocks.length} .ds-markdown blocks`);
 
@@ -57,10 +57,11 @@
     }
 
     // Strategy 2: Look for common role-attributed elements
-    const roleEls = document.querySelectorAll("[data-role]");
+    const roleEls = document.querySelectorAll('[data-role], [data-message-role], [data-testid*="message"]');
     if (roleEls.length >= 2) {
       roleEls.forEach((el) => {
-        const role = el.getAttribute("data-role");
+        const role = el.getAttribute("data-role") || el.getAttribute("data-message-role")
+          || (el.getAttribute("data-testid") || "").replace(/.*message-/, "");
         const text = _cleanText(el);
         if (text && text.length > 1 && (role === "user" || role === "assistant")) {
           messages.push({ role, content: text });
@@ -165,6 +166,9 @@
       '[class*="model-select"]',
       '[class*="modelName"]',
       '[class*="model-tag"]',
+      '[data-testid*="model"]',
+      '[class*="model-info"]',
+      '[class*="ModelSelector"]',
     ];
     for (const sel of selectors) {
       try {

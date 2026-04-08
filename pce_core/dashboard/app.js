@@ -223,6 +223,102 @@ async function loadStats() {
   } catch (e) {
     console.error("Failed to load stats:", e);
   }
+
+  // Load capture health panel (independent, non-blocking)
+  loadCaptureHealth();
+}
+
+// ── Capture Health Panel ─────────────────────────────────
+async function loadCaptureHealth() {
+  try {
+    const data = await api("/capture-health");
+    renderCaptureHealth(data);
+  } catch (e) {
+    // Health endpoint may not exist on older server versions
+    document.getElementById("health-channels").innerHTML =
+      '<div class="empty-state">Health data unavailable</div>';
+  }
+}
+
+function formatAgo(seconds) {
+  if (!seconds && seconds !== 0) return "never";
+  if (seconds < 60) return `${Math.round(seconds)}s ago`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.round(seconds / 3600)}h ago`;
+  return `${Math.round(seconds / 86400)}d ago`;
+}
+
+function renderCaptureHealth(data) {
+  const { channels, recent_providers, normalization, summary } = data;
+
+  // Summary
+  const summaryEl = document.getElementById("health-summary");
+  summaryEl.textContent = `${summary.active_channels}/${summary.total_channels} active`;
+
+  // Channels
+  const channelsEl = document.getElementById("health-channels");
+  channelsEl.innerHTML = channels
+    .map((ch) => {
+      const countStr = ch.count_5m > 0
+        ? `<span class="count-active">${ch.count_5m}</span> / 5m`
+        : ch.count_1h > 0
+          ? `${ch.count_1h} / 1h`
+          : ch.count_24h > 0
+            ? `${ch.count_24h} / 24h`
+            : ch.total > 0
+              ? `${ch.total} total`
+              : "—";
+
+      const agoStr = formatAgo(ch.last_seen_ago_s);
+
+      let subHtml = "";
+      if (ch.sub_channels) {
+        const subs = Object.values(ch.sub_channels);
+        subHtml = `<div class="health-sub-channels">${subs
+          .map(
+            (s) =>
+              `<span class="health-sub ${s.status}">${escapeHtml(s.label)}: ${s.count_5m || s.count_1h || s.count_24h || 0}</span>`
+          )
+          .join("")}</div>`;
+      }
+
+      return `
+        <div class="health-channel">
+          <div class="health-dot ${ch.status}"></div>
+          <div class="health-channel-info">
+            <div class="health-channel-name">${escapeHtml(ch.label)}</div>
+            <div class="health-channel-detail">${agoStr}${subHtml}</div>
+          </div>
+          <div class="health-channel-counts">${countStr}</div>
+        </div>
+      `;
+    })
+    .join("");
+
+  // Normalization
+  const normEl = document.getElementById("health-normalization");
+  if (normalization && normalization.pairs_24h > 0) {
+    const rate = normalization.success_rate != null
+      ? `<span class="norm-rate">${(normalization.success_rate * 100).toFixed(0)}%</span>`
+      : "—";
+    normEl.innerHTML = `Normalization: ${normalization.sessions_24h} sessions / ${normalization.pairs_24h} pairs (${rate})`;
+  } else {
+    normEl.innerHTML = "Normalization: no activity in 24h";
+  }
+
+  // Active providers
+  const provEl = document.getElementById("health-providers");
+  if (recent_providers && recent_providers.length > 0) {
+    provEl.innerHTML = recent_providers
+      .slice(0, 6)
+      .map(
+        (p) =>
+          `<span class="health-provider-tag">${escapeHtml(p.provider)} (${p.count_1h})</span>`
+      )
+      .join("");
+  } else {
+    provEl.innerHTML = '<span style="font-size:11px;color:var(--text-muted)">No providers active in 1h</span>';
+  }
 }
 
 function renderBreakdown(containerId, data) {
@@ -351,6 +447,7 @@ async function loadSessions() {
   try {
     const sessions = await api(url);
     renderSessionList(sessions);
+    document.getElementById("sessions-list").classList.remove("hidden");
     document.getElementById("session-detail").classList.add("hidden");
   } catch (e) {
     console.error("Failed to load sessions:", e);

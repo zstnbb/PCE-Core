@@ -120,16 +120,23 @@ def _normalize_network_intercept(capture_row: dict) -> Optional[NormalizedResult
         "is_streaming": true/false,
         ...
     }
+
+    Handles SSE streaming responses by pre-assembling them into JSON before
+    passing to the normalizer.  Falls back to generic OpenAI-compatible
+    parsing if no registered normalizer matches.
     """
     import json
+    from .sse import is_sse_text, assemble_any_sse
 
     body_str = capture_row.get("body_text_or_json", "")
     if not body_str:
+        logger.debug("network_intercept: empty body")
         return None
 
     try:
         wrapper = json.loads(body_str)
     except (json.JSONDecodeError, TypeError):
+        logger.debug("network_intercept: body is not JSON")
         return None
 
     if not isinstance(wrapper, dict):
@@ -139,9 +146,21 @@ def _normalize_network_intercept(capture_row: dict) -> Optional[NormalizedResult
     resp_body = wrapper.get("response_body") or ""
 
     if not req_body and not resp_body:
+        logger.debug("network_intercept: both request_body and response_body empty")
         return None
 
-    # Build synthetic rows with the unwrapped bodies
+    # ── SSE pre-processing ──────────────────────────────────────────────
+    # Streaming responses arrive as raw SSE text.  Assemble into a single
+    # JSON object so downstream normalizers can parse it normally.
+    if is_sse_text(resp_body):
+        assembled = assemble_any_sse(resp_body)
+        if assembled:
+            resp_body = json.dumps(assembled, ensure_ascii=False)
+            logger.debug("network_intercept: assembled SSE → JSON (%d chars)", len(resp_body))
+        else:
+            logger.debug("network_intercept: SSE detected but assembly failed")
+
+    # ── Build synthetic rows ────────────────────────────────────────────
     request_row = dict(capture_row)
     request_row["body_text_or_json"] = req_body
     request_row["direction"] = "request"
@@ -165,7 +184,318 @@ def _normalize_network_intercept(capture_row: dict) -> Optional[NormalizedResult
         except Exception:
             pass
 
-    return normalize_pair(request_row, response_row)
+    # ── Try registered normalizers first ────────────────────────────────
+    result = normalize_pair(request_row, response_row)
+    if result is not None:
+        # Sanity check: for network intercepts we expect both user AND assistant.
+        # If only user messages were found (e.g. ConversationNormalizer parsed
+        # the request body's messages array but missed the response body's
+        # choices), fall through to the generic fallback which handles both.
+        has_assistant = any(m.role == "assistant" for m in result.messages)
+        if has_assistant:
+            return result
+        logger.debug(
+            "network_intercept: normalizer returned %d msgs but no assistant — trying fallback",
+            len(result.messages),
+        )
+
+    # ── Fallback: generic OpenAI-compatible parsing ─────────────────────
+    # If no normalizer matched (unknown provider/host/path), attempt to
+    # parse the request/response using the common {messages} + {choices}
+    # format.  This ensures network intercepts from NEW platforms still
+    # produce sessions without any code changes.
+    provider = capture_row.get("provider", "unknown")
+    logger.debug(
+        "network_intercept: no normalizer matched for %s %s %s — trying generic fallback",
+        provider, request_row.get("host"), request_row.get("path"),
+    )
+    result = _try_generic_normalize(request_row, response_row, provider)
+    if result is not None:
+        return result
+
+    # ── Fallback 2: embedded AI format (Notion AI, etc.) ─────────────
+    return _try_embedded_ai_normalize(request_row, response_row, provider)
+
+
+def _try_generic_normalize(
+    request_row: dict,
+    response_row: dict,
+    provider: str,
+) -> Optional[NormalizedResult]:
+    """Last-resort normalizer for any request with a ``messages`` array.
+
+    Handles the OpenAI-compatible format that most AI APIs use:
+    - Request:  ``{"model": "...", "messages": [{"role": ..., "content": ...}]}``
+    - Response: ``{"choices": [{"message": {"role": ..., "content": ...}}]}``
+    """
+    import json
+    from .base import NormalizedMessage, NormalizedResult
+
+    # ── Parse request ───────────────────────────────────────────────────
+    req_str = request_row.get("body_text_or_json", "")
+    try:
+        req_data = json.loads(req_str) if req_str else None
+    except (json.JSONDecodeError, TypeError):
+        req_data = None
+
+    if not isinstance(req_data, dict):
+        return None
+
+    req_messages = req_data.get("messages")
+    if not isinstance(req_messages, list) or len(req_messages) == 0:
+        return None
+
+    model = req_data.get("model")
+    messages: list[NormalizedMessage] = []
+    created_at = request_row.get("created_at")
+
+    for msg in req_messages:
+        if not isinstance(msg, dict):
+            continue
+        role = msg.get("role", "user")
+        content = msg.get("content")
+        if content is None:
+            continue
+        if isinstance(content, list):
+            # Array-of-parts format
+            parts = [p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"]
+            content = "\n".join(parts)
+        if not isinstance(content, str) or len(content.strip()) < 1:
+            continue
+        messages.append(NormalizedMessage(
+            role=role,
+            content_text=content,
+            model_name=model if role == "assistant" else None,
+            ts=created_at,
+        ))
+
+    # ── Parse response ──────────────────────────────────────────────────
+    resp_str = response_row.get("body_text_or_json", "")
+    try:
+        resp_data = json.loads(resp_str) if resp_str else None
+    except (json.JSONDecodeError, TypeError):
+        resp_data = None
+
+    if isinstance(resp_data, dict):
+        resp_model = resp_data.get("model", model)
+        usage = resp_data.get("usage", {})
+        completion_tokens = usage.get("completion_tokens") if isinstance(usage, dict) else None
+
+        for choice in resp_data.get("choices", []):
+            if not isinstance(choice, dict):
+                continue
+            msg = choice.get("message") or choice.get("delta", {})
+            if not isinstance(msg, dict):
+                continue
+            content = msg.get("content", "")
+            if not content:
+                continue
+            role = msg.get("role", "assistant")
+            messages.append(NormalizedMessage(
+                role=role,
+                content_text=content,
+                model_name=resp_model,
+                token_estimate=completion_tokens,
+                ts=created_at,
+            ))
+        if resp_model:
+            model = resp_model
+
+    if not messages:
+        return None
+
+    # ── Build result ────────────────────────────────────────────────────
+    session_key = req_data.get("conversation_id") or req_data.get("session_id")
+    title_hint = None
+    for m in messages:
+        if m.role == "user" and m.content_text:
+            title_hint = m.content_text[:100]
+            break
+
+    host = request_row.get("host", "")
+
+    logger.info(
+        "generic fallback normalized: provider=%s host=%s model=%s msgs=%d",
+        provider, host, model, len(messages),
+    )
+
+    return NormalizedResult(
+        provider=provider or "unknown",
+        tool_family=f"{provider}-network" if provider else "network",
+        model_name=model,
+        session_key=session_key,
+        title_hint=title_hint,
+        messages=messages,
+    )
+
+
+def _try_embedded_ai_normalize(
+    request_row: dict,
+    response_row: dict,
+    provider: str,
+) -> Optional[NormalizedResult]:
+    """Normalize embedded AI formats (Notion AI, Google Docs Gemini, etc.).
+
+    These services don't use the standard OpenAI {messages}+{choices} format.
+    Instead they have provider-specific request/response structures:
+
+    - Notion AI:  req={context, prompt, aiSessionId} → resp={completion} or streamed text
+    - Google:     req={contents:[{parts:[{text}]}]} → resp={candidates:[{content:{parts}}]}
+    - Gmail:      req={candidatesCount, ...} → resp={suggestions:[...]}
+    """
+    import json
+    from .base import NormalizedMessage, NormalizedResult
+
+    req_str = request_row.get("body_text_or_json", "")
+    resp_str = response_row.get("body_text_or_json", "")
+
+    try:
+        req_data = json.loads(req_str) if req_str else None
+    except (json.JSONDecodeError, TypeError):
+        req_data = None
+
+    try:
+        resp_data = json.loads(resp_str) if resp_str else None
+    except (json.JSONDecodeError, TypeError):
+        resp_data = None
+
+    if not isinstance(req_data, dict):
+        return None
+
+    host = request_row.get("host", "")
+    created_at = request_row.get("created_at")
+    messages: list[NormalizedMessage] = []
+    model = req_data.get("model")
+
+    # ── Notion AI format ───────────────────────────────────────────────
+    if req_data.get("aiSessionId") or req_data.get("prompt") and "notion" in host:
+        user_text = req_data.get("prompt", "")
+        context = req_data.get("context", "")
+        if context and user_text:
+            user_text = f"[Context: {context[:200]}]\n\n{user_text}"
+        elif context:
+            user_text = context
+
+        if user_text:
+            messages.append(NormalizedMessage(
+                role="user", content_text=user_text, ts=created_at,
+            ))
+
+        # Response: {completion: "..."} or raw streamed text
+        assistant_text = ""
+        if isinstance(resp_data, dict):
+            assistant_text = resp_data.get("completion", "") or resp_data.get("text", "")
+        elif isinstance(resp_str, str) and len(resp_str) > 5:
+            assistant_text = resp_str  # raw streamed text
+
+        if assistant_text:
+            messages.append(NormalizedMessage(
+                role="assistant",
+                content_text=assistant_text,
+                model_name=model or "notion-ai",
+                ts=created_at,
+            ))
+
+        if messages:
+            session_key = req_data.get("aiSessionId")
+            return NormalizedResult(
+                provider="notion",
+                tool_family="notion-ai",
+                model_name=model or "notion-ai",
+                session_key=session_key,
+                title_hint=user_text[:100] if user_text else None,
+                messages=messages,
+            )
+
+    # ── Google Gemini format {contents:[{parts:[{text}]}]} ─────────────
+    contents = req_data.get("contents")
+    if isinstance(contents, list) and len(contents) > 0:
+        for item in contents:
+            if not isinstance(item, dict):
+                continue
+            role = item.get("role", "user")
+            parts = item.get("parts", [])
+            text_parts = []
+            for p in parts:
+                if isinstance(p, dict) and "text" in p:
+                    text_parts.append(p["text"])
+            if text_parts:
+                messages.append(NormalizedMessage(
+                    role="user" if role == "user" else "assistant",
+                    content_text="\n".join(text_parts),
+                    ts=created_at,
+                ))
+
+        # Response: {candidates:[{content:{parts:[{text}]}}]}
+        if isinstance(resp_data, dict):
+            resp_model = resp_data.get("modelVersion", model)
+            for candidate in resp_data.get("candidates", []):
+                if not isinstance(candidate, dict):
+                    continue
+                content = candidate.get("content", {})
+                parts = content.get("parts", [])
+                text_parts = []
+                for p in parts:
+                    if isinstance(p, dict) and "text" in p:
+                        text_parts.append(p["text"])
+                if text_parts:
+                    messages.append(NormalizedMessage(
+                        role="assistant",
+                        content_text="\n".join(text_parts),
+                        model_name=resp_model,
+                        ts=created_at,
+                    ))
+            if resp_model:
+                model = resp_model
+
+        if messages:
+            return NormalizedResult(
+                provider=provider or "google",
+                tool_family="gemini-embedded",
+                model_name=model,
+                session_key=None,
+                title_hint=messages[0].content_text[:100] if messages else None,
+                messages=messages,
+            )
+
+    # ── Generic {prompt} + {completion/text/output} ────────────────────
+    prompt = req_data.get("prompt")
+    if isinstance(prompt, str) and len(prompt) > 3:
+        messages.append(NormalizedMessage(
+            role="user", content_text=prompt, ts=created_at,
+        ))
+
+        assistant_text = ""
+        if isinstance(resp_data, dict):
+            assistant_text = (
+                resp_data.get("completion", "")
+                or resp_data.get("text", "")
+                or resp_data.get("output", "")
+                or resp_data.get("generated_text", "")
+            )
+        if assistant_text:
+            messages.append(NormalizedMessage(
+                role="assistant",
+                content_text=assistant_text,
+                model_name=model,
+                ts=created_at,
+            ))
+
+        if len(messages) >= 2:
+            logger.info(
+                "embedded AI fallback normalized: provider=%s host=%s model=%s msgs=%d",
+                provider, host, model, len(messages),
+            )
+            return NormalizedResult(
+                provider=provider or "unknown",
+                tool_family=f"{provider}-embedded" if provider else "embedded",
+                model_name=model,
+                session_key=None,
+                title_hint=prompt[:100],
+                messages=messages,
+            )
+
+    return None
 
 
 def _persist_result(

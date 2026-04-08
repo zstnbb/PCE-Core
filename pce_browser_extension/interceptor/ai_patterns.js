@@ -66,6 +66,19 @@ const AI_API_DOMAINS = new Set([
   "copilot.microsoft.com",
   "api.githubcopilot.com",
   "github.com",
+  // Notion AI
+  "www.notion.so",
+  "notion.so",
+  // Google embedded AI (Docs, Gmail, Sheets)
+  "docs.google.com",
+  "mail.google.com",
+  "alkali-pa.clients6.google.com",
+  "smartcompose-pa.googleapis.com",
+  "content-push.googleapis.com",
+  // Cursor / AI code editors
+  "api2.cursor.sh",
+  // Vercel AI
+  "v0.dev",
   // Local
   "localhost",
   "127.0.0.1",
@@ -90,6 +103,104 @@ const AI_PATH_PATTERNS = [
   /\/api\/append-message/,   // Claude web
   /\/generateContent/,       // Google Gemini API
   /\/streamGenerateContent/, // Google Gemini API streaming
+  // Embedded AI paths
+  /\/api\/v3\/getCompletion/,    // Notion AI
+  /\/api\/v3\/ai\//,             // Notion AI
+  /\/v1beta\/models\/.+:generateContent/, // Gemini beta
+  /\/v1beta\/models\/.+:streamGenerateContent/, // Gemini beta streaming
+  /\/_\/smart_?compose/i,        // Gmail Smart Compose
+  /\/assist\//,                  // Generic AI assist endpoints
+];
+
+// ---------------------------------------------------------------------------
+// Web UI domains vs pure API domains
+// Web UI domains serve pages + telemetry + AI calls on the same host.
+// We only capture requests whose path matches AI_PATH_PATTERNS or
+// WEB_UI_AI_PATHS, and skip known noise paths.
+// Pure API domains (api.openai.com etc.) capture everything.
+// ---------------------------------------------------------------------------
+
+const WEB_UI_DOMAINS = new Set([
+  "chatgpt.com",
+  "chat.openai.com",
+  "claude.ai",
+  "chat.deepseek.com",
+  "gemini.google.com",
+  "poe.com",
+  "grok.com",
+  "kimi.moonshot.cn",
+  "copilot.microsoft.com",
+  "huggingface.co",
+  "www.perplexity.ai",
+  // Embedded AI hosts (these serve both normal + AI traffic)
+  "www.notion.so",
+  "notion.so",
+  "docs.google.com",
+  "mail.google.com",
+  "v0.dev",
+]);
+
+const WEB_UI_AI_PATHS = [
+  /\/backend-api\/conversation$/,      // ChatGPT conversation POST
+  /\/backend-api\/conversation\//,     // ChatGPT conversation/<id>
+  /\/api\/chat\/completions/,          // DeepSeek API
+  /\/api\/append-message/,             // Claude
+  /\/api\/retry-message/,              // Claude
+  /\/api\/organizations\/.+\/chat_conversations/, // Claude
+  // Notion AI
+  /\/api\/v3\/getCompletion/,          // Notion AI completion
+  /\/api\/v3\/ai\//,                   // Notion AI endpoints
+  /\/api\/v3\/runAIBlock/,             // Notion AI block
+  // Google Docs / Gmail embedded AI
+  /\/document\/d\/.+\/batchUpdate/,    // Docs batch update (may contain AI)
+  /\/_\/smart_?compose/i,              // Gmail Smart Compose
+  /\/assist/,                          // Gmail "Help me write"
+  /\/v0\/chat/,                        // v0.dev chat
+];
+
+const WEB_UI_NOISE_PATHS = [
+  /\/sentinel\//,
+  /\/ces\//,
+  /\/statsc\//,
+  /\/analytics/,
+  /\/telemetry/,
+  /\/lat\//,
+  /\/register-websocket/,
+  /\/backend-api\/f\//,
+  /\/backend-api\/me/,
+  /\/backend-api\/settings/,
+  /\/backend-api\/accounts/,
+  /\/backend-api\/models/,
+  /\/backend-api\/prompt_library/,
+  /\/backend-api\/compliance/,
+  /\/backend-api\/connectors/,
+  /\/backend-api\/gizmos/,
+  /\/backend-api\/files/,
+  /\/backend-api\/share/,
+  // Notion noise
+  /\/api\/v3\/getUploadFileUrl/,
+  /\/api\/v3\/syncRecordValues/,
+  /\/api\/v3\/getAssetsJson/,
+  /\/api\/v3\/getUserAnalyticsSettings/,
+  /\/api\/v3\/getSpaces/,
+  /\/api\/v3\/loadPageChunk/,
+  // Google Docs/Gmail noise
+  /\/ListActivities/,
+  /\/GetDocument/,
+  /\/GetComments/,
+  /\/logImpressions/,
+  /\/v1\/initialize/,
+  /\/v1\/t$/,
+  /\/v1\/m$/,
+  /\/_next\//,
+  /\/assets\//,
+  /\/fe-static\//,
+  /\.js$/,
+  /\.css$/,
+  /\.woff/,
+  /\.png$/,
+  /\.svg$/,
+  /\.ico$/,
 ];
 
 // ---------------------------------------------------------------------------
@@ -103,11 +214,14 @@ const AI_REQUEST_FIELDS = {
     ["model", "prompt"],
     ["model", "input"],
     ["contents"],             // Google Gemini format
+    ["aiSessionId"],          // Notion AI session
   ],
   medium: [
     ["prompt", "max_tokens"],
     ["prompt", "temperature"],
     ["messages"],
+    ["context", "prompt"],    // Notion AI context+prompt
+    ["candidatesCount"],      // Gmail Smart Compose
   ],
 };
 
@@ -146,6 +260,15 @@ const HOST_TO_PROVIDER = {
   "dashscope.aliyuncs.com": "alibaba",
   "copilot.microsoft.com": "microsoft",
   "api.githubcopilot.com": "github",
+  "www.notion.so": "notion",
+  "notion.so": "notion",
+  "docs.google.com": "google",
+  "mail.google.com": "google",
+  "alkali-pa.clients6.google.com": "google",
+  "smartcompose-pa.googleapis.com": "google",
+  "content-push.googleapis.com": "google",
+  "api2.cursor.sh": "cursor",
+  "v0.dev": "vercel",
   "localhost": "local",
   "127.0.0.1": "local",
 };
@@ -166,6 +289,28 @@ function matchUrl(url) {
 
     // Fast path: known domain
     if (AI_API_DOMAINS.has(host)) {
+      // For web UI domains, filter out noise paths
+      if (WEB_UI_DOMAINS.has(host)) {
+        // Check if this is a known noise path → skip
+        if (WEB_UI_NOISE_PATHS.some((re) => re.test(path))) {
+          return { isAI: false, confidence: "none", provider: null, host, path };
+        }
+        // Check if this matches a known AI path → high confidence
+        if (WEB_UI_AI_PATHS.some((re) => re.test(path)) ||
+            AI_PATH_PATTERNS.some((re) => re.test(path))) {
+          return {
+            isAI: true,
+            confidence: "high",
+            provider: HOST_TO_PROVIDER[host] || "unknown",
+            host,
+            path,
+          };
+        }
+        // Unknown path on web UI domain → skip (conservative)
+        return { isAI: false, confidence: "none", provider: null, host, path };
+      }
+
+      // Pure API domain → everything is AI-related
       return {
         isAI: true,
         confidence: "high",
@@ -293,6 +438,7 @@ if (typeof window !== "undefined") {
     isStreamingResponse,
     isAIRequest,
     AI_API_DOMAINS,
+    WEB_UI_DOMAINS,
     HOST_TO_PROVIDER,
   };
 }

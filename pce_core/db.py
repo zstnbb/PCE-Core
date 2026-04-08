@@ -409,6 +409,126 @@ def get_source_activity(db_path: Optional[Path] = None) -> dict:
         conn.close()
 
 
+def get_capture_health(db_path: Optional[Path] = None) -> dict:
+    """Return per-channel capture health with time-windowed counts.
+
+    Returns a dict with per-source and per-direction breakdowns over
+    multiple time windows (5 min, 1 hour, 24 hours, all time), plus
+    recent provider activity and normalization success rate.
+    """
+    now = time.time()
+    windows = {
+        "5m": now - 300,
+        "1h": now - 3600,
+        "24h": now - 86400,
+    }
+    conn = get_connection(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        # ── Per source_id, time-windowed counts ────────────────────
+        source_health = {}
+        rows = conn.execute(
+            """
+            SELECT rc.source_id,
+                   s.source_type,
+                   COUNT(*) as total,
+                   MAX(rc.created_at) as last_seen,
+                   SUM(CASE WHEN rc.created_at >= ? THEN 1 ELSE 0 END) as count_5m,
+                   SUM(CASE WHEN rc.created_at >= ? THEN 1 ELSE 0 END) as count_1h,
+                   SUM(CASE WHEN rc.created_at >= ? THEN 1 ELSE 0 END) as count_24h
+            FROM raw_captures rc
+            JOIN sources s ON rc.source_id = s.id
+            GROUP BY rc.source_id
+            """,
+            (windows["5m"], windows["1h"], windows["24h"]),
+        ).fetchall()
+        for r in rows:
+            source_health[r["source_id"]] = {
+                "source_type": r["source_type"],
+                "total": r["total"],
+                "last_seen": r["last_seen"],
+                "count_5m": r["count_5m"],
+                "count_1h": r["count_1h"],
+                "count_24h": r["count_24h"],
+            }
+
+        # ── Per direction, time-windowed counts ────────────────────
+        direction_rows = conn.execute(
+            """
+            SELECT direction,
+                   COUNT(*) as total,
+                   MAX(created_at) as last_seen,
+                   SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) as count_5m,
+                   SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) as count_1h,
+                   SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) as count_24h
+            FROM raw_captures
+            GROUP BY direction
+            """,
+            (windows["5m"], windows["1h"], windows["24h"]),
+        ).fetchall()
+        direction_health = {}
+        for r in direction_rows:
+            direction_health[r["direction"]] = {
+                "total": r["total"],
+                "last_seen": r["last_seen"],
+                "count_5m": r["count_5m"],
+                "count_1h": r["count_1h"],
+                "count_24h": r["count_24h"],
+            }
+
+        # ── Recent provider activity ───────────────────────────────
+        provider_rows = conn.execute(
+            """
+            SELECT provider,
+                   COUNT(*) as count_1h,
+                   MAX(created_at) as last_seen
+            FROM raw_captures
+            WHERE created_at >= ? AND provider IS NOT NULL AND provider != ''
+            GROUP BY provider
+            ORDER BY count_1h DESC
+            """,
+            (windows["1h"],),
+        ).fetchall()
+        recent_providers = [
+            {"provider": r["provider"], "count_1h": r["count_1h"], "last_seen": r["last_seen"]}
+            for r in provider_rows
+        ]
+
+        # ── Normalization success rate (sessions vs raw pairs) ─────
+        pair_count_row = conn.execute(
+            """
+            SELECT COUNT(DISTINCT pair_id) as pair_count
+            FROM raw_captures
+            WHERE direction = 'response' AND created_at >= ?
+            """,
+            (windows["24h"],),
+        ).fetchone()
+        session_count_row = conn.execute(
+            """
+            SELECT COUNT(*) as session_count
+            FROM sessions
+            WHERE started_at >= ?
+            """,
+            (windows["24h"],),
+        ).fetchone()
+        pairs_24h = pair_count_row["pair_count"] if pair_count_row else 0
+        sessions_24h = session_count_row["session_count"] if session_count_row else 0
+
+        return {
+            "timestamp": now,
+            "sources": source_health,
+            "directions": direction_health,
+            "recent_providers": recent_providers,
+            "normalization": {
+                "pairs_24h": pairs_24h,
+                "sessions_24h": sessions_24h,
+                "success_rate": round(sessions_24h / pairs_24h, 2) if pairs_24h > 0 else None,
+            },
+        }
+    finally:
+        conn.close()
+
+
 # ---------------------------------------------------------------------------
 # Tier 1: sessions / messages
 # ---------------------------------------------------------------------------

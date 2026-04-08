@@ -27,6 +27,8 @@
     return (
       document.querySelector('[class*="conversation-content"]') ||
       document.querySelector('[class*="chat-messages"]') ||
+      document.querySelector('[class*="thread-content"]') ||
+      document.querySelector('[role="log"]') ||
       document.querySelector("main .flex.flex-col") ||
       document.querySelector("main")
     );
@@ -37,10 +39,10 @@
 
     // Strategy 1: Human/Assistant turn containers
     const humanTurns = document.querySelectorAll(
-      '[data-testid="human-turn"], [class*="human-turn"], .font-user-message'
+      '[data-testid="human-turn"], [data-testid*="user-message"], [class*="human-turn"], .font-user-message, [data-role="user"]'
     );
     const assistantTurns = document.querySelectorAll(
-      '[data-testid="assistant-turn"], [class*="assistant-turn"], .font-claude-message'
+      '[data-testid="assistant-turn"], [data-testid*="assistant-message"], [class*="assistant-turn"], .font-claude-message, [data-role="assistant"]'
     );
 
     if (humanTurns.length > 0 || assistantTurns.length > 0) {
@@ -77,18 +79,20 @@
 
     // Strategy 2: Generic message blocks with role detection
     const blocks = document.querySelectorAll(
-      '[class*="message"], [class*="Message"], [class*="turn"]'
+      '[class*="message"], [class*="Message"], [class*="turn"], [class*="Turn"]'
     );
     blocks.forEach((el) => {
       const text = el.innerText.trim();
       if (!text || text.length < 3) return;
 
-      // Detect role from class names or attributes
-      const classes = el.className.toLowerCase();
+      // Detect role from class names, data attributes, or ARIA
+      const classes = (el.className || "").toLowerCase();
+      const dataRole = el.getAttribute("data-role") || "";
+      const ariaLabel = (el.getAttribute("aria-label") || "").toLowerCase();
       let role = "unknown";
-      if (classes.includes("human") || classes.includes("user")) {
+      if (classes.includes("human") || classes.includes("user") || dataRole === "user" || ariaLabel.includes("user") || ariaLabel.includes("human")) {
         role = "user";
-      } else if (classes.includes("assistant") || classes.includes("claude") || classes.includes("ai")) {
+      } else if (classes.includes("assistant") || classes.includes("claude") || classes.includes("ai") || dataRole === "assistant" || ariaLabel.includes("assistant") || ariaLabel.includes("claude")) {
         role = "assistant";
       }
 
@@ -96,6 +100,22 @@
         messages.push({ role, content: text });
       }
     });
+    if (messages.length >= 2) return messages;
+
+    // Strategy 3: Alternating large text blocks in conversation area (last resort)
+    messages.length = 0;
+    const container = getConversationContainer();
+    if (container) {
+      const directChildren = container.querySelectorAll(':scope > div');
+      if (directChildren.length >= 2) {
+        directChildren.forEach((el, i) => {
+          const text = el.innerText.trim();
+          if (text && text.length > 5) {
+            messages.push({ role: i % 2 === 0 ? "user" : "assistant", content: text });
+          }
+        });
+      }
+    }
 
     return messages;
   }

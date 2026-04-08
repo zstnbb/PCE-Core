@@ -61,7 +61,11 @@ class ConversationNormalizer(BaseNormalizer):
             return True
         if host in _CONVERSATION_HOSTS:
             return True
-        return False
+        # Catch-all: this normalizer is registered LAST in the registry.
+        # If no other normalizer matched, accept any provider — the normalize()
+        # method will still validate that the body contains a messages array.
+        # This ensures new platforms work without code changes.
+        return True
 
     def normalize(
         self,

@@ -227,6 +227,20 @@ input:checked + .slider:before {
   color: #f87171;
 }
 
+.silent-warnings {
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: rgba(251, 146, 60, 0.1);
+  border: 1px solid rgba(251, 146, 60, 0.3);
+  border-radius: 6px;
+}
+
+.warning-item {
+  font-size: 11px;
+  color: #fb923c;
+  padding: 2px 0;
+}
+
 .footer {
   margin-top: 12px;
   padding-top: 12px;

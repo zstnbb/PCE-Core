@@ -25,6 +25,7 @@ Response body example:
 
 import json
 import logging
+import re
 from typing import Optional
 
 from .base import BaseNormalizer, NormalizedMessage, NormalizedResult
@@ -36,29 +37,49 @@ _CHAT_PATHS = {
     "/chat/completions",
 }
 
+# Regex for path variants: /api/v0/chat/completions, /backend-api/conversation, etc.
+_CHAT_PATH_RE = re.compile(
+    r"chat[/_-]?completions"
+    r"|/api/conversation"
+    r"|/backend-api/conversation"
+    r"|/api/append-message"         # Claude web
+    r"|/generateContent"             # Gemini
+    r"|/streamGenerateContent",      # Gemini streaming
+    re.IGNORECASE,
+)
+
+# All known hosts where OpenAI-compatible format is used (API + web UI)
+_COMPATIBLE_HOSTS = {
+    # OpenAI
+    "api.openai.com", "chatgpt.com", "chat.openai.com",
+    # DeepSeek
+    "api.deepseek.com", "chat.deepseek.com",
+    # Groq / Together / Fireworks / OpenRouter
+    "api.groq.com", "api.together.xyz", "api.fireworks.ai", "openrouter.ai",
+    # Perplexity / Mistral / xAI
+    "api.perplexity.ai", "www.perplexity.ai",
+    "api.mistral.ai", "chat.mistral.ai",
+    "api.x.ai", "grok.com",
+    # Local
+    "localhost", "127.0.0.1",
+}
+
 
 class OpenAIChatNormalizer(BaseNormalizer):
     """Normalizes OpenAI-compatible chat completions (also works for DeepSeek, Groq, Together, etc.)."""
 
     def can_handle(self, provider: str, host: str, path: str) -> bool:
-        # Match any provider that uses OpenAI-compatible chat completions
+        # Exact path match
         if path in _CHAT_PATHS:
             return True
-        # Also match known OpenAI-compatible hosts
-        compatible_hosts = {
-            "api.openai.com",
-            "api.deepseek.com",
-            "api.groq.com",
-            "api.together.xyz",
-            "api.fireworks.ai",
-            "openrouter.ai",
-            "localhost",
-            "127.0.0.1",
-        }
-        if host in compatible_hosts and "chat" in path:
+        # Regex path match (catches /api/v0/chat/completions etc.)
+        if _CHAT_PATH_RE.search(path):
             return True
-        # Browser extension captures from web UI (conversation direction)
-        if host in ("chatgpt.com", "chat.openai.com") or provider == "openai":
+        # Known OpenAI-compatible host (API or web UI)
+        if host in _COMPATIBLE_HOSTS:
+            return True
+        # Known provider
+        if provider in ("openai", "groq", "together", "fireworks", "openrouter"):
             return True
         return False
 
@@ -100,6 +121,13 @@ class OpenAIChatNormalizer(BaseNormalizer):
 
         # --- Parse response ---
         resp_data = _safe_json(response_body)
+
+        # SSE fallback: if response isn't valid JSON, try assembling SSE chunks
+        if resp_data is None and response_body:
+            from .sse import is_sse_text, assemble_sse_response
+            if is_sse_text(response_body):
+                resp_data = assemble_sse_response(response_body)
+
         if resp_data and isinstance(resp_data, dict):
             resp_model = resp_data.get("model", model)
             usage = resp_data.get("usage", {})

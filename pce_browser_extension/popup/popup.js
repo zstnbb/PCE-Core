@@ -24,7 +24,12 @@ const capturePageBtn = document.getElementById("capture-page-btn");
 const blacklistBtn = document.getElementById("blacklist-btn");
 const unblacklistBtn = document.getElementById("unblacklist-btn");
 
-dashboardLink.href = "http://127.0.0.1:9800";
+const DASHBOARD_URL = "http://127.0.0.1:9800";
+dashboardLink.href = DASHBOARD_URL;
+dashboardLink.addEventListener("click", (e) => {
+  e.preventDefault();
+  chrome.tabs.create({ url: DASHBOARD_URL });
+});
 
 let currentTabId = null;
 let currentDomain = null;
@@ -50,6 +55,18 @@ chrome.runtime.sendMessage({ type: "PCE_GET_STATUS" }, (response) => {
   if (response.lastError) {
     lastError.textContent = response.lastError;
     lastError.title = response.lastError;
+  }
+
+  // Show self-check warnings for silent domains
+  const silentWarnings = document.getElementById("silent-warnings");
+  if (response.silentDomains && response.silentDomains.length > 0) {
+    silentWarnings.style.display = "";
+    silentWarnings.innerHTML = response.silentDomains
+      .map(
+        (s) =>
+          `<div class="warning-item">⚠ ${s.domain}: detected ${s.age_s}s ago, 0 captures</div>`
+      )
+      .join("");
   }
 });
 

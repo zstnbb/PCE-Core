@@ -29,6 +29,63 @@ let lastError = null;
 let pceServerOnline = false;
 let siteBlacklist = [];
 
+// ---------------------------------------------------------------------------
+// Capture self-check: track detections vs actual captures per domain
+// ---------------------------------------------------------------------------
+const SELF_CHECK_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+const SELF_CHECK_INTERVAL_MS = 60 * 1000;    // check every 60s
+const domainDetections = new Map();  // domain -> { detectedAt, tabId, captures: 0 }
+
+function recordDetection(domain, tabId) {
+  if (!domain) return;
+  domainDetections.set(domain, {
+    detectedAt: Date.now(),
+    tabId,
+    captures: domainDetections.get(domain)?.captures || 0,
+  });
+}
+
+function recordCaptureSuccess(domain) {
+  if (!domain) return;
+  const entry = domainDetections.get(domain);
+  if (entry) {
+    entry.captures++;
+  } else {
+    domainDetections.set(domain, { detectedAt: Date.now(), tabId: null, captures: 1 });
+  }
+}
+
+function getSilentDomains() {
+  const now = Date.now();
+  const silent = [];
+  for (const [domain, info] of domainDetections) {
+    const age = now - info.detectedAt;
+    if (age > SELF_CHECK_WINDOW_MS) {
+      domainDetections.delete(domain);
+      continue;
+    }
+    // Detected > 30s ago but zero captures → likely broken
+    if (age > 30000 && info.captures === 0) {
+      silent.push({ domain, detectedAt: info.detectedAt, age_s: Math.round(age / 1000) });
+    }
+  }
+  return silent;
+}
+
+// Periodic self-check: update badge if silent domains found
+setInterval(() => {
+  if (!isEnabled) return;
+  const silent = getSilentDomains();
+  if (silent.length > 0) {
+    chrome.action.setBadgeText({ text: "!" });
+    chrome.action.setBadgeBackgroundColor({ color: "#fb923c" });
+    console.warn(`[PCE] Self-check: ${silent.length} AI page(s) detected but no captures received:`,
+      silent.map((s) => `${s.domain} (${s.age_s}s ago)`).join(", "));
+  } else {
+    chrome.action.setBadgeText({ text: "" });
+  }
+}, SELF_CHECK_INTERVAL_MS);
+
 // Load persisted state
 chrome.storage.local.get(["pce_enabled", "pce_capture_count", "pce_blacklist"], (result) => {
   if (result.pce_enabled !== undefined) isEnabled = result.pce_enabled;
@@ -172,6 +229,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         captureCount,
         serverOnline: pceServerOnline,
         lastError,
+        silentDomains: getSilentDomains(),
       });
     });
     return true; // async response
@@ -207,6 +265,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const domain = message.payload?.domain;
     if (domain) {
       reportDiscoveredDomain(domain, message.payload?.confidence, message.payload?.signals);
+      recordDetection(domain, tabId);
     }
 
     handleDynamicInjection(tabId, message.payload)
@@ -451,6 +510,7 @@ async function postToIngestAPI(body, provider) {
     lastError = null;
     pceServerOnline = true;
 
+    recordCaptureSuccess(body.host);
     console.log(`[PCE] Captured: ${provider || "unknown"} via ${body.direction} from ${body.host} (${result.id?.slice(0, 8)})`);
     return { id: result.id, pair_id: result.pair_id };
   } catch (err) {

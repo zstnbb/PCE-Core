@@ -25,6 +25,7 @@ from .db import (
     SOURCE_PROXY,
     add_custom_domain,
     get_custom_domains,
+    get_capture_health,
     get_source_activity,
     get_stats,
     init_db,
@@ -214,6 +215,167 @@ def get_pair(pair_id: str):
 @app.get("/api/v1/stats", response_model=StatsOut)
 def stats():
     return get_stats()
+
+
+# ---------------------------------------------------------------------------
+# Capture health (self-awareness)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/capture-health")
+def capture_health():
+    """Return per-channel capture health with time-windowed activity.
+
+    Used by the dashboard to display a live health panel showing which
+    capture channels are active, stale, or silent.
+    """
+    import time as _time
+
+    health = get_capture_health()
+    now = health["timestamp"]
+
+    def _channel_status(source_id: str, label: str) -> dict:
+        """Build a health summary for one logical capture channel."""
+        src = health["sources"].get(source_id, {})
+        last = src.get("last_seen")
+        c5m = src.get("count_5m", 0)
+        c1h = src.get("count_1h", 0)
+        c24h = src.get("count_24h", 0)
+        total = src.get("total", 0)
+
+        if c5m > 0:
+            status = "active"
+        elif c1h > 0:
+            status = "idle"
+        elif c24h > 0:
+            status = "stale"
+        elif total > 0:
+            status = "inactive"
+        else:
+            status = "never"
+
+        ago = round(now - last, 1) if last else None
+        return {
+            "id": source_id,
+            "label": label,
+            "status": status,
+            "last_seen": last,
+            "last_seen_ago_s": ago,
+            "count_5m": c5m,
+            "count_1h": c1h,
+            "count_24h": c24h,
+            "total": total,
+        }
+
+    # ── Map direction-based channels (browser ext has two sub-channels) ─
+    ext_src = health["sources"].get(SOURCE_BROWSER_EXT, {})
+    directions = health.get("directions", {})
+
+    # L1 (DOM) = direction=conversation from browser_ext
+    # L3 (Network) = direction=network_intercept from browser_ext
+    # We approximate by using direction counts as sub-channel indicators
+    dom_dir = directions.get("conversation", {})
+    net_dir = directions.get("network_intercept", {})
+
+    channels = [
+        _channel_status(SOURCE_BROWSER_EXT, "Browser Extension"),
+        _channel_status(SOURCE_PROXY, "HTTPS Proxy (L4)"),
+        _channel_status(SOURCE_MCP, "MCP Server"),
+    ]
+
+    # Add sub-channel detail for browser extension
+    channels[0]["sub_channels"] = {
+        "dom_extraction": {
+            "label": "L1 DOM Extraction",
+            "count_5m": dom_dir.get("count_5m", 0),
+            "count_1h": dom_dir.get("count_1h", 0),
+            "count_24h": dom_dir.get("count_24h", 0),
+            "last_seen": dom_dir.get("last_seen"),
+            "status": "active" if dom_dir.get("count_5m", 0) > 0 else (
+                "idle" if dom_dir.get("count_1h", 0) > 0 else (
+                    "stale" if dom_dir.get("count_24h", 0) > 0 else "inactive")),
+        },
+        "network_intercept": {
+            "label": "L3 Network Interception",
+            "count_5m": net_dir.get("count_5m", 0),
+            "count_1h": net_dir.get("count_1h", 0),
+            "count_24h": net_dir.get("count_24h", 0),
+            "last_seen": net_dir.get("last_seen"),
+            "status": "active" if net_dir.get("count_5m", 0) > 0 else (
+                "idle" if net_dir.get("count_1h", 0) > 0 else (
+                    "stale" if net_dir.get("count_24h", 0) > 0 else "inactive")),
+        },
+    }
+
+    # Local hook: aggregate all local-hook-* sources
+    local_sources = {k: v for k, v in health["sources"].items() if k.startswith("local-hook")}
+    local_total = sum(v.get("total", 0) for v in local_sources.values())
+    local_5m = sum(v.get("count_5m", 0) for v in local_sources.values())
+    local_1h = sum(v.get("count_1h", 0) for v in local_sources.values())
+    local_24h = sum(v.get("count_24h", 0) for v in local_sources.values())
+    local_last = max((v.get("last_seen", 0) for v in local_sources.values()), default=None)
+    if local_last and local_last <= 0:
+        local_last = None
+
+    local_status = "active" if local_5m > 0 else (
+        "idle" if local_1h > 0 else (
+            "stale" if local_24h > 0 else (
+                "inactive" if local_total > 0 else "never")))
+
+    channels.append({
+        "id": "local_hook",
+        "label": "Local Model Hook (L5)",
+        "status": local_status,
+        "last_seen": local_last,
+        "last_seen_ago_s": round(now - local_last, 1) if local_last else None,
+        "count_5m": local_5m,
+        "count_1h": local_1h,
+        "count_24h": local_24h,
+        "total": local_total,
+    })
+
+    # Clipboard
+    clip_sources = {k: v for k, v in health["sources"].items()
+                    if "clipboard" in k or v.get("source_type") == "clipboard"}
+    clip_total = sum(v.get("total", 0) for v in clip_sources.values())
+    clip_5m = sum(v.get("count_5m", 0) for v in clip_sources.values())
+    clip_1h = sum(v.get("count_1h", 0) for v in clip_sources.values())
+    clip_24h = sum(v.get("count_24h", 0) for v in clip_sources.values())
+    clip_last = max((v.get("last_seen", 0) for v in clip_sources.values()), default=None)
+    if clip_last and clip_last <= 0:
+        clip_last = None
+
+    clip_status = "active" if clip_5m > 0 else (
+        "idle" if clip_1h > 0 else (
+            "stale" if clip_24h > 0 else (
+                "inactive" if clip_total > 0 else "never")))
+
+    channels.append({
+        "id": "clipboard",
+        "label": "Clipboard Monitor (L7)",
+        "status": clip_status,
+        "last_seen": clip_last,
+        "last_seen_ago_s": round(now - clip_last, 1) if clip_last else None,
+        "count_5m": clip_5m,
+        "count_1h": clip_1h,
+        "count_24h": clip_24h,
+        "total": clip_total,
+    })
+
+    # ── Overall health score ───────────────────────────────────────────
+    active_count = sum(1 for c in channels if c["status"] == "active")
+    configured_count = sum(1 for c in channels if c["status"] != "never")
+
+    return {
+        "timestamp": now,
+        "channels": channels,
+        "recent_providers": health["recent_providers"],
+        "normalization": health["normalization"],
+        "summary": {
+            "active_channels": active_count,
+            "configured_channels": configured_count,
+            "total_channels": len(channels),
+        },
+    }
 
 
 # ---------------------------------------------------------------------------

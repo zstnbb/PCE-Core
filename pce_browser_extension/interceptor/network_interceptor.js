@@ -22,7 +22,7 @@
   window.__PCE_INTERCEPTOR_ACTIVE = true;
 
   const TAG = "[PCE:interceptor]";
-  const SSE_TIMEOUT_MS = 30000; // Force-flush SSE after 30s of silence
+  const SSE_TIMEOUT_MS = 120000; // Force-flush SSE after 120s of silence (long AI responses)
   const MSG_TYPE = "PCE_NETWORK_CAPTURE";
 
   // Wait for ai_patterns.js to be available
@@ -137,7 +137,12 @@
         } else {
           // Non-streaming: clone and read
           const clone = response.clone();
-          const text = await clone.text();
+          let text;
+          try {
+            text = await clone.text();
+          } catch {
+            text = "[unreadable response body]";
+          }
           const latencyMs = performance.now() - requestTime;
 
           postCapture({
@@ -167,6 +172,29 @@
         // Never break the page
       }
       return response;
+    }).catch((fetchErr) => {
+      // Network error – log the failed attempt so self-check can detect silent failures
+      try {
+        postCapture({
+          capture_type: "fetch_error",
+          capture_id: captureId,
+          url: url,
+          method: (init && init.method) || "GET",
+          host: match.host,
+          path: match.path,
+          provider: match.provider,
+          model: match.model,
+          confidence: match.confidence,
+          status_code: 0,
+          latency_ms: Math.round(performance.now() - requestTime),
+          request_body: truncate(reqBodyStr, 50000),
+          response_body: JSON.stringify({ error: fetchErr.message }),
+          response_content_type: "",
+          is_streaming: false,
+          timestamps: { request_sent_at: Date.now() },
+        });
+      } catch { /* never break the page */ }
+      throw fetchErr; // Re-throw so the page sees the original error
     });
   };
 
@@ -324,6 +352,29 @@
           });
         } catch { /* never break the page */ }
       });
+
+      this.addEventListener("error", function () {
+        try {
+          postCapture({
+            capture_type: "xhr_error",
+            capture_id: captureId,
+            url: url,
+            method: method,
+            host: match.host,
+            path: match.path,
+            provider: match.provider,
+            model: match.model,
+            confidence: match.confidence,
+            status_code: 0,
+            latency_ms: Math.round(performance.now() - requestTime),
+            request_body: truncate(reqBodyStr, 50000),
+            response_body: JSON.stringify({ error: "XHR network error" }),
+            response_content_type: "",
+            is_streaming: false,
+            timestamps: { request_sent_at: Date.now() },
+          });
+        } catch { /* never break the page */ }
+      });
     }
 
     return _origXHRSend.call(this, body);
@@ -342,10 +393,62 @@
   } catch { /* best effort */ }
 
   // -----------------------------------------------------------------------
-  // 3. WebSocket interceptor
+  // 3. WebSocket interceptor (enhanced for ChatGPT/Claude WS streams)
   // -----------------------------------------------------------------------
 
   const _origWebSocket = window.WebSocket;
+
+  // ChatGPT WS messages use a custom protocol. Extract assistant content
+  // from various message formats encountered in the wild.
+  function _extractWsConversationContent(messages) {
+    const contentParts = [];
+    let model = null;
+
+    for (const raw of messages) {
+      const obj = safeJsonParse(raw);
+      if (!obj) {
+        // Could be SSE-formatted data over WS
+        if (raw.startsWith("data: ")) {
+          const inner = safeJsonParse(raw.slice(6));
+          if (inner) {
+            const delta = inner.choices?.[0]?.delta;
+            if (delta?.content) contentParts.push(delta.content);
+            if (inner.model) model = inner.model;
+          }
+        }
+        continue;
+      }
+
+      // ChatGPT "v1" streaming format: {"type":"...", "body":"..."}
+      if (obj.body) {
+        const body = safeJsonParse(obj.body) || obj.body;
+        if (typeof body === "object") {
+          // Look for conversation turn data
+          const msg = body.message;
+          if (msg?.content?.parts) {
+            const text = msg.content.parts.filter(p => typeof p === "string").join("");
+            if (text) contentParts.push(text);
+          }
+          if (msg?.metadata?.model_slug) model = msg.metadata.model_slug;
+          if (body.model) model = body.model;
+        }
+      }
+
+      // Standard OpenAI streaming format
+      if (obj.choices) {
+        const delta = obj.choices[0]?.delta;
+        if (delta?.content) contentParts.push(delta.content);
+        if (obj.model) model = obj.model;
+      }
+
+      // Direct content field
+      if (obj.content && typeof obj.content === "string" && obj.role === "assistant") {
+        contentParts.push(obj.content);
+      }
+    }
+
+    return { content: contentParts.join(""), model };
+  }
 
   window.WebSocket = function PatchedWebSocket(url, protocols) {
     const ws = protocols !== undefined
@@ -355,84 +458,140 @@
     const patterns = getPatterns();
     if (!patterns) return ws;
 
-    const urlMatch = patterns.matchUrl(url);
-
-    if (urlMatch.isAI) {
-      const chunks = [];
-      const startTime = Date.now();
-
-      ws.addEventListener("message", function (event) {
-        try {
-          const data = typeof event.data === "string"
-            ? event.data
-            : "[Binary WebSocket frame]";
-
-          chunks.push(data);
-
-          // Debounce: post accumulated WS messages every 5 seconds
-          if (!ws.__pce_flush_timer) {
-            ws.__pce_flush_timer = setTimeout(() => {
-              const allData = chunks.splice(0, chunks.length).join("\n");
-              postCapture({
-                capture_type: "websocket",
-                capture_id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-                url: url,
-                method: "WS",
-                host: urlMatch.host,
-                path: urlMatch.path,
-                provider: urlMatch.provider,
-                model: null,
-                confidence: urlMatch.confidence,
-                status_code: null,
-                latency_ms: null,
-                request_body: null,
-                response_body: truncate(allData, 200000),
-                response_content_type: "websocket",
-                is_streaming: true,
-                timestamps: {
-                  request_sent_at: startTime,
-                  first_token_at: startTime,
-                  stream_complete_at: Date.now(),
-                },
-              });
-              ws.__pce_flush_timer = null;
-            }, 5000);
-          }
-        } catch { /* never break the page */ }
-      });
-
-      ws.addEventListener("close", function () {
-        if (ws.__pce_flush_timer) {
-          clearTimeout(ws.__pce_flush_timer);
-          ws.__pce_flush_timer = null;
-        }
-        if (chunks.length > 0) {
-          const allData = chunks.splice(0, chunks.length).join("\n");
-          postCapture({
-            capture_type: "websocket",
-            capture_id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-            url: url,
-            method: "WS",
-            host: urlMatch.host,
-            path: urlMatch.path,
-            provider: urlMatch.provider,
-            model: null,
-            confidence: urlMatch.confidence,
-            status_code: null,
-            latency_ms: Date.now() - startTime,
-            request_body: null,
-            response_body: truncate(allData, 200000),
-            response_content_type: "websocket",
-            is_streaming: true,
-            timestamps: {
-              request_sent_at: startTime,
-              first_token_at: startTime,
-              stream_complete_at: Date.now(),
-            },
-          });
-        }
-      });
+    // For WebSocket, use permissive domain-level matching.
+    // WS connections on AI domains are almost always conversation streams,
+    // unlike fetch which includes tons of telemetry/heartbeat noise.
+    let wsHost, wsPath, wsProvider;
+    try {
+      const parsed = new URL(url);
+      wsHost = parsed.hostname;
+      wsPath = parsed.pathname;
+      wsProvider = patterns.HOST_TO_PROVIDER[wsHost] || null;
+    } catch {
+      return ws;
     }
+
+    const isAIDomain = patterns.AI_API_DOMAINS.has(wsHost);
+    if (!isAIDomain) return ws;
+
+    const receivedChunks = [];
+    const sentChunks = [];
+    const startTime = Date.now();
+    let firstChunkTime = null;
+    let flushTimer = null;
+    let flushed = false;
+    const FLUSH_DELAY_MS = 15000; // Wait for stream to settle (increased for long responses)
+
+    function resetFlushTimer() {
+      if (flushTimer) clearTimeout(flushTimer);
+      flushTimer = setTimeout(flushAndPost, FLUSH_DELAY_MS);
+    }
+
+    function flushAndPost() {
+      if (flushed) return;
+      if (flushTimer) clearTimeout(flushTimer);
+
+      // Content-based filtering: only post if we found meaningful content
+      const extracted = _extractWsConversationContent(receivedChunks);
+      if (!extracted.content || extracted.content.length < 20) {
+        // No meaningful AI content — might be ping/pong or control frames
+        receivedChunks.length = 0;
+        sentChunks.length = 0;
+        flushed = false; // Allow re-capture for next turn
+        return;
+      }
+
+      flushed = true;
+
+      // Build a synthetic response body matching the format the normalizer expects
+      const respBody = JSON.stringify({
+        model: extracted.model,
+        choices: [{ message: { role: "assistant", content: extracted.content } }],
+      });
+
+      // Try to extract the user's request from sent messages
+      let reqBody = null;
+      for (const raw of sentChunks) {
+        const obj = safeJsonParse(raw);
+        if (obj?.messages || obj?.message || obj?.prompt) {
+          reqBody = raw;
+          break;
+        }
+        // ChatGPT "v1" format: request inside body field
+        if (obj?.body) {
+          const inner = safeJsonParse(obj.body);
+          if (inner?.messages) {
+            reqBody = obj.body;
+            break;
+          }
+        }
+      }
+
+      postCapture({
+        capture_type: "websocket",
+        capture_id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        url: url,
+        method: "WS",
+        host: wsHost,
+        path: wsPath,
+        provider: wsProvider || "unknown",
+        model: extracted.model,
+        confidence: "high",
+        status_code: null,
+        latency_ms: Date.now() - startTime,
+        request_body: truncate(reqBody, 50000),
+        response_body: truncate(respBody, 200000),
+        response_content_type: "websocket",
+        is_streaming: true,
+        timestamps: {
+          request_sent_at: startTime,
+          first_token_at: firstChunkTime || Date.now(),
+          stream_complete_at: Date.now(),
+        },
+      });
+
+      // Reset for next conversation turn on the same WS connection
+      receivedChunks.length = 0;
+      sentChunks.length = 0;
+      flushed = false;
+    }
+
+    // Intercept incoming messages
+    ws.addEventListener("message", function (event) {
+      try {
+        let data;
+        if (typeof event.data === "string") {
+          data = event.data;
+        } else if (event.data instanceof ArrayBuffer) {
+          try { data = new TextDecoder().decode(event.data); } catch { data = "[Binary]"; }
+        } else if (event.data instanceof Blob) {
+          data = "[Blob]"; // Cannot synchronously read Blob
+        } else {
+          data = "[Binary]";
+        }
+        receivedChunks.push(data);
+        if (!firstChunkTime) firstChunkTime = Date.now();
+        resetFlushTimer();
+      } catch { /* never break the page */ }
+    });
+
+    // Intercept outgoing messages (monkey-patch ws.send)
+    const _origSend = ws.send.bind(ws);
+    ws.send = function (data) {
+      try {
+        if (typeof data === "string") {
+          sentChunks.push(data);
+        }
+      } catch { /* never break */ }
+      return _origSend(data);
+    };
+
+    ws.addEventListener("close", function () {
+      if (flushTimer) clearTimeout(flushTimer);
+      if (!flushed && receivedChunks.length > 0) {
+        flushAndPost();
+      }
+    });
 
     return ws;
   };
@@ -519,6 +678,13 @@
 
         // Store ref for cleanup
         es.__pce_flush = flushAndPost;
+
+        // Override close() to flush before closing
+        const _origClose = es.close.bind(es);
+        es.close = function () {
+          flushAndPost();
+          return _origClose();
+        };
       }
 
       return es;

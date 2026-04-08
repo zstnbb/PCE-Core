@@ -44,11 +44,14 @@
   function isStreaming() {
     // ChatGPT shows a stop button or streaming indicator while generating
     if (document.querySelector('button[aria-label="Stop generating"]')) return true;
+    if (document.querySelector('button[aria-label="Stop reasoning"]')) return true;
     if (document.querySelector('button[data-testid="stop-button"]')) return true;
     if (document.querySelector(".result-streaming")) return true;
     if (document.querySelector('[class*="stop-"]')) return true;
     // Streaming cursor / animated dots
     if (document.querySelector('[class*="streaming"]')) return true;
+    if (document.querySelector('[class*="typing"]')) return true;
+    if (document.querySelector('[class*="cursor"]')) return true;
     return false;
   }
 
@@ -97,6 +100,8 @@
     for (const sel of [
       '[class*="react-scroll-to-bottom"]',
       'main [role="presentation"]',
+      'main [role="log"]',
+      '[class*="conversation"]',
       "main",
     ]) {
       const el = document.querySelector(sel);
@@ -135,11 +140,19 @@
 
   /** Extract the main reply content from a turn element (excluding thinking) */
   function extractReplyContent(turnEl) {
-    // First try specific content selectors
-    const contentEl = turnEl.querySelector(
-      ".markdown.prose, .markdown, .whitespace-pre-wrap, .text-message"
-    );
-    if (contentEl) return contentEl.innerText.trim();
+    // First try specific content selectors (ordered by specificity)
+    for (const sel of [
+      ".markdown.prose",
+      ".markdown",
+      ".whitespace-pre-wrap",
+      ".text-message",
+      '[class*="message-content"]',
+      '[class*="response-content"]',
+      '[data-testid="message-content"]',
+    ]) {
+      const contentEl = turnEl.querySelector(sel);
+      if (contentEl) return contentEl.innerText.trim();
+    }
     // Fallback: direct inner text, but exclude <details> (thinking)
     const clone = turnEl.cloneNode(true);
     clone.querySelectorAll("details").forEach((d) => d.remove());
@@ -207,6 +220,36 @@
           messages.push({ role: roleAttr || (i % 2 === 0 ? "user" : "assistant"), content: text });
         }
       });
+      if (messages.length > 0) return messages;
+    }
+
+    // Strategy D: data-message-id elements (another stable ChatGPT attribute)
+    const msgIdEls = document.querySelectorAll("[data-message-id]");
+    if (msgIdEls.length > 0) {
+      msgIdEls.forEach((el, i) => {
+        const roleAttr = el.getAttribute("data-message-author-role")
+          || el.closest("[data-message-author-role]")?.getAttribute("data-message-author-role");
+        const role = roleAttr || (i % 2 === 0 ? "user" : "assistant");
+        const text = role === "user" ? el.innerText.trim() : extractReplyContent(el);
+        if (text && text.length > 1) {
+          messages.push({ role, content: text });
+        }
+      });
+      if (messages.length > 0) return messages;
+    }
+
+    // Strategy E: ARIA role-based generic (role="row" or role="listitem" in conversation)
+    const container = getContainer();
+    if (container) {
+      const rows = container.querySelectorAll('[role="row"], [role="listitem"], [role="group"]');
+      if (rows.length >= 2) {
+        rows.forEach((el, i) => {
+          const text = el.innerText.trim();
+          if (text && text.length > 3) {
+            messages.push({ role: i % 2 === 0 ? "user" : "assistant", content: text });
+          }
+        });
+      }
     }
 
     return messages;
