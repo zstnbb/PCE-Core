@@ -23,6 +23,9 @@
   // Guard against double-injection
   if (window.__PCE_BRIDGE_ACTIVE) return;
   window.__PCE_BRIDGE_ACTIVE = true;
+  // detector.js historically checked __PCE_BRIDGE_LOADED. Keep both flags so
+  // static content-script injection is visible to all older/newer callers.
+  window.__PCE_BRIDGE_LOADED = true;
 
   // -----------------------------------------------------------------------
   // Inject interceptor scripts into page context
@@ -41,6 +44,14 @@
       console.warn(TAG, "Failed to inject", fileName, e);
     }
   }
+
+  // Signal to page-context scripts that this page is confirmed AI.
+  // Use a DOM attribute (CSP-safe) so network_interceptor.js can read it.
+  document.documentElement.setAttribute("data-pce-ai-confirmed", "1");
+
+  // Also inject a tiny external script to set the window-level flag
+  // (external <script src> is allowed by CSP, inline is not).
+  injectPageScript("interceptor/page_confirmed.js");
 
   // ai_patterns.js must load first (it sets window.__PCE_AI_PATTERNS)
   injectPageScript("interceptor/ai_patterns.js");

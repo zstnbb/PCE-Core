@@ -20,6 +20,24 @@
   if (window.__PCE_UNIVERSAL_EXTRACTOR_LOADED) return;
   window.__PCE_UNIVERSAL_EXTRACTOR_LOADED = true;
 
+  // Skip if a site-specific extractor is already active (avoid duplicate captures)
+  const _SITE_EXTRACTORS = [
+    "__PCE_CHATGPT_ACTIVE",
+    "__PCE_CLAUDE_ACTIVE",
+    "__PCE_DEEPSEEK_ACTIVE",
+    "__PCE_GEMINI_ACTIVE",
+    "__PCE_PERPLEXITY_ACTIVE",
+    "__PCE_GROK_ACTIVE",
+    "__PCE_POE_ACTIVE",
+    "__PCE_COPILOT_ACTIVE",
+  ];
+  for (const flag of _SITE_EXTRACTORS) {
+    if (window[flag]) {
+      console.debug(`[PCE Universal] Skipping — site-specific extractor already active (${flag})`);
+      return;
+    }
+  }
+
   const PROVIDER = "universal";
   const SOURCE_NAME = "chrome-ext-universal";
   const DEBOUNCE_MS = 2500;
@@ -132,15 +150,18 @@
     return null;
   }
 
+  // Shared utilities from pce_dom_utils.js
+  const _pce = () => window.__PCE_EXTRACT || {};
+
   function extractTextContent(el) {
-    // Clone and remove hidden elements, scripts, styles
+    // Delegate to shared utility if available
+    const shared = _pce().extractReplyContent;
+    if (shared) return shared(el);
+    // Fallback: clone and remove hidden elements, scripts, styles
     const clone = el.cloneNode(true);
     clone.querySelectorAll("script, style, [hidden], .sr-only").forEach((e) => e.remove());
-
-    // Prefer markdown-rendered content
     const prose = clone.querySelector(".markdown, .prose, .markdown-body, [class*='rendered']");
     if (prose) return prose.innerText.trim();
-
     return clone.innerText.trim();
   }
 
@@ -156,9 +177,21 @@
         els.forEach((el) => {
           const role = detectRole(el);
           if (!role) return;
-          const text = extractTextContent(el);
+          let text = "";
+          if (role === "assistant") {
+            const thinking = (_pce().extractThinking || (() => ""))(el);
+            const reply = extractTextContent(el);
+            if (thinking) text += "<thinking>\n" + thinking + "\n</thinking>\n\n";
+            if (reply) text += reply;
+            text = text.trim();
+          } else {
+            text = extractTextContent(el);
+          }
           if (text && text.length > 1) {
-            messages.push({ role, content: text });
+            const msg = { role, content: text };
+            const att = (_pce().extractAttachments || (() => []))(el);
+            if (att.length > 0) msg.attachments = att;
+            messages.push(msg);
           }
         });
 
@@ -192,20 +225,33 @@
       // Use detected roles, skip undetected
       for (const { el, role } of withRoles) {
         if (!role) continue;
-        const text = extractTextContent(el);
+        let text = "";
+        if (role === "assistant") {
+          const thinking = (_pce().extractThinking || (() => ""))(el);
+          const reply = extractTextContent(el);
+          if (thinking) text += "<thinking>\n" + thinking + "\n</thinking>\n\n";
+          if (reply) text += reply;
+          text = text.trim();
+        } else {
+          text = extractTextContent(el);
+        }
         if (text && text.length > 1) {
-          messages.push({ role, content: text });
+          const msg = { role, content: text };
+          const att = (_pce().extractAttachments || (() => []))(el);
+          if (att.length > 0) msg.attachments = att;
+          messages.push(msg);
         }
       }
     } else {
       // Alternating assumption: first visible = user, second = assistant
       children.forEach((el, i) => {
+        const role = i % 2 === 0 ? "user" : "assistant";
         const text = extractTextContent(el);
         if (text && text.length > 1) {
-          messages.push({
-            role: i % 2 === 0 ? "user" : "assistant",
-            content: text,
-          });
+          const msg = { role, content: text };
+          const att = (_pce().extractAttachments || (() => []))(el);
+          if (att.length > 0) msg.attachments = att;
+          messages.push(msg);
         }
       });
     }
@@ -226,24 +272,13 @@
   // -------------------------------------------------------------------------
 
   function getSessionHint() {
+    // Delegate to shared utility
+    const shared = _pce().getSessionHint;
+    if (shared) return shared();
+    // Fallback
     const path = location.pathname;
-
-    // Common patterns: /chat/<id>, /c/<id>, /conversation/<id>, /thread/<id>
-    const patterns = [
-      /\/chat\/([a-f0-9-]{8,})/i,
-      /\/c\/([a-f0-9-]{8,})/i,
-      /\/conversation\/([a-f0-9-]{8,})/i,
-      /\/thread\/([a-f0-9-]{8,})/i,
-      /\/t\/([a-f0-9-]{8,})/i,
-    ];
-
-    for (const re of patterns) {
-      const m = path.match(re);
-      if (m) return m[1];
-    }
-
-    // Fallback: use path as session hint
-    return path.length > 1 ? path : null;
+    const m = path.match(/\/(?:c|chat|conversation|thread|t)\/([a-f0-9-]{8,})/i);
+    return m ? m[1] : (path.length > 1 ? path : null);
   }
 
   // -------------------------------------------------------------------------
@@ -270,6 +305,14 @@
   // -------------------------------------------------------------------------
 
   function captureConversation() {
+    // Wait for streaming to finish before capturing
+    const streaming = _pce().isStreaming;
+    if (streaming && streaming()) {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(captureConversation, 1500);
+      return;
+    }
+
     const allMsgs = extractMessages();
     if (allMsgs.length === 0) return;
 
@@ -277,11 +320,9 @@
     if (fp === lastFingerprint) return;
     lastFingerprint = fp;
 
-    const newMsgs = allMsgs.slice(sentCount);
-    if (newMsgs.length === 0) {
+    const updateOnly = allMsgs.length > 0 && allMsgs.slice(sentCount).length === 0;
+    const newMsgs = updateOnly ? [allMsgs[allMsgs.length - 1]] : allMsgs.slice(sentCount);
       // Content changed but count didn't — update in last message
-      return;
-    }
 
     const prevCount = sentCount;
     sentCount = allMsgs.length;
@@ -309,6 +350,8 @@
       meta: {
         new_message_count: newMsgs.length,
         total_message_count: allMsgs.length,
+        capture_mode: updateOnly ? "message_update" : "message_delta",
+        updated_message_index: updateOnly ? allMsgs.length - 1 : null,
         extraction_strategy: "universal-dom",
         behavior: window.__PCE_BEHAVIOR
           ? window.__PCE_BEHAVIOR.getBehaviorSnapshot(true)

@@ -56,8 +56,12 @@ const AI_API_DOMAINS = new Set([
   // Moonshot / Kimi
   "api.moonshot.cn",
   "kimi.moonshot.cn",
-  // Zhipu / ChatGLM
+  // Zhipu / ChatGLM / Z.ai
   "open.bigmodel.cn",
+  "chat.z.ai",
+  "chatglm.cn",
+  "chat.zhipuai.cn",
+  "maas.aminer.cn",
   // Baidu / ERNIE
   "aip.baidubce.com",
   // Alibaba / Qwen
@@ -100,6 +104,14 @@ const AI_PATH_PATTERNS = [
   /\/api\/generate/,         // Ollama
   /\/api\/chat/,             // Ollama
   /\/backend-api\/conversation/, // ChatGPT internal
+  // Chinese AI providers
+  /\/api\/paas\/.*\/chat\/completions/, // Zhipu OpenAI-compatible
+  /\/chatglm\/.*\/stream/,             // ChatGLM streaming
+  /\/assistant\/stream/,               // ChatGLM / generic assistant streaming
+  /\/erniebot\//,                      // Baidu ERNIE Bot
+  /\/rpc\/2\.0\/ai_custom\//,          // Baidu AI custom
+  /\/api\/v\d+\/chat\//,               // Generic versioned chat API
+  /\/compatible-mode\/v\d+\/chat/,     // Zhipu compatible mode
   /\/api\/append-message/,   // Claude web
   /\/generateContent/,       // Google Gemini API
   /\/streamGenerateContent/, // Google Gemini API streaming
@@ -132,6 +144,10 @@ const WEB_UI_DOMAINS = new Set([
   "copilot.microsoft.com",
   "huggingface.co",
   "www.perplexity.ai",
+  // Zhipu / ChatGLM / Z.ai
+  "chat.z.ai",
+  "chatglm.cn",
+  "chat.zhipuai.cn",
   // Embedded AI hosts (these serve both normal + AI traffic)
   "www.notion.so",
   "notion.so",
@@ -156,6 +172,12 @@ const WEB_UI_AI_PATHS = [
   /\/_\/smart_?compose/i,              // Gmail Smart Compose
   /\/assist/,                          // Gmail "Help me write"
   /\/v0\/chat/,                        // v0.dev chat
+  // Zhipu / ChatGLM / Z.ai
+  /\/api\/paas\/.*\/chat\/completions/,  // Zhipu OpenAI-compatible
+  /\/chatglm\/.*\/stream/,               // ChatGLM streaming
+  /\/assistant\/stream/,                 // ChatGLM assistant stream
+  /\/api\/chat[\/-]/,                    // Generic chat endpoint
+  /\/api\/assistant\//,                  // Generic assistant endpoint
 ];
 
 const WEB_UI_NOISE_PATHS = [
@@ -256,6 +278,10 @@ const HOST_TO_PROVIDER = {
   "api.moonshot.cn": "moonshot",
   "kimi.moonshot.cn": "moonshot",
   "open.bigmodel.cn": "zhipu",
+  "chat.z.ai": "zhipu",
+  "chatglm.cn": "zhipu",
+  "chat.zhipuai.cn": "zhipu",
+  "maas.aminer.cn": "zhipu",
   "aip.baidubce.com": "baidu",
   "dashscope.aliyuncs.com": "alibaba",
   "copilot.microsoft.com": "microsoft",

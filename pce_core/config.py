@@ -51,6 +51,11 @@ ALLOWED_HOSTS: set[str] = {
     "api.moonshot.cn",
     "api.baichuan-ai.com",
     "api.zhipuai.cn",
+    "chat.z.ai",
+    "chatglm.cn",
+    "chat.zhipuai.cn",
+    "open.bigmodel.cn",
+    "maas.aminer.cn",
     # ── Vendor Relay / IDE ────────────────────────────────
     "api2.cursor.sh",
     "api.codeium.com",

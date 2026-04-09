@@ -8,6 +8,10 @@
 (function () {
   "use strict";
 
+  // Guard against double-injection
+  if (window.__PCE_CLAUDE_ACTIVE) return;
+  window.__PCE_CLAUDE_ACTIVE = true;
+
   const PROVIDER = "anthropic";
   const SOURCE_NAME = "claude-web";
   const DEBOUNCE_MS = 2000;
@@ -18,6 +22,11 @@
   let observerActive = false;
 
   console.log("[PCE] Claude content script loaded");
+
+  // Delegate to shared utilities from pce_dom_utils.js
+  const _pce = () => window.__PCE_EXTRACT || {};
+  function _extractAttachments(el) { return (_pce().extractAttachments || (() => []))(el); }
+  function _extractThinking(el) { return (_pce().extractThinking || (() => ""))(el); }
 
   // ---------------------------------------------------------------------------
   // DOM selectors
@@ -52,28 +61,41 @@
       humanTurns.forEach((el) => {
         const text = el.innerText.trim();
         if (text) {
-          allTurns.push({
+          const att = _extractAttachments(el);
+          const turn = {
             role: "user",
             content: text,
             top: el.getBoundingClientRect().top,
-          });
+          };
+          if (att.length > 0) turn.attachments = att;
+          allTurns.push(turn);
         }
       });
 
       assistantTurns.forEach((el) => {
+        const thinking = _extractThinking(el);
         const text = el.innerText.trim();
         if (text) {
-          allTurns.push({
+          let content = text;
+          if (thinking) content = "<thinking>\n" + thinking + "\n</thinking>\n\n" + content;
+          const att = _extractAttachments(el);
+          const turn = {
             role: "assistant",
-            content: text,
+            content,
             top: el.getBoundingClientRect().top,
-          });
+          };
+          if (att.length > 0) turn.attachments = att;
+          allTurns.push(turn);
         }
       });
 
       // Sort by vertical position (top of page first)
       allTurns.sort((a, b) => a.top - b.top);
-      allTurns.forEach((t) => messages.push({ role: t.role, content: t.content }));
+      allTurns.forEach((t) => {
+        const msg = { role: t.role, content: t.content };
+        if (t.attachments) msg.attachments = t.attachments;
+        messages.push(msg);
+      });
       return messages;
     }
 

@@ -17,6 +17,8 @@
   let sentCount = 0;
   let debounceTimer = null;
   let observerActive = false;
+  const _pce = () => window.__PCE_EXTRACT || {};
+  const _extractAttachments = (el) => (_pce().extractAttachments || (() => []))(el);
 
   console.log("[PCE] Perplexity content script loaded");
 
@@ -49,12 +51,19 @@
         els.forEach((el) => {
           const role = _detectRole(el);
           const text = _extractText(el);
-          if (text && text.length > 3) {
-            messages.push({ role, content: text });
+          if (role === "unknown" || !text || text.length <= 3) {
+            return;
           }
+          const msg = { role, content: text };
+          const att = _extractAttachments(el);
+          if (att.length > 0) msg.attachments = att;
+          messages.push(msg);
         });
 
-        if (messages.length >= 2) return messages;
+        const roles = new Set(messages.map((m) => m.role));
+        if (messages.length >= 2 && roles.has("user") && roles.has("assistant")) {
+          return _dedupeMessages(messages);
+        }
         messages.length = 0;
       } catch {}
     }
@@ -68,12 +77,35 @@
       for (let i = 0; i < maxPairs; i++) {
         const qText = queries[i]?.innerText?.trim();
         const aText = _extractText(answers[i]);
-        if (qText && qText.length > 1) messages.push({ role: "user", content: qText });
-        if (aText && aText.length > 1) messages.push({ role: "assistant", content: aText });
+        if (qText && qText.length > 1) {
+          const msg = { role: "user", content: qText };
+          const att = _extractAttachments(queries[i]);
+          if (att.length > 0) msg.attachments = att;
+          messages.push(msg);
+        }
+        if (aText && aText.length > 1) {
+          const msg = { role: "assistant", content: aText };
+          const att = _extractAttachments(answers[i]);
+          if (att.length > 0) msg.attachments = att;
+          messages.push(msg);
+        }
       }
     }
 
-    return messages;
+    return _dedupeMessages(messages);
+  }
+
+  function _dedupeMessages(messages) {
+    const deduped = [];
+    const seen = new Set();
+    for (const msg of messages) {
+      if (!msg || !msg.role || msg.role === "unknown" || !msg.content) continue;
+      const key = `${msg.role}:${msg.content.slice(0, 240)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(msg);
+    }
+    return deduped;
   }
 
   function _detectRole(el) {
@@ -83,6 +115,12 @@
     if (cls.includes("query") || cls.includes("question") || cls.includes("user") || testId.includes("query")) {
       return "user";
     }
+    if (el.tagName === "H1" && cls.includes("group/query")) {
+      return "user";
+    }
+    if (el.tagName === "PRE" || cls.includes("not-prose")) {
+      return "unknown";
+    }
     if (cls.includes("answer") || cls.includes("response") || cls.includes("prose") || testId.includes("answer")) {
       return "assistant";
     }
@@ -91,6 +129,8 @@
 
   function _extractText(el) {
     if (!el) return "";
+    const cls = (el.className || "").toLowerCase();
+    if (el.tagName === "PRE" || cls.includes("not-prose")) return "";
     const clone = el.cloneNode(true);
     // Remove citations, action buttons, source panels
     clone.querySelectorAll("script, style, [hidden], .sr-only, button, [class*='citation'], [class*='source'], [class*='action'], [class*='feedback'], [class*='related']").forEach((e) => e.remove());
@@ -127,8 +167,8 @@
     if (fp === lastFingerprint) return;
     lastFingerprint = fp;
 
-    const newMsgs = allMsgs.slice(sentCount);
-    if (newMsgs.length === 0) return;
+    const updateOnly = allMsgs.length > 0 && allMsgs.slice(sentCount).length === 0;
+    const newMsgs = updateOnly ? [allMsgs[allMsgs.length - 1]] : allMsgs.slice(sentCount);
 
     const prevCount = sentCount;
     sentCount = allMsgs.length;
@@ -149,6 +189,8 @@
       meta: {
         new_message_count: newMsgs.length,
         total_message_count: allMsgs.length,
+        capture_mode: updateOnly ? "message_update" : "message_delta",
+        updated_message_index: updateOnly ? allMsgs.length - 1 : null,
         extraction_strategy: "perplexity-dom",
         behavior: window.__PCE_BEHAVIOR
           ? window.__PCE_BEHAVIOR.getBehaviorSnapshot(true)

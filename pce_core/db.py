@@ -609,6 +609,41 @@ def insert_message(
         return None
 
 
+def update_message_enrichment(
+    msg_id: str,
+    *,
+    content_text: Optional[str] = None,
+    content_json: Optional[str] = None,
+    db_path: Optional[Path] = None,
+) -> bool:
+    """Update an existing message with richer content (e.g. newly-extracted attachments).
+
+    Only updates fields that are provided (not None). Returns True on success.
+    """
+    sets = []
+    params: list = []
+    if content_text is not None:
+        sets.append("content_text = ?")
+        params.append(content_text)
+    if content_json is not None:
+        sets.append("content_json = ?")
+        params.append(content_json)
+    if not sets:
+        return False
+    params.append(msg_id)
+    try:
+        conn = get_connection(db_path)
+        try:
+            conn.execute(f"UPDATE messages SET {', '.join(sets)} WHERE id = ?", params)
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+    except Exception:
+        logger.exception("Failed to update message enrichment for %s", msg_id)
+        return False
+
+
 def query_sessions(
     *,
     last: int = 20,
@@ -734,6 +769,33 @@ def remove_custom_domain(domain: str, db_path: Optional[Path] = None) -> bool:
     except Exception:
         logger.exception("Failed to remove custom domain %s", domain)
         return False
+    finally:
+        conn.close()
+
+
+def reset_all_data(db_path: Optional[Path] = None) -> dict:
+    """Delete all captures, sessions, and messages. Returns counts of deleted rows.
+
+    WARNING: This is a destructive operation intended for dev/test use only.
+    Sources and custom_domains are preserved.
+    """
+    conn = get_connection(db_path)
+    try:
+        msg_count = conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
+        sess_count = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
+        cap_count = conn.execute("SELECT COUNT(*) FROM raw_captures").fetchone()[0]
+
+        conn.execute("DELETE FROM messages")
+        conn.execute("DELETE FROM sessions")
+        conn.execute("DELETE FROM raw_captures")
+        conn.commit()
+
+        logger.warning("RESET: deleted %d captures, %d sessions, %d messages", cap_count, sess_count, msg_count)
+        return {
+            "captures_deleted": cap_count,
+            "sessions_deleted": sess_count,
+            "messages_deleted": msg_count,
+        }
     finally:
         conn.close()
 

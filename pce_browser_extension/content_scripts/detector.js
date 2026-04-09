@@ -49,11 +49,13 @@
     "notebooklm.google.com",
     "coral.cohere.com",
     "chat.zhipuai.cn",
+    "chat.z.ai",
+    "chatglm.cn",
+    "manus.im",
     "yiyan.baidu.com",
     "tongyi.aliyun.com",
     "xinghuo.xfyun.cn",
     "tiangong.kunlun.com",
-    "chatglm.cn",
   ]);
 
   // Subdomains that may host AI chat (e.g., foo.vercel.app AI demos)
@@ -207,7 +209,7 @@
     if (!result.detected) return;
 
     // Check if capture scripts are already loaded (from manifest content_scripts)
-    if (window.__PCE_BRIDGE_LOADED) {
+    if (window.__PCE_BRIDGE_ACTIVE || window.__PCE_BRIDGE_LOADED) {
       console.debug("[PCE Detector] Capture scripts already loaded via manifest, skipping injection.");
       return;
     }

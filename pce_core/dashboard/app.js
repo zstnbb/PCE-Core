@@ -259,31 +259,38 @@ function renderCaptureHealth(data) {
   const channelsEl = document.getElementById("health-channels");
   channelsEl.innerHTML = channels
     .map((ch) => {
-      const countStr = ch.count_5m > 0
-        ? `<span class="count-active">${ch.count_5m}</span> / 5m`
-        : ch.count_1h > 0
-          ? `${ch.count_1h} / 1h`
-          : ch.count_24h > 0
-            ? `${ch.count_24h} / 24h`
-            : ch.total > 0
-              ? `${ch.total} total`
-              : "—";
+      // Status label: show count with time window, or a descriptive status
+      let countStr;
+      if (ch.count_5m > 0) {
+        countStr = `<span class="count-active">${ch.count_5m}</span> in 5m`;
+      } else if (ch.count_1h > 0) {
+        countStr = `${ch.count_1h} in 1h`;
+      } else if (ch.count_24h > 0) {
+        countStr = `${ch.count_24h} in 24h`;
+      } else if (ch.total > 0) {
+        countStr = `<span class="count-dim">${ch.total} total</span>`;
+      } else {
+        countStr = `<span class="count-dim">No data</span>`;
+      }
 
-      const agoStr = formatAgo(ch.last_seen_ago_s);
+      // Time ago — show readable text, replace raw "never"
+      const agoStr = ch.last_seen_ago_s != null
+        ? formatAgo(ch.last_seen_ago_s)
+        : `<span class="text-muted">Not yet active</span>`;
 
       let subHtml = "";
       if (ch.sub_channels) {
         const subs = Object.values(ch.sub_channels);
         subHtml = `<div class="health-sub-channels">${subs
-          .map(
-            (s) =>
-              `<span class="health-sub ${s.status}">${escapeHtml(s.label)}: ${s.count_5m || s.count_1h || s.count_24h || 0}</span>`
-          )
+          .map((s) => {
+            const sCount = s.count_5m || s.count_1h || s.count_24h || 0;
+            return `<span class="health-sub ${s.status}">${escapeHtml(s.label)}: ${sCount}</span>`;
+          })
           .join("")}</div>`;
       }
 
       return `
-        <div class="health-channel">
+        <div class="health-channel ${ch.status}">
           <div class="health-dot ${ch.status}"></div>
           <div class="health-channel-info">
             <div class="health-channel-name">${escapeHtml(ch.label)}</div>
@@ -487,8 +494,16 @@ async function loadSessionMessages(sessionId) {
     const messages = await api(`/sessions/${sessionId}/messages`);
     const container = document.getElementById("session-messages");
 
+    // Count attachments for header
+    let attCount = 0;
+    messages.forEach((m) => {
+      if (m.content_json) {
+        try { attCount += JSON.parse(m.content_json).attachments?.length || 0; } catch {}
+      }
+    });
+    const attLabel = attCount > 0 ? ` · ${attCount} attachments` : "";
     document.getElementById("session-title").textContent =
-      `Session ${sessionId.slice(0, 8)} – ${messages.length} messages`;
+      `Session ${sessionId.slice(0, 8)} – ${messages.length} messages${attLabel}`;
 
     container.innerHTML = messages
       .map((m) => {
@@ -496,10 +511,12 @@ async function loadSessionMessages(sessionId) {
         const contentHtml = roleClass === "user"
           ? escapeHtml(m.content_text || "")
           : renderMarkdown(m.content_text || "");
+        const attachmentsHtml = m.content_json ? renderAttachments(m.content_json) : "";
         return `
           <div class="message-bubble ${roleClass}">
             <div class="message-role">${escapeHtml(m.role)}</div>
             <div class="message-content">${contentHtml}</div>
+            ${attachmentsHtml}
             <div class="message-meta">
               ${m.model_name ? `<span>${escapeHtml(m.model_name)}</span>` : ""}
               ${m.token_estimate ? `<span>${m.token_estimate} tokens</span>` : ""}
@@ -515,6 +532,182 @@ async function loadSessionMessages(sessionId) {
   } catch (e) {
     console.error("Failed to load session messages:", e);
   }
+}
+
+// ── Attachment Rendering ─────────────────────────────────
+const ATT_ICONS = {
+  image_url:         '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>',
+  image_generation:  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>',
+  code_block:        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',
+  code_output:       '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>',
+  tool_call:         '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>',
+  tool_result:       '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>',
+  citation:          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
+  file:              '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
+  document:          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>',
+  audio:             '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>',
+  canvas:            '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>',
+};
+
+function renderAttachments(contentJsonStr) {
+  let data;
+  try {
+    data = JSON.parse(contentJsonStr);
+  } catch {
+    return "";
+  }
+  const attachments = data?.attachments;
+  if (!Array.isArray(attachments) || attachments.length === 0) return "";
+
+  const cards = attachments.map((att) => renderOneAttachment(att)).filter(Boolean);
+  if (cards.length === 0) return "";
+  return `<div class="att-container">${cards.join("")}</div>`;
+}
+
+function renderOneAttachment(att) {
+  const type = att.type || "unknown";
+  const icon = ATT_ICONS[type] || ATT_ICONS.file;
+  const typeLabel = type.replace(/_/g, " ");
+
+  switch (type) {
+    case "citation":
+      return renderCitation(att, icon);
+    case "code_block":
+      return renderCodeBlock(att, icon);
+    case "code_output":
+      return renderCodeOutput(att, icon);
+    case "image_url":
+    case "image_generation":
+      return renderImage(att, icon, typeLabel);
+    case "tool_call":
+      return renderToolCall(att, icon);
+    case "tool_result":
+      return renderToolResult(att, icon);
+    case "file":
+    case "document":
+      return renderFile(att, icon, typeLabel);
+    case "audio":
+      return renderAudio(att, icon);
+    case "canvas":
+      return renderCanvas(att, icon);
+    default:
+      return renderGenericAttachment(att, icon, typeLabel);
+  }
+}
+
+function renderCitation(att, icon) {
+  const url = att.url || "";
+  const title = att.title || url || "Citation";
+  const text = att.text ? escapeHtml(att.text).slice(0, 120) : "";
+  const linkHtml = url
+    ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener" class="att-link">${escapeHtml(title)}</a>`
+    : `<span class="att-title">${escapeHtml(title)}</span>`;
+  return `
+    <div class="att-card att-citation">
+      <div class="att-header">${icon}<span class="att-type">Citation</span></div>
+      <div class="att-body">${linkHtml}${text ? `<div class="att-text">${text}</div>` : ""}</div>
+    </div>`;
+}
+
+function renderCodeBlock(att, icon) {
+  const lang = att.language || "text";
+  const code = att.code || "";
+  return `
+    <div class="att-card att-code">
+      <div class="att-header">${icon}<span class="att-type">Code</span><span class="att-lang">${escapeHtml(lang)}</span></div>
+      <pre class="att-codeblock"><code>${escapeHtml(code)}</code></pre>
+    </div>`;
+}
+
+function renderCodeOutput(att, icon) {
+  const output = att.output || "";
+  return `
+    <div class="att-card att-code-output">
+      <div class="att-header">${icon}<span class="att-type">Output</span></div>
+      <pre class="att-codeblock att-output-pre">${escapeHtml(output)}</pre>
+    </div>`;
+}
+
+function renderImage(att, icon, typeLabel) {
+  const url = att.url || "";
+  const alt = att.alt || att.detail || "";
+  const truncatedUrl = url.length > 80 ? url.slice(0, 80) + "..." : url;
+  // Show image if URL is a real http(s) link, otherwise show placeholder
+  const isViewable = url.startsWith("http");
+  const imgHtml = isViewable
+    ? `<img src="${escapeHtml(url)}" alt="${escapeHtml(alt)}" class="att-image-preview" loading="lazy" />`
+    : `<div class="att-image-placeholder">${icon}<span>${escapeHtml(truncatedUrl || "Image reference")}</span></div>`;
+  return `
+    <div class="att-card att-image">
+      <div class="att-header">${icon}<span class="att-type">${escapeHtml(typeLabel)}</span>${alt ? `<span class="att-detail">${escapeHtml(alt)}</span>` : ""}</div>
+      <div class="att-body">${imgHtml}</div>
+    </div>`;
+}
+
+function renderToolCall(att, icon) {
+  const name = att.name || "unknown";
+  const args = att.arguments || "";
+  let argsHtml = "";
+  if (args) {
+    try {
+      argsHtml = escapeHtml(JSON.stringify(JSON.parse(args), null, 2));
+    } catch {
+      argsHtml = escapeHtml(args);
+    }
+  }
+  return `
+    <div class="att-card att-tool-call">
+      <div class="att-header">${icon}<span class="att-type">Tool Call</span><span class="att-fn-name">${escapeHtml(name)}</span></div>
+      ${argsHtml ? `<pre class="att-codeblock">${argsHtml}</pre>` : ""}
+    </div>`;
+}
+
+function renderToolResult(att, icon) {
+  const content = att.content || "";
+  const isError = att.is_error;
+  return `
+    <div class="att-card att-tool-result ${isError ? "att-error" : ""}">
+      <div class="att-header">${icon}<span class="att-type">Tool Result</span>${isError ? '<span class="att-error-badge">Error</span>' : ""}</div>
+      ${content ? `<pre class="att-codeblock">${escapeHtml(content.slice(0, 2000))}</pre>` : ""}
+    </div>`;
+}
+
+function renderFile(att, icon, typeLabel) {
+  const name = att.name || att.title || "File";
+  const mediaType = att.media_type || att.source_type || "";
+  return `
+    <div class="att-card att-file">
+      <div class="att-header">${icon}<span class="att-type">${escapeHtml(typeLabel)}</span></div>
+      <div class="att-body"><span class="att-filename">${escapeHtml(name)}</span>${mediaType ? `<span class="att-detail">${escapeHtml(mediaType)}</span>` : ""}</div>
+    </div>`;
+}
+
+function renderAudio(att, icon) {
+  const format = att.format || "";
+  const transcript = att.transcript || "";
+  return `
+    <div class="att-card att-audio">
+      <div class="att-header">${icon}<span class="att-type">Audio</span>${format ? `<span class="att-detail">${escapeHtml(format)}</span>` : ""}</div>
+      ${transcript ? `<div class="att-body att-transcript">${escapeHtml(transcript.slice(0, 500))}</div>` : ""}
+    </div>`;
+}
+
+function renderCanvas(att, icon) {
+  const content = att.content || "";
+  return `
+    <div class="att-card att-canvas">
+      <div class="att-header">${icon}<span class="att-type">Canvas / Artifact</span></div>
+      ${content ? `<pre class="att-codeblock">${escapeHtml(content.slice(0, 3000))}</pre>` : ""}
+    </div>`;
+}
+
+function renderGenericAttachment(att, icon, typeLabel) {
+  const raw = att.raw || "";
+  return `
+    <div class="att-card">
+      <div class="att-header">${icon}<span class="att-type">${escapeHtml(typeLabel)}</span></div>
+      ${raw ? `<pre class="att-codeblock">${escapeHtml(raw.slice(0, 1000))}</pre>` : ""}
+    </div>`;
 }
 
 // ── Event Listeners ─────────────────────────────────────
@@ -784,6 +977,35 @@ async function serviceAction(key, action) {
 }
 
 window.serviceAction = serviceAction;
+
+// ── Dev: Reset Baseline ─────────────────────────────────
+document.getElementById("btn-reset-baseline")?.addEventListener("click", async () => {
+  const btn = document.getElementById("btn-reset-baseline");
+  const status = document.getElementById("reset-status");
+
+  if (!confirm("This will DELETE all captures, sessions, and messages.\n\nAre you sure?")) {
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = "Resetting...";
+  status.textContent = "";
+
+  try {
+    const resp = await fetch(`${API}/dev/reset`, { method: "POST" });
+    if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+    const data = await resp.json();
+    status.textContent = `Cleared ${data.captures_deleted} captures, ${data.sessions_deleted} sessions, ${data.messages_deleted} messages`;
+    status.style.color = "var(--green)";
+    loadStats();
+  } catch (e) {
+    status.textContent = `Error: ${e.message}`;
+    status.style.color = "var(--red)";
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Reset to Baseline";
+  }
+});
 
 // ── Auto-refresh ────────────────────────────────────────
 setInterval(() => {

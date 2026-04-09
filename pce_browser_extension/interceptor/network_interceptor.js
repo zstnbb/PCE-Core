@@ -86,6 +86,77 @@
   }
 
   // -----------------------------------------------------------------------
+  // Path-based noise filter – skip non-AI traffic on AI pages
+  // -----------------------------------------------------------------------
+
+  const _NOISE_PATH_PATTERNS = [
+    /\/sentinel\//i,
+    /\/telemetry/i,
+    /\/analytics/i,
+    /\/statsc\//i,
+    /\/rgstr$/i,
+    /\/ping$/i,
+    /\/heartbeat/i,
+    /\/health$/i,
+    /\/log$/i,
+    /\/ces\//i,              // ChatGPT event streaming (analytics)
+    /\/lat\//i,              // ChatGPT latency tracking
+    /\/aip\/connectors/i,    // ChatGPT connector checks
+    /\/register_websocket/i,
+    /\/_next\//i,            // Next.js assets
+    /\/assets\//i,
+    /\/static\//i,
+    /\.(js|css|png|jpg|svg|woff|ico)(\?|$)/i,
+    /\/realtime\/status/i,
+    /\/connectors\/check/i,
+    /\/sentry/i,
+  ];
+
+  function _isNoisePath(path) {
+    if (!path) return false;
+    for (const re of _NOISE_PATH_PATTERNS) {
+      if (re.test(path)) return true;
+    }
+    return false;
+  }
+
+  // -----------------------------------------------------------------------
+  // Provider guess from page context (for aggressive mode)
+  // -----------------------------------------------------------------------
+
+  function _guessProviderFromPage() {
+    const patterns = getPatterns();
+    if (patterns && patterns.HOST_TO_PROVIDER) {
+      const host = location.hostname;
+      if (patterns.HOST_TO_PROVIDER[host]) return patterns.HOST_TO_PROVIDER[host];
+      // Check parent domain (e.g., chat.z.ai → z.ai)
+      const parts = host.split(".");
+      for (let i = 1; i < parts.length - 1; i++) {
+        const parent = parts.slice(i).join(".");
+        if (patterns.HOST_TO_PROVIDER[parent]) return patterns.HOST_TO_PROVIDER[parent];
+      }
+    }
+    // Fallback: extract from page title or hostname
+    const title = (document.title || "").toLowerCase();
+    const host = location.hostname.toLowerCase();
+    const hints = [
+      [/zhipu|chatglm|glm|z\.ai/i, "zhipu"],
+      [/openai|chatgpt/i, "openai"],
+      [/claude|anthropic/i, "anthropic"],
+      [/gemini|google/i, "google"],
+      [/deepseek/i, "deepseek"],
+      [/kimi|moonshot/i, "moonshot"],
+      [/qwen|tongyi|aliyun/i, "alibaba"],
+      [/ernie|yiyan|baidu/i, "baidu"],
+      [/doubao|bytedance/i, "bytedance"],
+    ];
+    for (const [re, provider] of hints) {
+      if (re.test(title) || re.test(host)) return provider;
+    }
+    return null;
+  }
+
+  // -----------------------------------------------------------------------
   // 1. FETCH interceptor
   // -----------------------------------------------------------------------
 
@@ -109,15 +180,74 @@
     let reqBodyStr = null;
     if (init && init.body) {
       reqBodyStr = extractBodyString(init.body);
-    } else if (input instanceof Request) {
-      // Can't reliably read Request body without consuming it
-      reqBodyStr = null;
+    } else if (input instanceof Request && input.method === "POST") {
+      // Try to clone and read Request body (common in Svelte/React apps)
+      try {
+        const cloned = input.clone();
+        // Override input with the original; we read the clone
+        reqBodyStr = null; // will be populated async below if needed
+        // Synchronous path: can't await here, so we do best-effort
+        // by extracting from _body if accessible
+        if (cloned._bodyInit) {
+          reqBodyStr = extractBodyString(cloned._bodyInit);
+        }
+      } catch {
+        reqBodyStr = null;
+      }
     }
 
     const reqBodyObj = safeJsonParse(reqBodyStr);
-    const match = patterns.isAIRequest(url, reqBodyObj);
+    let match = patterns.isAIRequest(url, reqBodyObj);
 
-    if (!match.isAI) {
+    // ── Aggressive mode: on confirmed AI pages, also capture POST
+    // requests with AI-like JSON bodies, even if URL is unknown ──
+    const _isConfirmedAIPage = window.__PCE_AI_PAGE_CONFIRMED ||
+      document.documentElement.getAttribute("data-pce-ai-confirmed") === "1";
+    if (!match.isAI && _isConfirmedAIPage) {
+      // Skip known noise paths (analytics, heartbeat, telemetry, etc.)
+      if (match.path && _isNoisePath(match.path)) {
+        return _origFetch.apply(this, arguments);
+      }
+      // Also check URL directly if match.path isn't set yet
+      try {
+        const parsed = new URL(url);
+        if (_isNoisePath(parsed.pathname)) return _origFetch.apply(this, arguments);
+      } catch {}
+
+      const method = (init && init.method) || (input instanceof Request ? input.method : "GET");
+      if (method === "POST" && reqBodyObj) {
+        // Body has AI-signature fields → capture
+        const bodyCheck = patterns.matchRequestBody(reqBodyObj);
+        if (bodyCheck.isAI) {
+          match = {
+            isAI: true,
+            confidence: "aggressive",
+            provider: _guessProviderFromPage() || "unknown",
+            model: bodyCheck.model,
+            host: null,
+            path: null,
+          };
+          try {
+            const parsed = new URL(url);
+            match.host = parsed.hostname;
+            match.path = parsed.pathname;
+          } catch {}
+        }
+      }
+      // Also capture any SSE/streaming POST on confirmed AI pages
+      if (!match.isAI && method === "POST") {
+        // We'll check response content-type after fetch returns
+        // Mark as "pending" — will be decided in response phase
+        match = { isAI: false, _pendingStreamCheck: true, host: null, path: null };
+        try {
+          const parsed = new URL(url);
+          match.host = parsed.hostname;
+          match.path = parsed.pathname;
+        } catch {}
+      }
+    }
+
+    if (!match.isAI && !match._pendingStreamCheck) {
       return _origFetch.apply(this, arguments);
     }
 
@@ -128,6 +258,24 @@
       try {
         const contentType = response.headers.get("content-type") || "";
         const isStreaming = patterns.isStreamingResponse(contentType);
+
+        // ── Pending stream check: only capture if response is actually SSE/JSON ──
+        if (match._pendingStreamCheck) {
+          const isJson = contentType.includes("application/json");
+          if (!isStreaming && !isJson) {
+            // Not AI traffic — bail out silently
+            return response;
+          }
+          // Promote to a real match
+          match = {
+            isAI: true,
+            confidence: "aggressive-stream",
+            provider: _guessProviderFromPage() || "unknown",
+            model: null,
+            host: match.host,
+            path: match.path,
+          };
+        }
 
         if (isStreaming) {
           // SSE / streaming: read the stream, accumulate chunks, then post
@@ -399,10 +547,13 @@
   const _origWebSocket = window.WebSocket;
 
   // ChatGPT WS messages use a custom protocol. Extract assistant content
-  // from various message formats encountered in the wild.
+  // from various message formats encountered in the wild, including Deep
+  // Research reports and Canvas artifacts.
   function _extractWsConversationContent(messages) {
     const contentParts = [];
     let model = null;
+    let lastSeenText = "";  // De-dup: ChatGPT sends cumulative parts
+    const toolCalls = [];   // Collect tool invocations (browsing, code, DALL-E)
 
     for (const raw of messages) {
       const obj = safeJsonParse(raw);
@@ -426,8 +577,43 @@
           // Look for conversation turn data
           const msg = body.message;
           if (msg?.content?.parts) {
-            const text = msg.content.parts.filter(p => typeof p === "string").join("");
-            if (text) contentParts.push(text);
+            const textParts = [];
+            for (const p of msg.content.parts) {
+              if (typeof p === "string") {
+                textParts.push(p);
+              } else if (typeof p === "object" && p !== null) {
+                // DALL-E image result, code output, etc.
+                if (p.asset_pointer || p.url) {
+                  toolCalls.push({
+                    type: "tool_call",
+                    name: p.content_type || "image_generation",
+                    result: truncate(JSON.stringify(p), 2000),
+                  });
+                }
+              }
+            }
+            const text = textParts.join("");
+            // ChatGPT sends cumulative parts — keep only the newest/longest
+            if (text && text.length > lastSeenText.length) {
+              lastSeenText = text;
+            }
+          }
+          // Deep Research: result may appear in msg.content.result or msg.content.text
+          if (msg?.content?.result && typeof msg.content.result === "string") {
+            const r = msg.content.result;
+            if (r.length > lastSeenText.length) lastSeenText = r;
+          }
+          if (msg?.content?.text && typeof msg.content.text === "string") {
+            const t = msg.content.text;
+            if (t.length > lastSeenText.length) lastSeenText = t;
+          }
+          // Tool invocations in metadata (browsing, code interpreter, DALL-E)
+          if (msg?.recipient && msg.recipient !== "all" && msg.recipient !== "browser") {
+            toolCalls.push({
+              type: "tool_call",
+              name: msg.recipient,
+              arguments: truncate(JSON.stringify(msg?.content?.parts || []), 2000),
+            });
           }
           if (msg?.metadata?.model_slug) model = msg.metadata.model_slug;
           if (body.model) model = body.model;
@@ -445,9 +631,30 @@
       if (obj.content && typeof obj.content === "string" && obj.role === "assistant") {
         contentParts.push(obj.content);
       }
+
+      // Deep Research: top-level result/text fields
+      if (obj.result && typeof obj.result === "string" && obj.result.length > 50) {
+        if (obj.result.length > lastSeenText.length) lastSeenText = obj.result;
+      }
+      if (obj.text && typeof obj.text === "string" && obj.text.length > 50 && obj.type !== "ping") {
+        if (obj.text.length > lastSeenText.length) lastSeenText = obj.text;
+      }
     }
 
-    return { content: contentParts.join(""), model };
+    // Merge: if cumulative parts from ChatGPT format are longer, use those
+    const joined = contentParts.join("");
+    const finalContent = lastSeenText.length > joined.length ? lastSeenText : joined;
+
+    // De-duplicate tool_calls by name+result
+    const seenTools = new Set();
+    const uniqueToolCalls = toolCalls.filter(tc => {
+      const key = (tc.name || "") + (tc.result || tc.arguments || "");
+      if (seenTools.has(key)) return false;
+      seenTools.add(key);
+      return true;
+    });
+
+    return { content: finalContent, model, tool_calls: uniqueToolCalls };
   }
 
   window.WebSocket = function PatchedWebSocket(url, protocols) {
@@ -476,11 +683,11 @@
 
     const receivedChunks = [];
     const sentChunks = [];
-    const startTime = Date.now();
+    let startTime = Date.now();
     let firstChunkTime = null;
     let flushTimer = null;
     let flushed = false;
-    const FLUSH_DELAY_MS = 15000; // Wait for stream to settle (increased for long responses)
+    const FLUSH_DELAY_MS = 8000; // Wait for stream to settle
 
     function resetFlushTimer() {
       if (flushTimer) clearTimeout(flushTimer);
@@ -504,9 +711,13 @@
       flushed = true;
 
       // Build a synthetic response body matching the format the normalizer expects
+      const assistantMsg = { role: "assistant", content: extracted.content };
+      if (extracted.tool_calls && extracted.tool_calls.length > 0) {
+        assistantMsg.tool_calls = extracted.tool_calls;
+      }
       const respBody = JSON.stringify({
         model: extracted.model,
-        choices: [{ message: { role: "assistant", content: extracted.content } }],
+        choices: [{ message: assistantMsg }],
       });
 
       // Try to extract the user's request from sent messages
@@ -553,6 +764,8 @@
       // Reset for next conversation turn on the same WS connection
       receivedChunks.length = 0;
       sentChunks.length = 0;
+      startTime = Date.now();
+      firstChunkTime = null;
       flushed = false;
     }
 
@@ -569,6 +782,10 @@
         } else {
           data = "[Binary]";
         }
+        // Skip heartbeat / ping / empty messages — don't reset flush timer for noise
+        if (typeof data === "string" && (data.length < 5 || data === '{}' || data === '""')) {
+          return;
+        }
         receivedChunks.push(data);
         if (!firstChunkTime) firstChunkTime = Date.now();
         resetFlushTimer();
@@ -580,6 +797,14 @@
     ws.send = function (data) {
       try {
         if (typeof data === "string") {
+          // Detect conversation boundary: if user sends a new message and we
+          // have accumulated response data, flush the previous turn first.
+          const obj = safeJsonParse(data);
+          const isUserMsg = obj && (obj.messages || obj.message || obj.prompt ||
+            (obj.body && (safeJsonParse(obj.body)?.messages || safeJsonParse(obj.body)?.action === 'next')));
+          if (isUserMsg && receivedChunks.length > 0 && !flushed) {
+            flushAndPost();
+          }
           sentChunks.push(data);
         }
       } catch { /* never break */ }

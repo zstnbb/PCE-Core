@@ -17,6 +17,9 @@
   let sentCount = 0;
   let debounceTimer = null;
   let observerActive = false;
+  const _pce = () => window.__PCE_EXTRACT || {};
+  const _extractAttachments = (el) => (_pce().extractAttachments || (() => []))(el);
+  const _extractReplyContent = (el) => (_pce().extractReplyContent || ((node) => node ? node.innerText.trim() : ""))(el);
 
   console.log("[PCE] Gemini content script loaded");
 
@@ -50,12 +53,19 @@
         els.forEach((el) => {
           const role = _detectRole(el);
           const text = _extractText(el);
-          if (text && text.length > 1) {
-            messages.push({ role, content: text });
+          if (role === "unknown" || !text || text.length <= 1) {
+            return;
           }
+          const msg = { role, content: text };
+          const att = _extractAttachments(el);
+          if (att.length > 0) msg.attachments = att;
+          messages.push(msg);
         });
 
-        if (messages.length >= 2) return messages;
+        const roles = new Set(messages.map((m) => m.role));
+        if (messages.length >= 2 && roles.has("user") && roles.has("assistant")) {
+          return _dedupeMessages(messages);
+        }
         messages.length = 0;
       } catch {}
     }
@@ -65,12 +75,29 @@
     turns.forEach((el) => {
       const role = _detectRole(el);
       const text = _extractText(el);
-      if (text && text.length > 2) {
-        messages.push({ role, content: text });
+      if (role === "unknown" || !text || text.length <= 2) {
+        return;
       }
+      const msg = { role, content: text };
+      const att = _extractAttachments(el);
+      if (att.length > 0) msg.attachments = att;
+      messages.push(msg);
     });
 
-    return messages;
+    return _dedupeMessages(messages);
+  }
+
+  function _dedupeMessages(messages) {
+    const deduped = [];
+    const seen = new Set();
+    for (const msg of messages) {
+      if (!msg || !msg.role || !msg.content) continue;
+      const key = `${msg.role}:${msg.content.slice(0, 200)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(msg);
+    }
+    return deduped;
   }
 
   function _detectRole(el) {
@@ -88,6 +115,18 @@
   }
 
   function _extractText(el) {
+    const tag = el.tagName?.toLowerCase() || "";
+    const cls = (el.className || "").toLowerCase();
+    if (
+      tag === "model-response" ||
+      tag === "message-content" ||
+      cls.includes("model-response-text") ||
+      cls.includes("response-container")
+    ) {
+      const reply = _extractReplyContent(el);
+      if (reply) return reply.trim();
+    }
+
     const clone = el.cloneNode(true);
     clone.querySelectorAll("script, style, [hidden], .sr-only, .chip-container, .action-button").forEach((e) => e.remove());
 
@@ -139,8 +178,8 @@
     if (fp === lastFingerprint) return;
     lastFingerprint = fp;
 
-    const newMsgs = allMsgs.slice(sentCount);
-    if (newMsgs.length === 0) return;
+    const updateOnly = allMsgs.length > 0 && allMsgs.slice(sentCount).length === 0;
+    const newMsgs = updateOnly ? [allMsgs[allMsgs.length - 1]] : allMsgs.slice(sentCount);
 
     const prevCount = sentCount;
     sentCount = allMsgs.length;
@@ -161,6 +200,8 @@
       meta: {
         new_message_count: newMsgs.length,
         total_message_count: allMsgs.length,
+        capture_mode: updateOnly ? "message_update" : "message_delta",
+        updated_message_index: updateOnly ? allMsgs.length - 1 : null,
         extraction_strategy: "gemini-dom",
         behavior: window.__PCE_BEHAVIOR
           ? window.__PCE_BEHAVIOR.getBehaviorSnapshot(true)

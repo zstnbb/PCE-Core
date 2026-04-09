@@ -60,6 +60,10 @@ _COMPATIBLE_HOSTS = {
     "api.perplexity.ai", "www.perplexity.ai",
     "api.mistral.ai", "chat.mistral.ai",
     "api.x.ai", "grok.com",
+    # Zhipu / ChatGLM (uses OpenAI-compatible format)
+    "open.bigmodel.cn", "chat.z.ai", "chatglm.cn", "chat.zhipuai.cn", "maas.aminer.cn",
+    # Moonshot / Kimi
+    "api.moonshot.cn", "kimi.moonshot.cn",
     # Local
     "localhost", "127.0.0.1",
 }
@@ -79,7 +83,7 @@ class OpenAIChatNormalizer(BaseNormalizer):
         if host in _COMPATIBLE_HOSTS:
             return True
         # Known provider
-        if provider in ("openai", "groq", "together", "fireworks", "openrouter"):
+        if provider in ("openai", "groq", "together", "fireworks", "openrouter", "zhipu", "moonshot"):
             return True
         return False
 
@@ -111,10 +115,12 @@ class OpenAIChatNormalizer(BaseNormalizer):
             if not isinstance(msg, dict):
                 continue
             role = msg.get("role", "user")
-            content = _extract_content(msg)
+            text, attachments = _extract_rich_content(msg)
+            cj = json.dumps({"attachments": attachments}, ensure_ascii=False) if attachments else None
             messages.append(NormalizedMessage(
                 role=role,
-                content_text=content,
+                content_text=text,
+                content_json=cj,
                 model_name=model if role == "assistant" else None,
                 ts=created_at,
             ))
@@ -142,11 +148,13 @@ class OpenAIChatNormalizer(BaseNormalizer):
                     if not isinstance(msg, dict):
                         continue
                     role = msg.get("role", "assistant")
-                    content = _extract_content(msg)
-                    if content:
+                    text, attachments = _extract_rich_content(msg)
+                    if text:
+                        cj = json.dumps({"attachments": attachments}, ensure_ascii=False) if attachments else None
                         messages.append(NormalizedMessage(
                             role=role,
-                            content_text=content,
+                            content_text=text,
+                            content_json=cj,
                             model_name=resp_model,
                             token_estimate=completion_tokens,
                             ts=created_at,
@@ -193,26 +201,201 @@ def _safe_json(text: str) -> Optional[dict]:
         return None
 
 
-def _extract_content(msg: dict) -> Optional[str]:
-    """Extract text content from a message dict.
+def _extract_rich_content(msg: dict) -> tuple[Optional[str], list[dict]]:
+    """Extract text and rich-content attachments from an OpenAI message.
 
-    Handles both simple string content and the array-of-parts format:
-    [{"type": "text", "text": "..."}, {"type": "image_url", ...}]
+    Returns ``(text, attachments)`` where *attachments* is a list of dicts
+    describing non-text content (images, tool calls, audio, files, etc.).
+
+    Attachment types:
+    - image_url      — user-uploaded or inline image
+    - image_generation — DALL-E generated image (in response)
+    - tool_call      — function/tool invocation by assistant
+    - tool_result    — result returned for a tool call (role=tool)
+    - audio          — audio input or output
+    - file           — file attachment reference
+    - code_output    — code interpreter sandbox output
+    - citation       — search/browse citation
     """
+    attachments: list[dict] = []
+    text_parts: list[str] = []
     content = msg.get("content")
-    if content is None:
-        return None
+
+    def _consume_internal_content(obj: dict) -> bool:
+        ctype = obj.get("content_type", "")
+        parts = obj.get("parts")
+        if isinstance(parts, list):
+            for part in parts:
+                if isinstance(part, str):
+                    if part:
+                        text_parts.append(part)
+                elif isinstance(part, dict):
+                    part_type = part.get("content_type", "")
+                    if part_type == "image_asset_pointer" or "asset_pointer" in part:
+                        asset_pointer = part.get("asset_pointer", part.get("url", ""))
+                        file_id = ""
+                        if isinstance(asset_pointer, str) and asset_pointer.startswith("sediment://file_"):
+                            file_id = asset_pointer.split("sediment://", 1)[-1]
+                        attachments.append({
+                            "type": "image_url",
+                            "url": asset_pointer,
+                            "file_id": file_id,
+                            "size": part.get("size_bytes", 0),
+                        })
+                        text_parts.append("[Image]")
+                    elif "text" in part:
+                        text_parts.append(str(part.get("text", "")))
+                    else:
+                        attachments.append({
+                            "type": part_type or "unknown_part",
+                            "raw": _truncate(json.dumps(part, ensure_ascii=False), 2000),
+                        })
+                        text_parts.append(f"[{part_type or 'unknown'}]")
+            return True
+        if ctype == "text":
+            text_val = obj.get("text")
+            if isinstance(text_val, str) and text_val:
+                text_parts.append(text_val)
+                return True
+        return False
+
+    # --- content field --------------------------------------------------------
     if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts = []
+        stripped = content.strip()
+        parsed_internal = None
+        if stripped.startswith("{") or stripped.startswith("["):
+            try:
+                parsed_internal = json.loads(stripped)
+            except (json.JSONDecodeError, TypeError):
+                try:
+                    import ast
+                    parsed_internal = ast.literal_eval(stripped)
+                except Exception:
+                    parsed_internal = None
+        if isinstance(parsed_internal, dict) and (
+            "parts" in parsed_internal or "content_type" in parsed_internal
+        ):
+            if not _consume_internal_content(parsed_internal):
+                text_parts.append(content)
+        else:
+            text_parts.append(content)
+    elif isinstance(content, dict):
+        if not _consume_internal_content(content) and content:
+            text_parts.append(str(content))
+    elif isinstance(content, list):
         for part in content:
-            if isinstance(part, dict) and part.get("type") == "text":
-                parts.append(part.get("text", ""))
-            elif isinstance(part, str):
-                parts.append(part)
-        return "\n".join(parts) if parts else None
-    return str(content)
+            if isinstance(part, str):
+                text_parts.append(part)
+            elif not isinstance(part, dict):
+                continue
+            else:
+                ptype = part.get("type", "")
+                if ptype == "text":
+                    text_parts.append(part.get("text", ""))
+                    # Citations embedded inside text part annotations
+                    for ann in part.get("annotations", []):
+                        if isinstance(ann, dict):
+                            attachments.append({
+                                "type": "citation",
+                                "url": ann.get("url", ann.get("url_citation", {}).get("url", "")),
+                                "title": ann.get("title", ann.get("url_citation", {}).get("title", "")),
+                                "text": ann.get("text", ""),
+                            })
+                elif ptype == "image_url":
+                    img = part.get("image_url", {})
+                    url = img.get("url", "") if isinstance(img, dict) else str(img)
+                    # Truncate data-URIs to avoid bloating DB
+                    stored_url = url if not url.startswith("data:") else url[:200] + "...[truncated]"
+                    attachments.append({
+                        "type": "image_url",
+                        "url": stored_url,
+                        "detail": img.get("detail", "auto") if isinstance(img, dict) else "auto",
+                    })
+                    text_parts.append("[Image]")
+                elif ptype == "image_file":
+                    fobj = part.get("image_file", {})
+                    attachments.append({
+                        "type": "image_url",
+                        "file_id": fobj.get("file_id", "") if isinstance(fobj, dict) else "",
+                    })
+                    text_parts.append("[Image file]")
+                elif ptype == "input_audio":
+                    audio = part.get("input_audio", {})
+                    attachments.append({
+                        "type": "audio",
+                        "format": audio.get("format", "") if isinstance(audio, dict) else "",
+                    })
+                    text_parts.append("[Audio input]")
+                elif ptype == "refusal":
+                    text_parts.append(part.get("refusal", "[Refused]"))
+                else:
+                    # Unknown part type — preserve as attachment
+                    attachments.append({"type": ptype, "raw": _truncate(json.dumps(part, ensure_ascii=False), 2000)})
+                    text_parts.append(f"[{ptype}]")
+    elif content is not None:
+        text_parts.append(str(content))
+
+    # --- tool_calls (assistant requesting tool use) ---------------------------
+    for tc in msg.get("tool_calls", []):
+        if not isinstance(tc, dict):
+            continue
+        func = tc.get("function", {})
+        name = func.get("name", "?") if isinstance(func, dict) else "?"
+        args = func.get("arguments", "") if isinstance(func, dict) else ""
+        attachments.append({
+            "type": "tool_call",
+            "id": tc.get("id", ""),
+            "name": name,
+            "arguments": _truncate(args, 4000),
+        })
+        text_parts.append(f"[Tool call: {name}]")
+
+    # --- legacy function_call -------------------------------------------------
+    fc = msg.get("function_call")
+    if isinstance(fc, dict):
+        attachments.append({
+            "type": "tool_call",
+            "name": fc.get("name", ""),
+            "arguments": _truncate(fc.get("arguments", ""), 4000),
+        })
+        text_parts.append(f"[Tool call: {fc.get('name', '?')}]")
+
+    # --- role=tool result -----------------------------------------------------
+    if msg.get("role") == "tool":
+        attachments.append({
+            "type": "tool_result",
+            "tool_call_id": msg.get("tool_call_id", ""),
+            "name": msg.get("name", ""),
+            "content": _truncate(content if isinstance(content, str) else json.dumps(content, ensure_ascii=False) if content else "", 8000),
+        })
+
+    # --- audio output (assistant) ---------------------------------------------
+    audio = msg.get("audio")
+    if isinstance(audio, dict):
+        transcript = audio.get("transcript", "")
+        attachments.append({
+            "type": "audio",
+            "transcript": _truncate(transcript, 4000),
+        })
+        if transcript and transcript not in "\n".join(text_parts):
+            text_parts.append(f"[Audio: {transcript[:100]}]")
+
+    text = "\n".join(text_parts) if text_parts else None
+    if attachments:
+        deduped: list[dict] = []
+        seen: set[str] = set()
+        for att in attachments:
+            key = json.dumps(att, ensure_ascii=False, sort_keys=True)
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(att)
+        attachments = deduped
+    return text, attachments
+
+
+def _truncate(s: str, limit: int) -> str:
+    return s if len(s) <= limit else s[:limit] + "...[truncated]"
 
 
 def _tool_family(host: str, provider: str) -> str:

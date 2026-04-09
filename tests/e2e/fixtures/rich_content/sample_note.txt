@@ -1,0 +1,4 @@
+PCE rich content fixture
+
+This file is used to verify file attachment capture from real AI chat sites.
+The assistant should confirm that it received a text attachment named sample_note.txt.

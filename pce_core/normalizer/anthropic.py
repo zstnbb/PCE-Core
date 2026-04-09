@@ -96,11 +96,13 @@ class AnthropicMessagesNormalizer(BaseNormalizer):
                 continue
             role = msg.get("role", "user")
             content = msg.get("content")
-            text = _extract_text(content)
+            text, attachments = _extract_rich_blocks(content)
             if text is not None:
+                cj = json.dumps({"attachments": attachments}, ensure_ascii=False) if attachments else None
                 messages.append(NormalizedMessage(
                     role=role,
                     content_text=text,
+                    content_json=cj,
                     model_name=model if role == "assistant" else None,
                     ts=created_at,
                 ))
@@ -121,11 +123,13 @@ class AnthropicMessagesNormalizer(BaseNormalizer):
             output_tokens = usage.get("output_tokens") if isinstance(usage, dict) else None
 
             content_blocks = resp_data.get("content", [])
-            text = _blocks_to_text(content_blocks)
+            text, attachments = _extract_rich_blocks(content_blocks)
             if text:
+                cj = json.dumps({"attachments": attachments}, ensure_ascii=False) if attachments else None
                 messages.append(NormalizedMessage(
                     role=resp_role,
                     content_text=text,
+                    content_json=cj,
                     model_name=resp_model,
                     token_estimate=output_tokens,
                     ts=created_at,
@@ -164,28 +168,115 @@ def _safe_json(text: str) -> Optional[dict]:
         return None
 
 
-def _extract_text(content) -> Optional[str]:
-    """Extract text from Anthropic message content (string or content blocks)."""
+def _extract_rich_blocks(content) -> tuple[Optional[str], list[dict]]:
+    """Extract text and rich-content attachments from Anthropic content.
+
+    Returns ``(text, attachments)`` where *attachments* captures non-text
+    content: tool_use, tool_result, images, thinking blocks, etc.
+    """
     if content is None:
-        return None
+        return None, []
     if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        return _blocks_to_text(content)
-    return str(content)
+        return content, []
+    if not isinstance(content, list):
+        return str(content), []
+
+    text_parts: list[str] = []
+    attachments: list[dict] = []
+
+    for block in content:
+        if isinstance(block, str):
+            text_parts.append(block)
+            continue
+        if not isinstance(block, dict):
+            continue
+
+        btype = block.get("type", "")
+
+        if btype == "text":
+            text_parts.append(block.get("text", ""))
+            # Citations in annotations
+            for cite in block.get("citations", []):
+                if isinstance(cite, dict):
+                    attachments.append({
+                        "type": "citation",
+                        "url": cite.get("url", ""),
+                        "title": cite.get("title", ""),
+                        "text": cite.get("cited_text", cite.get("text", "")),
+                    })
+
+        elif btype == "tool_use":
+            name = block.get("name", "?")
+            inp = block.get("input", {})
+            attachments.append({
+                "type": "tool_call",
+                "id": block.get("id", ""),
+                "name": name,
+                "arguments": _truncate(json.dumps(inp, ensure_ascii=False) if inp else "", 4000),
+            })
+            text_parts.append(f"[Tool call: {name}]")
+
+        elif btype == "tool_result":
+            result_content = block.get("content", "")
+            if isinstance(result_content, list):
+                inner_text, inner_att = _extract_rich_blocks(result_content)
+                result_str = inner_text or ""
+                attachments.extend(inner_att)
+            elif isinstance(result_content, str):
+                result_str = result_content
+            else:
+                result_str = json.dumps(result_content, ensure_ascii=False) if result_content else ""
+            attachments.append({
+                "type": "tool_result",
+                "tool_use_id": block.get("tool_use_id", ""),
+                "content": _truncate(result_str, 8000),
+                "is_error": block.get("is_error", False),
+            })
+            text_parts.append(f"[Tool result]")
+
+        elif btype == "image":
+            source = block.get("source", {})
+            if isinstance(source, dict):
+                stype = source.get("type", "")
+                if stype == "url":
+                    attachments.append({
+                        "type": "image_url",
+                        "url": source.get("url", ""),
+                        "media_type": source.get("media_type", ""),
+                    })
+                else:
+                    # base64 — store media type only, not the data
+                    attachments.append({
+                        "type": "image_url",
+                        "media_type": source.get("media_type", ""),
+                        "source_type": stype,
+                    })
+            text_parts.append("[Image]")
+
+        elif btype == "thinking":
+            thinking_text = block.get("thinking", "")
+            if thinking_text:
+                text_parts.append(f"<thinking>\n{thinking_text}\n</thinking>")
+
+        elif btype == "document":
+            # PDF / document block
+            source = block.get("source", {})
+            attachments.append({
+                "type": "file",
+                "source_type": source.get("type", "") if isinstance(source, dict) else "",
+                "media_type": source.get("media_type", "") if isinstance(source, dict) else "",
+                "title": block.get("title", ""),
+            })
+            text_parts.append(f"[Document: {block.get('title', '?')}]")
+
+        else:
+            # Unknown block type — preserve metadata
+            attachments.append({"type": btype, "raw": _truncate(json.dumps(block, ensure_ascii=False), 2000)})
+            text_parts.append(f"[{btype}]")
+
+    text = "\n".join(text_parts) if text_parts else None
+    return text, attachments
 
 
-def _blocks_to_text(blocks) -> Optional[str]:
-    """Convert an array of content blocks to plain text."""
-    if not isinstance(blocks, list):
-        return None
-    parts = []
-    for block in blocks:
-        if isinstance(block, dict):
-            if block.get("type") == "text":
-                parts.append(block.get("text", ""))
-            elif block.get("type") == "tool_use":
-                parts.append(f"[tool_use: {block.get('name', '?')}]")
-        elif isinstance(block, str):
-            parts.append(block)
-    return "\n".join(parts) if parts else None
+def _truncate(s: str, limit: int) -> str:
+    return s if len(s) <= limit else s[:limit] + "...[truncated]"

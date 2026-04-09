@@ -4,10 +4,13 @@ Watches for completed request/response pairs and auto-normalizes them
 into sessions + messages (Tier 1).
 """
 
+import json
 import logging
+import re
 import time
 from typing import Optional
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 from ..db import (
     insert_message,
@@ -19,6 +22,17 @@ from ..db import (
 from .base import normalize_pair, NormalizedResult
 
 logger = logging.getLogger("pce.normalizer.pipeline")
+
+_ATTACHMENT_MARKER_RE = re.compile(
+    r"^\[(?:image|file(?::[^\]]+)?|audio|document(?::[^\]]+)?|tool(?:\s+call)?(?::[^\]]+)?|citation|code(?:\s+output)?)\]$",
+    re.IGNORECASE,
+)
+_FILE_UPLOAD_RE = re.compile(
+    r'^.+\.(?:pdf|docx?|txt|md|py|js|ts|csv|json|xml|html?|xlsx?|pptx?|zip|rar|'
+    r'png|jpe?g|gif|svg|mp[34]|wav|webp|heic|c|cpp|h|rb|go|rs|java|kt|swift|sh|'
+    r'bat|ps1|r|sql|ya?ml|toml|ini|cfg|log|ipynb)\s*$',
+    re.IGNORECASE,
+)
 
 
 def try_normalize_pair(
@@ -89,7 +103,21 @@ def normalize_conversation(
     if direction == "network_intercept":
         result = _normalize_network_intercept(capture_row)
     else:
-        result = normalize_pair(capture_row, capture_row)
+        # For conversation captures (DOM extraction), use ConversationNormalizer
+        # directly.  Going through the registry would pick OpenAIChatNormalizer
+        # first for provider=openai/host=chatgpt.com, which doesn't read the
+        # DOM-extracted 'attachments' field on each message.
+        from .conversation import ConversationNormalizer
+        _conv_norm = ConversationNormalizer()
+        body = capture_row.get("body_text_or_json", "")
+        result = _conv_norm.normalize(
+            body, body,
+            provider=capture_row.get("provider", ""),
+            host=capture_row.get("host", ""),
+            path=capture_row.get("path", ""),
+            model_name=capture_row.get("model_name"),
+            created_at=capture_row.get("created_at"),
+        )
 
     if result is None:
         return None
@@ -254,17 +282,14 @@ def _try_generic_normalize(
             continue
         role = msg.get("role", "user")
         content = msg.get("content")
-        if content is None:
+        text, attachments = _extract_generic_rich(msg, content)
+        if not text or len(text.strip()) < 1:
             continue
-        if isinstance(content, list):
-            # Array-of-parts format
-            parts = [p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"]
-            content = "\n".join(parts)
-        if not isinstance(content, str) or len(content.strip()) < 1:
-            continue
+        cj = json.dumps({"attachments": attachments}, ensure_ascii=False) if attachments else None
         messages.append(NormalizedMessage(
             role=role,
-            content_text=content,
+            content_text=text,
+            content_json=cj,
             model_name=model if role == "assistant" else None,
             ts=created_at,
         ))
@@ -287,13 +312,15 @@ def _try_generic_normalize(
             msg = choice.get("message") or choice.get("delta", {})
             if not isinstance(msg, dict):
                 continue
-            content = msg.get("content", "")
-            if not content:
-                continue
             role = msg.get("role", "assistant")
+            text, attachments = _extract_generic_rich(msg, msg.get("content", ""))
+            if not text:
+                continue
+            cj = json.dumps({"attachments": attachments}, ensure_ascii=False) if attachments else None
             messages.append(NormalizedMessage(
                 role=role,
-                content_text=content,
+                content_text=text,
+                content_json=cj,
                 model_name=resp_model,
                 token_estimate=completion_tokens,
                 ts=created_at,
@@ -498,6 +525,138 @@ def _try_embedded_ai_normalize(
     return None
 
 
+def _extract_generic_rich(msg: dict, content) -> tuple[str, list[dict]]:
+    """Extract text + attachments from a message with OpenAI-like content.
+
+    Handles both simple string and array-of-parts ``content``, plus
+    ``tool_calls``, ``function_call``, role=tool results, and audio.
+    """
+    text_parts: list[str] = []
+    attachments: list[dict] = []
+
+    def _consume_internal_content(obj: dict) -> bool:
+        ctype = obj.get("content_type", "")
+        parts = obj.get("parts")
+        if isinstance(parts, list):
+            for part in parts:
+                if isinstance(part, str):
+                    if part:
+                        text_parts.append(part)
+                elif isinstance(part, dict):
+                    part_type = part.get("content_type", "")
+                    if part_type == "image_asset_pointer" or "asset_pointer" in part:
+                        asset_pointer = part.get("asset_pointer", part.get("url", ""))
+                        file_id = ""
+                        if isinstance(asset_pointer, str) and asset_pointer.startswith("sediment://file_"):
+                            file_id = asset_pointer.split("sediment://", 1)[-1]
+                        attachments.append({
+                            "type": "image_url",
+                            "url": asset_pointer,
+                            "file_id": file_id,
+                            "size": part.get("size_bytes", 0),
+                        })
+                        text_parts.append("[Image]")
+                    elif isinstance(part.get("text"), str):
+                        text_parts.append(part["text"])
+                    else:
+                        attachments.append({
+                            "type": part_type or "unknown_part",
+                            "raw": _truncate(json.dumps(part, ensure_ascii=False), 2000),
+                        })
+                        text_parts.append(f"[{part_type or 'unknown'}]")
+            return True
+        if ctype == "text":
+            text_val = obj.get("text")
+            if isinstance(text_val, str) and text_val:
+                text_parts.append(text_val)
+                return True
+        return False
+
+    if isinstance(content, str):
+        stripped = content.strip()
+        parsed_internal = None
+        if stripped.startswith("{") or stripped.startswith("["):
+            try:
+                parsed_internal = json.loads(stripped)
+            except (json.JSONDecodeError, TypeError):
+                try:
+                    import ast
+                    parsed_internal = ast.literal_eval(stripped)
+                except Exception:
+                    parsed_internal = None
+        if isinstance(parsed_internal, dict) and (
+            "parts" in parsed_internal or "content_type" in parsed_internal
+        ):
+            if not _consume_internal_content(parsed_internal):
+                text_parts.append(content)
+        else:
+            text_parts.append(content)
+    elif isinstance(content, dict):
+        if not _consume_internal_content(content):
+            text_parts.append(str(content))
+    elif isinstance(content, list):
+        for part in content:
+            if isinstance(part, str):
+                text_parts.append(part)
+            elif isinstance(part, dict):
+                ptype = part.get("type", "")
+                if ptype == "text":
+                    text_parts.append(part.get("text", ""))
+                elif ptype == "image_url":
+                    img = part.get("image_url", {})
+                    url = img.get("url", "") if isinstance(img, dict) else str(img)
+                    stored = url if not url.startswith("data:") else url[:200] + "...[truncated]"
+                    attachments.append({"type": "image_url", "url": stored})
+                    text_parts.append("[Image]")
+                elif ptype == "input_audio":
+                    attachments.append({"type": "audio", "format": part.get("input_audio", {}).get("format", "")})
+                    text_parts.append("[Audio input]")
+                else:
+                    attachments.append({"type": ptype, "raw": _truncate(json.dumps(part, ensure_ascii=False), 2000)})
+                    text_parts.append(f"[{ptype}]")
+    elif content is not None:
+        text_parts.append(str(content))
+
+    # tool_calls
+    for tc in msg.get("tool_calls", []):
+        if not isinstance(tc, dict):
+            continue
+        func = tc.get("function", {})
+        name = func.get("name", "?") if isinstance(func, dict) else "?"
+        attachments.append({
+            "type": "tool_call", "id": tc.get("id", ""), "name": name,
+            "arguments": _truncate(func.get("arguments", "") if isinstance(func, dict) else "", 4000),
+        })
+        text_parts.append(f"[Tool call: {name}]")
+
+    # legacy function_call
+    fc = msg.get("function_call")
+    if isinstance(fc, dict):
+        attachments.append({"type": "tool_call", "name": fc.get("name", ""), "arguments": _truncate(fc.get("arguments", ""), 4000)})
+        text_parts.append(f"[Tool call: {fc.get('name', '?')}]")
+
+    # role=tool result
+    if msg.get("role") == "tool":
+        attachments.append({
+            "type": "tool_result", "tool_call_id": msg.get("tool_call_id", ""),
+            "content": _truncate(content if isinstance(content, str) else json.dumps(content, ensure_ascii=False) if content else "", 8000),
+        })
+
+    # audio output
+    audio = msg.get("audio")
+    if isinstance(audio, dict):
+        transcript = audio.get("transcript", "")
+        attachments.append({"type": "audio", "transcript": _truncate(transcript, 4000)})
+        if transcript:
+            text_parts.append(f"[Audio: {transcript[:100]}]")
+
+    return "\n".join(text_parts), attachments
+
+
+def _truncate(s: str, limit: int) -> str:
+    return s if len(s) <= limit else s[:limit] + "...[truncated]"
+
+
 def _persist_result(
     result: NormalizedResult,
     *,
@@ -534,18 +693,48 @@ def _persist_result(
         logger.error("Failed to create session for pair %s", pair_id)
         return None
 
-    # Build dedup set from existing messages (only for existing sessions)
-    existing_hashes = set()
+    # Build dedup map from existing messages (only for existing sessions)
+    # Maps hash → (msg_id, has_content_json) so we can enrich existing messages
+    existing_hash_map: dict[str, dict] = {}
     if is_existing:
-        existing_hashes = _get_existing_message_hashes(session_id, db_path=db_path)
+        existing_hash_map = _get_existing_message_hash_map(session_id, db_path=db_path)
 
-    # Insert only genuinely new messages
+    # Insert new messages or enrich existing ones
     msg_count = 0
+    enriched_count = 0
     for msg in result.messages:
         msg_hash = _message_hash(msg.role, msg.content_text)
-        if msg_hash in existing_hashes:
+
+        if msg_hash in existing_hash_map:
+            # Message already exists — but check if we can enrich it with
+            # newly-extracted content_json (attachments) from this capture
+            existing = existing_hash_map[msg_hash]
+            merged_json = _merge_content_json(
+                existing.get("content_json"),
+                msg.content_json,
+            )
+            better_text = _choose_better_content_text(
+                existing.get("content_text"),
+                msg.content_text,
+            )
+            if merged_json != existing.get("content_json") or better_text != existing.get("content_text"):
+                from ..db import update_message_enrichment
+                if update_message_enrichment(
+                    existing["id"],
+                    content_text=better_text if better_text != existing.get("content_text") else None,
+                    content_json=merged_json if merged_json != existing.get("content_json") else None,
+                    db_path=db_path,
+                ):
+                    enriched_count += 1
+                    existing["content_text"] = better_text
+                    existing["content_json"] = merged_json
             continue
-        existing_hashes.add(msg_hash)  # prevent within-batch dupes
+
+        existing_hash_map[msg_hash] = {
+            "id": "",
+            "content_text": msg.content_text,
+            "content_json": msg.content_json,
+        }  # prevent within-batch dupes
 
         msg_id = insert_message(
             session_id=session_id,
@@ -560,14 +749,22 @@ def _persist_result(
         )
         if msg_id:
             msg_count += 1
+            existing_hash_map[msg_hash]["id"] = msg_id
 
-    # Update title if the session didn't have one yet
-    if is_existing and result.title_hint:
-        _update_session_title(session_id, result.title_hint, db_path=db_path)
+    # Upgrade metadata on existing sessions when a better capture arrives later.
+    if is_existing:
+        _upgrade_session_metadata(
+            session_id,
+            provider=result.provider,
+            tool_family=result.tool_family,
+            title=result.title_hint,
+            created_via=created_via,
+            db_path=db_path,
+        )
 
     logger.info(
-        "Normalized %s -> session %s (%d new messages, provider=%s, existing=%s)",
-        pair_id[:8], session_id[:8], msg_count, result.provider, is_existing,
+        "Normalized %s -> session %s (%d new, %d enriched, provider=%s, existing=%s)",
+        pair_id[:8], session_id[:8], msg_count, enriched_count, result.provider, is_existing,
     )
     return session_id
 
@@ -577,8 +774,41 @@ def _persist_result(
 # ---------------------------------------------------------------------------
 
 def _message_hash(role: str, content_text: Optional[str]) -> str:
-    """Produce a dedup key for a message: role + first 200 chars of content."""
-    return f"{role}:{(content_text or '')[:200]}"
+    """Produce a dedup key for a message: role + first 200 chars of normalized content.
+
+    Normalizes raw platform JSON (e.g. ChatGPT's {'content_type':'text','parts':[...]})
+    to plain text so the same message from DOM and network intercept deduplicates.
+
+    Also normalizes file upload patterns (e.g. 'report.pdf\\nPDF\\nAnalyze this')
+    to just the message text, so re-processed captures match originals.
+    """
+    text = content_text or ""
+    # Quick check: if content looks like raw JSON/Python-repr with 'parts',
+    # extract visible text markers so DOM + network copies hash the same way.
+    stripped = text.strip()
+    if stripped.startswith("{") and "parts" in stripped[:50]:
+        try:
+            import ast
+            parsed = ast.literal_eval(stripped)
+            if isinstance(parsed, dict) and isinstance(parsed.get("parts"), list):
+                parts_out = []
+                for p in parsed["parts"]:
+                    if isinstance(p, str):
+                        if p:
+                            parts_out.append(p)
+                    elif isinstance(p, dict):
+                        if p.get("content_type") == "image_asset_pointer" or "asset_pointer" in p:
+                            parts_out.append("[Image]")
+                        elif isinstance(p.get("text"), str):
+                            parts_out.append(p["text"])
+                text = " ".join(parts_out).strip()
+        except Exception:
+            pass
+
+    # Normalize file upload patterns: "filename.ext\nLabel\nActual message" → "Actual message"
+    text = _normalize_message_text_for_dedup(text)
+
+    return f"{role}:{text[:200]}"
 
 
 def _find_existing_session(
@@ -603,27 +833,175 @@ def _find_existing_session(
         return None
 
 
-def _get_existing_message_hashes(
+def _get_existing_message_hash_map(
     session_id: str,
     db_path: Optional[Path] = None,
-) -> set:
-    """Return a set of dedup hashes for all messages already in a session."""
-    hashes = set()
+) -> dict[str, dict]:
+    """Return a dict mapping dedup hash → (msg_id, has_content_json) for a session.
+
+    This allows the persist logic to detect existing messages that can be
+    enriched with newly-extracted content_json (e.g. attachments from a
+    page refresh after the extraction code was improved).
+    """
+    hash_map: dict[str, dict] = {}
     try:
         conn = get_connection(db_path)
         conn.row_factory = __import__("sqlite3").Row
         try:
             rows = conn.execute(
-                "SELECT role, content_text FROM messages WHERE session_id = ?",
+                "SELECT id, role, content_text, content_json FROM messages WHERE session_id = ?",
                 (session_id,),
             ).fetchall()
             for r in rows:
-                hashes.add(_message_hash(r["role"], r["content_text"]))
+                h = _message_hash(r["role"], r["content_text"])
+                hash_map[h] = {
+                    "id": r["id"],
+                    "content_text": r["content_text"],
+                    "content_json": r["content_json"],
+                }
         finally:
             conn.close()
     except Exception:
         logger.exception("Failed to fetch existing message hashes")
-    return hashes
+    return hash_map
+
+
+def _normalize_message_text_for_dedup(text: str) -> str:
+    """Collapse attachment-only prefixes so DOM and network copies hash alike."""
+    if not text:
+        return ""
+
+    lines = [line.strip() for line in text.strip().split("\n")]
+    while len(lines) > 1 and lines[0] and _ATTACHMENT_MARKER_RE.match(lines[0]):
+        lines.pop(0)
+        while lines and not lines[0]:
+            lines.pop(0)
+
+    if len(lines) >= 2 and _FILE_UPLOAD_RE.match(lines[0]):
+        rest_start = 1
+        if len(lines) > 1 and len(lines[1]) <= 30:
+            rest_start = 2
+        lines = lines[rest_start:]
+
+    return "\n".join(lines).strip()
+
+
+def _load_attachments(content_json: Optional[str]) -> list[dict]:
+    if not content_json:
+        return []
+    try:
+        data = json.loads(content_json)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    attachments = data.get("attachments")
+    return attachments if isinstance(attachments, list) else []
+
+
+def _extract_attachment_file_id(att: dict) -> str:
+    file_id = att.get("file_id", "") if isinstance(att, dict) else ""
+    if file_id:
+        return str(file_id)
+
+    url = att.get("url", "") if isinstance(att, dict) else ""
+    if not isinstance(url, str) or not url:
+        return ""
+    if url.startswith("sediment://file_"):
+        return url.split("sediment://", 1)[-1]
+
+    try:
+        parsed = urlparse(url)
+        file_ids = parse_qs(parsed.query).get("id", [])
+    except Exception:
+        return ""
+    if file_ids and file_ids[0].startswith("file_"):
+        return file_ids[0]
+    return ""
+
+
+def _attachment_key(att: dict) -> str:
+    if not isinstance(att, dict):
+        return json.dumps(att, ensure_ascii=False, sort_keys=True)
+
+    att_type = att.get("type", "")
+    file_id = _extract_attachment_file_id(att)
+    if file_id:
+        return f"{att_type}:file_id:{file_id}"
+
+    if att_type == "file" and att.get("name"):
+        return f"file:name:{att['name']}"
+    if att_type == "citation" and att.get("url"):
+        return f"citation:url:{att['url']}"
+    if att_type == "image_url" and att.get("url"):
+        return f"image_url:url:{att['url']}"
+    if att_type == "code_block" and att.get("code"):
+        return f"code_block:{att.get('language', '')}:{att['code']}"
+    if att_type == "tool_call" and (att.get("id") or att.get("name")):
+        return f"tool_call:{att.get('id', '')}:{att.get('name', '')}"
+
+    return json.dumps(att, ensure_ascii=False, sort_keys=True)
+
+
+def _merge_attachment(existing: dict, incoming: dict) -> dict:
+    merged = dict(existing or {})
+    for key, value in (incoming or {}).items():
+        if value in (None, "", [], {}):
+            continue
+        if key == "url":
+            current = merged.get("url", "")
+            if isinstance(current, str) and current.startswith("sediment://") and isinstance(value, str) and value.startswith("http"):
+                merged[key] = value
+                continue
+            if not current:
+                merged[key] = value
+                continue
+        if key not in merged or merged[key] in (None, "", [], {}):
+            merged[key] = value
+    return merged
+
+
+def _merge_content_json(existing_json: Optional[str], incoming_json: Optional[str]) -> Optional[str]:
+    if not existing_json:
+        return incoming_json
+    if not incoming_json:
+        return existing_json
+
+    merged: dict[str, dict] = {}
+    order: list[str] = []
+    for source_json in (existing_json, incoming_json):
+        for att in _load_attachments(source_json):
+            if not isinstance(att, dict):
+                continue
+            key = _attachment_key(att)
+            if key not in merged:
+                merged[key] = dict(att)
+                order.append(key)
+            else:
+                merged[key] = _merge_attachment(merged[key], att)
+
+    if not order:
+        return existing_json or incoming_json
+    return json.dumps(
+        {"attachments": [merged[key] for key in order]},
+        ensure_ascii=False,
+    )
+
+
+def _choose_better_content_text(existing_text: Optional[str], incoming_text: Optional[str]) -> Optional[str]:
+    if not existing_text:
+        return incoming_text
+    if not incoming_text:
+        return existing_text
+
+    existing_norm = _normalize_message_text_for_dedup(existing_text)
+    incoming_norm = _normalize_message_text_for_dedup(incoming_text)
+    if existing_norm != incoming_norm:
+        return incoming_text if len(incoming_text.strip()) > len(existing_text.strip()) else existing_text
+
+    if incoming_text.strip() == incoming_norm and existing_text.strip() != existing_norm:
+        return incoming_norm
+    if existing_text.strip() == existing_norm:
+        return existing_text
+    return incoming_norm or existing_text
 
 
 def _update_session_title(
@@ -644,3 +1022,61 @@ def _update_session_title(
             conn.close()
     except Exception:
         pass
+
+
+def _upgrade_session_metadata(
+    session_id: str,
+    *,
+    provider: Optional[str] = None,
+    tool_family: Optional[str] = None,
+    title: Optional[str] = None,
+    created_via: Optional[str] = None,
+    db_path: Optional[Path] = None,
+) -> None:
+    """Upgrade weak session metadata when a better capture later arrives."""
+    try:
+        conn = get_connection(db_path)
+        try:
+            conn.execute(
+                """
+                UPDATE sessions
+                SET
+                    provider = CASE
+                        WHEN (provider IS NULL OR provider = '' OR provider = 'unknown')
+                             AND ? IS NOT NULL AND ? != '' AND ? != 'unknown'
+                        THEN ?
+                        ELSE provider
+                    END,
+                    tool_family = CASE
+                        WHEN (tool_family IS NULL OR tool_family = '' OR tool_family LIKE 'unknown%')
+                             AND ? IS NOT NULL AND ? != ''
+                        THEN ?
+                        ELSE tool_family
+                    END,
+                    title_hint = CASE
+                        WHEN (title_hint IS NULL OR title_hint = '' OR title_hint LIKE '{%')
+                             AND ? IS NOT NULL AND ? != ''
+                        THEN ?
+                        ELSE title_hint
+                    END,
+                    created_via = CASE
+                        WHEN (created_via IS NULL OR created_via = '' OR created_via = 'browser_extension_network')
+                             AND ? IS NOT NULL AND ? != ''
+                        THEN ?
+                        ELSE created_via
+                    END
+                WHERE id = ?
+                """,
+                (
+                    provider, provider, provider, provider,
+                    tool_family, tool_family, tool_family,
+                    title, title, title[:200] if title else None,
+                    created_via, created_via, created_via,
+                    session_id,
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        logger.exception("Failed to upgrade session metadata")

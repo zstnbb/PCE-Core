@@ -10,6 +10,10 @@
 (function () {
   "use strict";
 
+  // Guard against double-injection
+  if (window.__PCE_DEEPSEEK_ACTIVE) return;
+  window.__PCE_DEEPSEEK_ACTIVE = true;
+
   const PROVIDER = "deepseek";
   const SOURCE_NAME = "deepseek-web";
   const DEBOUNCE_MS = 2500;
@@ -21,6 +25,11 @@
   let observerActive = false;
 
   console.log("[PCE] DeepSeek content script loaded");
+
+  // Delegate to shared utilities from pce_dom_utils.js
+  const _pce = () => window.__PCE_EXTRACT || {};
+  function _extractAttachments(el) { return (_pce().extractAttachments || (() => []))(el); }
+  function _extractThinking(el) { return (_pce().extractThinking || (() => ""))(el); }
 
   // -------------------------------------------------------------------------
   // Message extraction – anchored on .ds-markdown
@@ -46,11 +55,23 @@
         if (turnEl) {
           const userText = _extractUserFromTurn(turnEl, md);
           if (userText && userText.length > 0) {
-            messages.push({ role: "user", content: userText });
+            const userEl = turnEl; // best available scope for user attachments
+            const userAtt = _extractAttachments(userEl);
+            const userMsg = { role: "user", content: userText };
+            if (userAtt.length > 0) userMsg.attachments = userAtt;
+            messages.push(userMsg);
           }
         }
 
-        messages.push({ role: "assistant", content: assistantText });
+        // Assistant: extract thinking + attachments from the md block's parent turn
+        const assistantScope = md.closest('[class]')?.parentElement || md;
+        const thinking = _extractThinking(assistantScope);
+        const att = _extractAttachments(assistantScope);
+        let content = assistantText;
+        if (thinking) content = "<thinking>\n" + thinking + "\n</thinking>\n\n" + content;
+        const assistantMsg = { role: "assistant", content };
+        if (att.length > 0) assistantMsg.attachments = att;
+        messages.push(assistantMsg);
       });
 
       if (messages.length >= 2) return messages;
@@ -220,8 +241,8 @@
     if (fp === lastFingerprint) return;
     lastFingerprint = fp;
 
-    const newMsgs = allMsgs.slice(sentCount);
-    if (newMsgs.length === 0) return;
+    const updateOnly = allMsgs.length > 0 && allMsgs.slice(sentCount).length === 0;
+    const newMsgs = updateOnly ? [allMsgs[allMsgs.length - 1]] : allMsgs.slice(sentCount);
 
     const prevCount = sentCount;
     sentCount = allMsgs.length;
@@ -244,6 +265,8 @@
       meta: {
         new_message_count: newMsgs.length,
         total_message_count: allMsgs.length,
+        capture_mode: updateOnly ? "message_update" : "message_delta",
+        updated_message_index: updateOnly ? allMsgs.length - 1 : null,
         extraction_strategy: "deepseek-dom",
         behavior: window.__PCE_BEHAVIOR
           ? window.__PCE_BEHAVIOR.getBehaviorSnapshot(true)

@@ -39,6 +39,7 @@ from .db import (
     query_sessions,
     refresh_custom_domains,
     remove_custom_domain,
+    reset_all_data,
 )
 from .models import (
     CaptureIn,
@@ -108,6 +109,18 @@ def health():
         db_path=str(DB_PATH),
         total_captures=stats["total_captures"],
     )
+
+
+# ---------------------------------------------------------------------------
+# Dev: Reset baseline
+# ---------------------------------------------------------------------------
+
+@app.post("/api/v1/dev/reset")
+def dev_reset():
+    """DEV ONLY: Delete all captures, sessions, and messages to reset to baseline."""
+    result = reset_all_data()
+    logger.warning("DEV RESET triggered via API: %s", result)
+    return {"status": "ok", **result}
 
 
 # ---------------------------------------------------------------------------
@@ -278,14 +291,14 @@ def capture_health():
 
     channels = [
         _channel_status(SOURCE_BROWSER_EXT, "Browser Extension"),
-        _channel_status(SOURCE_PROXY, "HTTPS Proxy (L4)"),
+        _channel_status(SOURCE_PROXY, "HTTPS Proxy"),
         _channel_status(SOURCE_MCP, "MCP Server"),
     ]
 
     # Add sub-channel detail for browser extension
     channels[0]["sub_channels"] = {
         "dom_extraction": {
-            "label": "L1 DOM Extraction",
+            "label": "DOM Extraction",
             "count_5m": dom_dir.get("count_5m", 0),
             "count_1h": dom_dir.get("count_1h", 0),
             "count_24h": dom_dir.get("count_24h", 0),
@@ -295,7 +308,7 @@ def capture_health():
                     "stale" if dom_dir.get("count_24h", 0) > 0 else "inactive")),
         },
         "network_intercept": {
-            "label": "L3 Network Interception",
+            "label": "Network Interception",
             "count_5m": net_dir.get("count_5m", 0),
             "count_1h": net_dir.get("count_1h", 0),
             "count_24h": net_dir.get("count_24h", 0),
@@ -323,7 +336,7 @@ def capture_health():
 
     channels.append({
         "id": "local_hook",
-        "label": "Local Model Hook (L5)",
+        "label": "Local Model Hook",
         "status": local_status,
         "last_seen": local_last,
         "last_seen_ago_s": round(now - local_last, 1) if local_last else None,
@@ -351,7 +364,7 @@ def capture_health():
 
     channels.append({
         "id": "clipboard",
-        "label": "Clipboard Monitor (L7)",
+        "label": "Clipboard Monitor",
         "status": clip_status,
         "last_seen": clip_last,
         "last_seen_ago_s": round(now - clip_last, 1) if clip_last else None,
@@ -720,7 +733,7 @@ else:
     _DASHBOARD_DIR = Path(__file__).parent / "dashboard"
 
 if _DASHBOARD_DIR.is_dir():
-    app.mount("/dashboard", StaticFiles(directory=str(_DASHBOARD_DIR)), name="dashboard")
+    app.mount("/dashboard", StaticFiles(directory=str(_DASHBOARD_DIR), html=True), name="dashboard")
 
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
     def dashboard_root():

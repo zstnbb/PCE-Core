@@ -20,13 +20,28 @@
   // Map hostname → provider
   const HOST_PROVIDER_MAP = {
     "gemini.google.com": "google",
+    "aistudio.google.com": "google",
     "chat.deepseek.com": "deepseek",
     "www.perplexity.ai": "perplexity",
     "grok.com": "xai",
     "poe.com": "poe",
+    "manus.im": "manus",
+    "chat.z.ai": "zhipu",
+    "chatglm.cn": "zhipu",
+    "chat.zhipuai.cn": "zhipu",
   };
 
   const hostname = window.location.hostname;
+  const DEDICATED_HOSTS = new Set([
+    "grok.com",
+    "chat.z.ai",
+    "aistudio.google.com",
+    "manus.im",
+  ]);
+  if (DEDICATED_HOSTS.has(hostname)) {
+    console.debug(`[PCE] Generic extractor disabled on dedicated host ${hostname}`);
+    return;
+  }
   const provider = HOST_PROVIDER_MAP[hostname] || hostname.split(".")[0];
   const sourceName = `${provider}-web`;
 

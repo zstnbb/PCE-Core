@@ -13,6 +13,10 @@
 (function () {
   "use strict";
 
+  // Guard against double-injection (manifest + proactive fallback can both fire)
+  if (window.__PCE_CHATGPT_ACTIVE) return;
+  window.__PCE_CHATGPT_ACTIVE = true;
+
   const PROVIDER = "openai";
   const SOURCE_NAME = "chatgpt-web";
   const DEBOUNCE_MS = 2000;
@@ -42,16 +46,11 @@
   }
 
   function isStreaming() {
-    // ChatGPT shows a stop button or streaming indicator while generating
-    if (document.querySelector('button[aria-label="Stop generating"]')) return true;
-    if (document.querySelector('button[aria-label="Stop reasoning"]')) return true;
-    if (document.querySelector('button[data-testid="stop-button"]')) return true;
-    if (document.querySelector(".result-streaming")) return true;
-    if (document.querySelector('[class*="stop-"]')) return true;
-    // Streaming cursor / animated dots
-    if (document.querySelector('[class*="streaming"]')) return true;
-    if (document.querySelector('[class*="typing"]')) return true;
-    if (document.querySelector('[class*="cursor"]')) return true;
+    // Delegate to shared utilities (covers stop buttons + streaming indicators)
+    if (window.__PCE_EXTRACT && window.__PCE_EXTRACT.isStreaming()) return true;
+    // ChatGPT-specific fallback: agent-turn streaming
+    const main = document.querySelector("main");
+    if (main && main.querySelector('[class*="agent-turn"] [class*="streaming"]')) return true;
     return false;
   }
 
@@ -110,53 +109,73 @@
     return null;
   }
 
-  /** Extract thinking/reasoning content from a turn element */
-  function extractThinking(turnEl) {
-    // ChatGPT thinking panel: <details> or elements with "思考"/"Thought"
-    const parts = [];
+  // Delegate to shared utilities from pce_dom_utils.js
+  const _pce = () => window.__PCE_EXTRACT || {};
+  function extractThinking(el) { return (_pce().extractThinking || (() => ""))(el); }
+  function extractReplyContent(el) { return (_pce().extractReplyContent || ((e) => e ? e.innerText.trim() : ""))(el); }
+  function extractAttachments(el) { return (_pce().extractAttachments || (() => []))(el); }
 
-    // Pattern 1: <details> containing thinking summary
-    turnEl.querySelectorAll("details").forEach((d) => {
-      const summary = d.querySelector("summary");
-      const body = d.querySelector(".markdown, .whitespace-pre-wrap, div");
-      if (summary && body) {
-        parts.push(body.innerText.trim());
-      } else {
-        const txt = d.innerText.trim();
-        if (txt.length > 5) parts.push(txt);
+  /**
+   * Extract special content from the page that may live outside normal
+   * message elements: Deep Research reports, Canvas artifacts, etc.
+   * Returns {role, content, attachments} or null.
+   */
+  function extractSpecialContent() {
+    // Deep Research: look for research report cards in the conversation area
+    const main = document.querySelector("main");
+    if (!main) return null;
+
+    // Strategy: find large text blocks that are not inside [data-message-author-role="user"]
+    // Deep Research renders a card/article with the report
+    const candidates = main.querySelectorAll(
+      'article, [class*="research"], [class*="report"], [class*="deep-dive"], ' +
+      '[class*="canvas-content"], [role="article"], [role="document"], ' +
+      '[class*="result-content"], section'
+    );
+
+    let bestText = "";
+    for (const el of candidates) {
+      // Skip if inside a user message
+      if (el.closest('[data-message-author-role="user"]')) continue;
+      const text = el.innerText.trim();
+      // Prefer the longest meaningful block
+      if (text.length > bestText.length && text.length > 50) {
+        bestText = text;
       }
-    });
-
-    // Pattern 2: elements with class containing "thought" or "think"
-    if (parts.length === 0) {
-      turnEl.querySelectorAll('[class*="thought"], [class*="think"]').forEach((el) => {
-        const txt = el.innerText.trim();
-        if (txt.length > 5) parts.push(txt);
-      });
     }
 
-    return parts.join("\n").trim();
-  }
-
-  /** Extract the main reply content from a turn element (excluding thinking) */
-  function extractReplyContent(turnEl) {
-    // First try specific content selectors (ordered by specificity)
-    for (const sel of [
-      ".markdown.prose",
-      ".markdown",
-      ".whitespace-pre-wrap",
-      ".text-message",
-      '[class*="message-content"]',
-      '[class*="response-content"]',
-      '[data-testid="message-content"]',
-    ]) {
-      const contentEl = turnEl.querySelector(sel);
-      if (contentEl) return contentEl.innerText.trim();
+    // Fallback: look for any large scrollable content container in main
+    if (!bestText) {
+      const scrollables = main.querySelectorAll('[class*="scroll"], [class*="overflow"]');
+      for (const el of scrollables) {
+        if (el.closest('[data-message-author-role="user"]')) continue;
+        // Skip the outer conversation container itself
+        if (el.contains(main.querySelector('[data-message-author-role]'))) continue;
+        const text = el.innerText.trim();
+        if (text.length > bestText.length && text.length > 100) {
+          bestText = text;
+        }
+      }
     }
-    // Fallback: direct inner text, but exclude <details> (thinking)
-    const clone = turnEl.cloneNode(true);
-    clone.querySelectorAll("details").forEach((d) => d.remove());
-    return clone.innerText.trim();
+
+    // Final fallback: look for conversation turn containers that have no role attr
+    // but contain substantial text (Deep Research result containers)
+    if (!bestText) {
+      const turns = main.querySelectorAll('[data-testid^="conversation-turn"]');
+      for (const turn of turns) {
+        const roleEl = turn.querySelector('[data-message-author-role]');
+        if (roleEl && roleEl.getAttribute('data-message-author-role') === 'user') continue;
+        const text = turn.innerText.trim();
+        if (text.length > bestText.length && text.length > 100) {
+          bestText = text;
+        }
+      }
+    }
+
+    if (bestText.length > 50) {
+      return { role: "assistant", content: bestText, attachments: [] };
+    }
+    return null;
   }
 
   function extractMessages() {
@@ -169,19 +188,34 @@
         const role = el.getAttribute("data-message-author-role");
         if (role === "user") {
           const text = el.innerText.trim();
-          if (text) messages.push({ role: "user", content: text });
+          if (text) {
+            const att = extractAttachments(el);
+            const msg = { role: "user", content: text };
+            if (att.length > 0) msg.attachments = att;
+            messages.push(msg);
+          }
         } else {
-          // Assistant: capture thinking + reply separately
+          // Assistant/tool: capture thinking + reply separately
           const thinking = extractThinking(el);
           const reply = extractReplyContent(el);
           if (thinking || reply) {
             let content = "";
             if (thinking) content += "<thinking>\n" + thinking + "\n</thinking>\n\n";
             if (reply) content += reply;
-            messages.push({ role: role || "assistant", content: content.trim() });
+            const att = extractAttachments(el);
+            const msg = { role: role || "assistant", content: content.trim() };
+            if (att.length > 0) msg.attachments = att;
+            messages.push(msg);
           }
         }
       });
+      // Check: if we only found user messages, try to find special content
+      // (Deep Research reports, Canvas, etc.) that may lack the role attribute
+      const hasNonUser = messages.some(m => m.role !== "user");
+      if (!hasNonUser && messages.length > 0) {
+        const special = extractSpecialContent();
+        if (special) messages.push(special);
+      }
       if (messages.length > 0) return messages;
     }
 
@@ -194,7 +228,12 @@
         const role = roleAttr || (i % 2 === 0 ? "user" : "assistant");
         if (role === "user") {
           const text = turn.innerText.trim();
-          if (text) messages.push({ role: "user", content: text });
+          if (text) {
+            const att = extractAttachments(turn);
+            const msg = { role: "user", content: text };
+            if (att.length > 0) msg.attachments = att;
+            messages.push(msg);
+          }
         } else {
           const thinking = extractThinking(turn);
           const reply = extractReplyContent(turn);
@@ -202,7 +241,10 @@
             let content = "";
             if (thinking) content += "<thinking>\n" + thinking + "\n</thinking>\n\n";
             if (reply) content += reply;
-            messages.push({ role, content: content.trim() });
+            const att = extractAttachments(turn);
+            const msg = { role, content: content.trim() };
+            if (att.length > 0) msg.attachments = att;
+            messages.push(msg);
           }
         }
       });
@@ -217,7 +259,11 @@
         if (text && text.length > 3) {
           const roleAttr = el.querySelector("[data-message-author-role]")
             ?.getAttribute("data-message-author-role");
-          messages.push({ role: roleAttr || (i % 2 === 0 ? "user" : "assistant"), content: text });
+          const role = roleAttr || (i % 2 === 0 ? "user" : "assistant");
+          const att = extractAttachments(el);
+          const msg = { role, content: text };
+          if (att.length > 0) msg.attachments = att;
+          messages.push(msg);
         }
       });
       if (messages.length > 0) return messages;
@@ -232,7 +278,10 @@
         const role = roleAttr || (i % 2 === 0 ? "user" : "assistant");
         const text = role === "user" ? el.innerText.trim() : extractReplyContent(el);
         if (text && text.length > 1) {
-          messages.push({ role, content: text });
+          const att = extractAttachments(el);
+          const msg = { role, content: text };
+          if (att.length > 0) msg.attachments = att;
+          messages.push(msg);
         }
       });
       if (messages.length > 0) return messages;
@@ -275,13 +324,15 @@
     const allMsgs = extractMessages();
     if (allMsgs.length === 0) return;
 
-    const convId = getConvId();
-
-    // No conversation ID yet (new chat) → retry until URL updates
-    if (!convId) {
-      clearTimeout(deferTimer);
-      deferTimer = setTimeout(captureConversation, 1000);
+    let convId = getConvId();
+    if (!convId && allMsgs.length < 2) {
       return;
+    }
+
+    // New chat: URL hasn't updated to /c/... yet.
+    // Use a temporary ID only after we have a full turn pair.
+    if (!convId) {
+      convId = "_new_" + Date.now().toString(36);
     }
 
     // Conversation switch
@@ -295,13 +346,8 @@
     const fp = fingerprint(allMsgs);
     if (fp === sentFingerprint) return;
 
-    const newMsgs = allMsgs.slice(sentCount);
-    if (newMsgs.length === 0) {
-      // Count didn't change but fingerprint did → content update of last msg
-      // Re-send the last assistant message as an update
-      sentFingerprint = fp;
-      return;
-    }
+    const updateOnly = allMsgs.length > 0 && allMsgs.slice(sentCount).length === 0;
+    const newMsgs = updateOnly ? [allMsgs[allMsgs.length - 1]] : allMsgs.slice(sentCount);
 
     const prevCount = sentCount;
     const prevFp = sentFingerprint;
@@ -329,6 +375,8 @@
       meta: {
         new_message_count: newMsgs.length,
         total_message_count: allMsgs.length,
+        capture_mode: updateOnly ? "message_update" : "message_delta",
+        updated_message_index: updateOnly ? allMsgs.length - 1 : null,
         extraction_strategy: "dom-incremental",
         behavior: window.__PCE_BEHAVIOR
           ? window.__PCE_BEHAVIOR.getBehaviorSnapshot(true)

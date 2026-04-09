@@ -280,12 +280,99 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   injectedTabs.delete(tabId);
 });
 
-chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   // Reset on full navigation (not SPA hash changes)
   if (changeInfo.status === "loading" && changeInfo.url) {
     injectedTabs.delete(tabId);
+    return;
+  }
+
+  // Proactive fallback: inject content scripts on known AI domains when
+  // static manifest content_scripts don't fire (CDP / automation mode).
+  if (changeInfo.status === "complete" && tab?.url && isEnabled) {
+    _proactiveInjectFallback(tabId, tab.url);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Proactive injection fallback — mirrors manifest.json content_scripts
+// ---------------------------------------------------------------------------
+const _DOMAIN_CONTENT_SCRIPTS = {
+  "chatgpt.com":          ["detector.js", "behavior_tracker.js", "bridge.js", "chatgpt.js"],
+  "chat.openai.com":      ["detector.js", "behavior_tracker.js", "bridge.js", "chatgpt.js"],
+  "claude.ai":            ["detector.js", "behavior_tracker.js", "bridge.js", "claude.js"],
+  "gemini.google.com":    ["detector.js", "behavior_tracker.js", "bridge.js", "gemini.js"],
+  "aistudio.google.com":  ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "google_ai_studio.js"],
+  "manus.im":             ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "manus.js"],
+  "chat.deepseek.com":    ["detector.js", "behavior_tracker.js", "bridge.js", "deepseek.js"],
+  "chat.z.ai":            ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "zhipu.js"],
+  "www.perplexity.ai":    ["detector.js", "behavior_tracker.js", "bridge.js", "perplexity.js"],
+  "copilot.microsoft.com":["detector.js", "behavior_tracker.js", "bridge.js", "copilot.js"],
+  "poe.com":              ["detector.js", "behavior_tracker.js", "bridge.js", "poe.js"],
+  "huggingface.co":       ["detector.js", "behavior_tracker.js", "bridge.js", "huggingface.js"],
+  "grok.com":             ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "grok.js"],
+  "chat.mistral.ai":      ["detector.js", "behavior_tracker.js", "bridge.js", "generic.js"],
+  "kimi.moonshot.cn":     ["detector.js", "behavior_tracker.js", "bridge.js", "generic.js"],
+  "chatglm.cn":           ["detector.js", "behavior_tracker.js", "bridge.js", "generic.js"],
+  "chat.zhipuai.cn":      ["detector.js", "behavior_tracker.js", "bridge.js", "generic.js"],
+};
+
+function _getScriptsForUrl(url) {
+  let hostname;
+  try { hostname = new URL(url).hostname; } catch { return null; }
+  // Exact match first
+  if (_DOMAIN_CONTENT_SCRIPTS[hostname]) {
+    return _DOMAIN_CONTENT_SCRIPTS[hostname].map(f => "content_scripts/" + f);
+  }
+  // Subdomain match (e.g. www.chatgpt.com → chatgpt.com)
+  for (const [domain, scripts] of Object.entries(_DOMAIN_CONTENT_SCRIPTS)) {
+    if (hostname.endsWith("." + domain)) {
+      return scripts.map(f => "content_scripts/" + f);
+    }
+  }
+  return null;
+}
+
+async function _tabHasBridge(tabId) {
+  try {
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => Boolean(window.__PCE_BRIDGE_ACTIVE || window.__PCE_BRIDGE_LOADED),
+    });
+    return Boolean(result?.result);
+  } catch {
+    return false;
+  }
+}
+
+async function _proactiveInjectFallback(tabId, url) {
+  // Brief delay: give static manifest content_scripts a chance to fire first
+  await new Promise(r => setTimeout(r, 1500));
+
+  // If detector.js already ran (static injection worked), it will have sent
+  // PCE_AI_PAGE_DETECTED, which calls handleDynamicInjection, which adds to
+  // injectedTabs. So if tab is already tracked, skip.
+  if (injectedTabs.has(tabId)) return;
+
+  const scripts = _getScriptsForUrl(url);
+  if (!scripts) return;
+
+  if (await _tabHasBridge(tabId)) {
+    injectedTabs.add(tabId);
+    return;
+  }
+
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: scripts,
+    });
+    injectedTabs.add(tabId);
+    console.log(`[PCE] Proactive fallback injection: ${new URL(url).hostname} (tab ${tabId})`);
+  } catch (err) {
+    console.debug(`[PCE] Proactive injection skipped: ${err.message}`);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Core: send DOM-extracted conversation to PCE Ingest API
@@ -361,7 +448,15 @@ async function handleNetworkCapture(payload, tab) {
   const reqSnippet = (payload.request_body || "").slice(0, 200);
   const respSnippet = (payload.response_body || "").slice(0, 200);
   const fingerprint = `${payload.host || ""}:${reqSnippet}:${respSnippet}`;
-  const sessionHint = tab ? new URL(tab.url).pathname : null;
+  // Normalize session hint: extract conversation UUID from path patterns
+  // so network captures merge with DOM captures into the same session.
+  // e.g. /c/69d723b2-... → 69d723b2-...
+  let sessionHint = null;
+  if (tab) {
+    const tabPath = new URL(tab.url).pathname;
+    const convMatch = tabPath.match(/\/(?:c|chat|conversation|thread|t)\/([a-f0-9-]{8,})/i);
+    sessionHint = convMatch ? convMatch[1] : tabPath;
+  }
 
   if (isDuplicate(sessionHint, fingerprint)) {
     console.log("[PCE] Dedup: skipping duplicate network capture");
@@ -429,6 +524,11 @@ async function handleDynamicInjection(tabId, payload) {
   if (isBlacklisted(domain)) {
     console.log(`[PCE] Blacklisted: skipping injection for ${domain}`);
     return { injected: false, reason: "blacklisted" };
+  }
+
+  if (await _tabHasBridge(tabId)) {
+    injectedTabs.add(tabId);
+    return { injected: false, reason: "already_loaded" };
   }
 
   injectedTabs.add(tabId);

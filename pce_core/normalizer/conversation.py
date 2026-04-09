@@ -22,6 +22,7 @@ captures still route to the more specific normalizer first.
 
 import json
 import logging
+import re
 from typing import Optional
 
 from .base import BaseNormalizer, NormalizedMessage, NormalizedResult
@@ -47,6 +48,135 @@ _CONVERSATION_HOSTS = {
     "chat.mistral.ai",
     "kimi.moonshot.cn",
 }
+
+
+# File extension pattern for detecting file upload chips in content text
+_FILE_EXT_RE = re.compile(
+    r'^(.+\.(?:pdf|docx?|txt|md|py|js|ts|csv|json|xml|html?|xlsx?|pptx?|zip|rar|'
+    r'png|jpe?g|gif|svg|mp[34]|wav|webp|heic|c|cpp|h|rb|go|rs|java|kt|swift|sh|'
+    r'bat|ps1|r|sql|ya?ml|toml|ini|cfg|log|ipynb))\s*$',
+    re.IGNORECASE,
+)
+
+
+def _dedupe_attachments(attachments: list[dict]) -> list[dict]:
+    """Return attachments without exact duplicates, preserving order."""
+    out: list[dict] = []
+    seen: set[str] = set()
+    for att in attachments or []:
+        if not isinstance(att, dict):
+            continue
+        key = json.dumps(att, ensure_ascii=False, sort_keys=True)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(att)
+    return out
+
+
+def _detect_file_upload(content: str) -> tuple[str, list[dict]]:
+    """Detect file upload patterns in user message content text.
+
+    Chat UIs render file upload chips as part of message innerText:
+        "filename.pdf\nPDF\nPlease analyze this file"
+    Detects the filename, extracts it as a file attachment, and returns
+    cleaned content without the filename/type-label lines.
+    """
+    lines = content.strip().split('\n')
+    if len(lines) < 2:
+        return content, []
+
+    first_line = lines[0].strip()
+    m = _FILE_EXT_RE.match(first_line)
+    if not m:
+        return content, []
+
+    filename = m.group(1)
+
+    # Second line is usually a short type label (e.g. "PDF", "文件", "Image")
+    # Skip it if it's short and doesn't look like real user content
+    rest_start = 1
+    if len(lines) > 1:
+        second = lines[1].strip()
+        if len(second) <= 30 and not any(c in second for c in '。，！？.!?,'):
+            rest_start = 2
+
+    cleaned = '\n'.join(lines[rest_start:]).strip()
+    if not cleaned:
+        cleaned = f"[File: {filename}]"
+
+    attachment = {"type": "file", "name": filename}
+    return cleaned, [attachment]
+
+
+def _clean_content(content: str) -> tuple[str, list[dict]]:
+    """Clean raw platform-internal JSON that may appear as content_text.
+
+    Some captures (especially from network intercept + WS) produce content
+    like: {'content_type': 'text', 'parts': ['actual text here']}
+    This function detects that format and extracts the real text.
+
+    Returns (cleaned_text, extracted_attachments).
+    """
+    attachments = []
+    stripped = content.strip()
+
+    # Fast path: most content is not raw JSON
+    if not stripped.startswith("{") and not stripped.startswith("["):
+        return content, attachments
+
+    # Try parsing as JSON (handles both standard and Python-repr formats)
+    parsed = None
+    try:
+        parsed = json.loads(stripped)
+    except (json.JSONDecodeError, TypeError):
+        # Try Python repr format: {'key': 'value'} → {"key": "value"}
+        try:
+            import ast
+            parsed = ast.literal_eval(stripped)
+        except Exception:
+            pass
+
+    if not isinstance(parsed, dict):
+        return content, attachments
+
+    # ChatGPT internal format: {'content_type': '...', 'parts': [...]}
+    parts = parsed.get("parts")
+    if isinstance(parts, list):
+        text_parts = []
+        for part in parts:
+            if isinstance(part, str):
+                text_parts.append(part)
+            elif isinstance(part, dict):
+                ct = part.get("content_type", "")
+                if ct == "image_asset_pointer" or "asset_pointer" in part:
+                    asset_pointer = part.get("asset_pointer", part.get("url", ""))
+                    file_id = ""
+                    if isinstance(asset_pointer, str) and asset_pointer.startswith("sediment://file_"):
+                        file_id = asset_pointer.split("sediment://", 1)[-1]
+                    attachments.append({
+                        "type": "image_url",
+                        "url": asset_pointer,
+                        "file_id": file_id,
+                        "size": part.get("size_bytes", 0),
+                    })
+                    text_parts.append("[Image]")
+                elif "text" in part:
+                    text_parts.append(part["text"])
+                else:
+                    text_parts.append(f"[{ct or 'unknown'}]")
+        cleaned = "\n".join(text_parts).strip()
+        if cleaned:
+            return cleaned, attachments
+
+    # Generic: if there's a 'text' or 'content' key, extract it
+    for key in ("text", "content", "message", "result"):
+        val = parsed.get(key)
+        if isinstance(val, str) and len(val) > 2:
+            return val, attachments
+
+    # Couldn't clean — return original
+    return content, attachments
 
 
 class ConversationNormalizer(BaseNormalizer):
@@ -100,9 +230,26 @@ class ConversationNormalizer(BaseNormalizer):
             if len(content.strip()) < 2:
                 continue
 
+            # Clean raw platform JSON (e.g. ChatGPT WS {'content_type':'text','parts':[...]})
+            content, extra_atts = _clean_content(content)
+            if len(content.strip()) < 2:
+                continue
+
+            # Detect file uploads from content text patterns (user messages)
+            if role == "user":
+                content, file_atts = _detect_file_upload(content)
+                extra_atts.extend(file_atts)
+
+            # Merge: DOM-provided attachments + any extracted from raw JSON cleaning
+            attachments = _dedupe_attachments(list(msg.get("attachments") or []) + extra_atts)
+            cj = None
+            if len(attachments) > 0:
+                cj = json.dumps({"attachments": attachments}, ensure_ascii=False)
+
             messages.append(NormalizedMessage(
                 role=role,
                 content_text=content,
+                content_json=cj,
                 model_name=model_name if role == "assistant" else None,
                 ts=created_at,
             ))

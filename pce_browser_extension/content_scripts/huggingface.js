@@ -137,8 +137,8 @@
     if (fp === lastFingerprint) return;
     lastFingerprint = fp;
 
-    const newMsgs = allMsgs.slice(sentCount);
-    if (newMsgs.length === 0) return;
+    const updateOnly = allMsgs.length > 0 && allMsgs.slice(sentCount).length === 0;
+    const newMsgs = updateOnly ? [allMsgs[allMsgs.length - 1]] : allMsgs.slice(sentCount);
 
     const prevCount = sentCount;
     sentCount = allMsgs.length;
@@ -159,6 +159,8 @@
       meta: {
         new_message_count: newMsgs.length,
         total_message_count: allMsgs.length,
+        capture_mode: updateOnly ? "message_update" : "message_delta",
+        updated_message_index: updateOnly ? allMsgs.length - 1 : null,
         extraction_strategy: "huggingface-dom",
         behavior: window.__PCE_BEHAVIOR
           ? window.__PCE_BEHAVIOR.getBehaviorSnapshot(true)
