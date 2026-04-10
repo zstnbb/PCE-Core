@@ -34,6 +34,7 @@ function switchView(name) {
 
   if (name === "stats") loadStats();
   if (name === "sessions") loadSessions();
+  if (name === "search") initSearchView();
   if (name === "captures") loadCaptures();
   if (name === "domains") loadDomains();
   if (name === "services") loadServices();
@@ -1040,6 +1041,92 @@ document.getElementById("btn-reset-baseline")?.addEventListener("click", async (
     btn.textContent = "Reset to Baseline";
   }
 });
+
+// ── Search View ─────────────────────────────────────────
+let searchInitialized = false;
+
+function initSearchView() {
+  if (searchInitialized) return;
+  searchInitialized = true;
+
+  const input = document.getElementById("search-input");
+  const btn = document.getElementById("search-btn");
+  const provFilter = document.getElementById("search-provider-filter");
+
+  // Populate provider filter from stats
+  api("/stats").then((stats) => {
+    if (stats.by_provider) {
+      Object.keys(stats.by_provider)
+        .sort()
+        .forEach((p) => {
+          const opt = document.createElement("option");
+          opt.value = p;
+          opt.textContent = p;
+          provFilter.appendChild(opt);
+        });
+    }
+  }).catch(() => {});
+
+  btn.addEventListener("click", () => performSearch());
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") performSearch();
+  });
+
+  // Focus the input
+  setTimeout(() => input.focus(), 100);
+}
+
+async function performSearch() {
+  const q = document.getElementById("search-input").value.trim();
+  if (!q) return;
+
+  const provider = document.getElementById("search-provider-filter").value;
+  const container = document.getElementById("search-results");
+  container.innerHTML = '<div class="empty-state">Searching...</div>';
+
+  try {
+    let url = `/search?q=${encodeURIComponent(q)}&limit=50`;
+    if (provider) url += `&provider=${encodeURIComponent(provider)}`;
+    const results = await api(url);
+    renderSearchResults(results, q);
+  } catch (e) {
+    container.innerHTML = `<div class="empty-state">Search failed: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function renderSearchResults(results, query) {
+  const container = document.getElementById("search-results");
+
+  if (!results || results.length === 0) {
+    container.innerHTML = '<div class="empty-state">No results found.</div>';
+    return;
+  }
+
+  container.innerHTML = `<div class="search-count">${results.length} result${results.length !== 1 ? "s" : ""}</div>` +
+    results.map((r) => {
+      const roleClass = r.role === "user" ? "user" : "assistant";
+      return `
+        <div class="search-result-card" data-session-id="${escapeHtml(r.session_id)}">
+          <div class="search-result-header">
+            <span class="tag tag-provider">${escapeHtml(r.provider || "")}</span>
+            <span class="search-result-role ${roleClass}">${escapeHtml(r.role)}</span>
+            <span class="search-result-title">${escapeHtml(r.title_hint || "Untitled")}</span>
+            <span class="search-result-time">${formatTime(r.ts)}</span>
+          </div>
+          <div class="search-result-snippet">${r.snippet || escapeHtml((r.content_text || "").slice(0, 200))}</div>
+          ${r.model_name ? `<div class="search-result-meta">${escapeHtml(r.model_name)}${r.token_estimate ? ` · ${r.token_estimate} tokens` : ""}</div>` : ""}
+        </div>
+      `;
+    }).join("");
+
+  // Click to open session
+  container.querySelectorAll(".search-result-card").forEach((card) => {
+    card.addEventListener("click", () => {
+      switchView("sessions");
+      loadSessionMessages(card.dataset.sessionId);
+    });
+  });
+}
 
 // ── Auto-refresh ────────────────────────────────────────
 setInterval(() => {

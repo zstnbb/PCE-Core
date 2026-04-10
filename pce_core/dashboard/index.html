@@ -25,6 +25,10 @@
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
           <span>Sessions</span>
         </a></li>
+        <li><a href="#" data-view="search">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <span>Search</span>
+        </a></li>
         <li><a href="#" data-view="captures">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
           <span>Raw Captures</span>
@@ -162,6 +166,21 @@
           </div>
           <div id="session-messages" class="messages-list"></div>
         </div>
+      </section>
+
+      <!-- Search View -->
+      <section id="view-search" class="view">
+        <div class="view-header">
+          <h2>Search</h2>
+        </div>
+        <div class="search-bar">
+          <input type="text" id="search-input" placeholder="Search across all conversations..." autocomplete="off" />
+          <select id="search-provider-filter">
+            <option value="">All Providers</option>
+          </select>
+          <button id="search-btn" class="btn-primary">Search</button>
+        </div>
+        <div id="search-results" class="search-results"></div>
       </section>
 
       <!-- Raw Captures View -->

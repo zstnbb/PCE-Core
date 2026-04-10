@@ -412,6 +412,22 @@ def get_session_messages(session_id: str):
 
 
 # ---------------------------------------------------------------------------
+# Full-text search
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/search")
+def search(
+    q: str = Query(..., min_length=1, description="Search query"),
+    provider: Optional[str] = None,
+    limit: int = Query(20, ge=1, le=100),
+):
+    """Full-text search across all message content."""
+    from .db import search_messages
+    results = search_messages(q, provider=provider, limit=limit)
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Domain management API (dynamic allowlist)
 # ---------------------------------------------------------------------------
 

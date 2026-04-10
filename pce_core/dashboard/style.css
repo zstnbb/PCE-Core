@@ -1717,6 +1717,120 @@ select:focus { border-color: var(--accent); }
 .att-canvas .att-header { color: var(--accent); }
 .att-canvas .att-header svg { color: var(--accent); opacity: 1; }
 
+/* ── Search View ─────────────────────────────────────── */
+.search-bar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  align-items: center;
+}
+
+.search-bar input[type="text"] {
+  flex: 1;
+  padding: 10px 16px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 15px;
+  outline: none;
+  transition: border-color 0.2s var(--ease);
+}
+.search-bar input[type="text"]:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.search-bar select {
+  min-width: 140px;
+}
+
+.search-count {
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin-bottom: 12px;
+  padding-left: 4px;
+}
+
+.search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.search-result-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  cursor: pointer;
+  transition: all 0.15s var(--ease);
+}
+.search-result-card:hover {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+  box-shadow: var(--shadow-glow);
+}
+
+.search-result-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.search-result-role {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+.search-result-role.user {
+  color: var(--blue);
+  background: var(--blue-dim);
+}
+.search-result-role.assistant {
+  color: var(--green);
+  background: var(--green-dim);
+}
+
+.search-result-title {
+  color: var(--text-secondary);
+  font-size: 13px;
+  flex: 1;
+}
+
+.search-result-time {
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.search-result-snippet {
+  font-size: 14px;
+  color: var(--text-primary);
+  line-height: 1.5;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+.search-result-snippet mark {
+  background: var(--accent-glow-strong);
+  color: var(--accent-bright);
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
+.search-result-meta {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 /* ── Responsive ──────────────────────────────────────── */
 @media (max-width: 1200px) {
   .stats-grid { grid-template-columns: repeat(2, 1fr); }

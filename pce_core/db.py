@@ -99,6 +99,32 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_messages_ts      ON messages(ts);
 
+-- FTS5 full-text search on messages -------------------------------------------
+
+CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+    content_text,
+    content='messages',
+    content_rowid='rowid',
+    tokenize='unicode61'
+);
+
+CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN
+    INSERT INTO messages_fts(rowid, content_text)
+    VALUES (new.rowid, new.content_text);
+END;
+
+CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN
+    INSERT INTO messages_fts(messages_fts, rowid, content_text)
+    VALUES ('delete', old.rowid, old.content_text);
+END;
+
+CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE ON messages BEGIN
+    INSERT INTO messages_fts(messages_fts, rowid, content_text)
+    VALUES ('delete', old.rowid, old.content_text);
+    INSERT INTO messages_fts(rowid, content_text)
+    VALUES (new.rowid, new.content_text);
+END;
+
 -- Custom domains (dynamic allowlist) -----------------------------------------
 
 CREATE TABLE IF NOT EXISTS custom_domains (
@@ -182,6 +208,21 @@ def init_db(db_path: Optional[Path] = None) -> None:
         if "meta_json" not in cols:
             conn.execute("ALTER TABLE raw_captures ADD COLUMN meta_json TEXT")
             logger.info("Migrated raw_captures: added meta_json column")
+        # Migrate: rebuild FTS index if empty but messages exist
+        try:
+            fts_count = conn.execute(
+                "SELECT COUNT(*) FROM messages_fts"
+            ).fetchone()[0]
+            msg_count = conn.execute(
+                "SELECT COUNT(*) FROM messages"
+            ).fetchone()[0]
+            if fts_count == 0 and msg_count > 0:
+                conn.execute(
+                    "INSERT INTO messages_fts(messages_fts) VALUES('rebuild')"
+                )
+                logger.info("Migrated: rebuilt FTS index for %d existing messages", msg_count)
+        except Exception:
+            logger.debug("FTS migration check skipped (non-fatal)")
         for src_id, src_type, tool, mode, notes in _DEFAULT_SOURCES:
             conn.execute(
                 "INSERT OR IGNORE INTO sources (id, source_type, tool_name, install_mode, notes) "
@@ -677,6 +718,46 @@ def query_messages(session_id: str, db_path: Optional[Path] = None) -> list[dict
             "SELECT * FROM messages WHERE session_id = ? ORDER BY ts", (session_id,)
         ).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def search_messages(
+    query: str,
+    *,
+    provider: Optional[str] = None,
+    limit: int = 20,
+    db_path: Optional[Path] = None,
+) -> list[dict]:
+    """Full-text search on messages via FTS5.
+
+    Returns messages with parent session info and highlighted snippets.
+    """
+    conn = get_connection(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        sql = """
+            SELECT m.id, m.session_id, m.role, m.content_text, m.model_name,
+                   m.ts, m.token_estimate,
+                   s.provider, s.title_hint, s.started_at as session_started,
+                   s.tool_family,
+                   snippet(messages_fts, 0, '<mark>', '</mark>', '...', 32) as snippet
+            FROM messages_fts
+            JOIN messages m ON m.rowid = messages_fts.rowid
+            JOIN sessions s ON m.session_id = s.id
+            WHERE messages_fts MATCH ?
+        """
+        params: list = [query]
+        if provider:
+            sql += " AND s.provider = ?"
+            params.append(provider)
+        sql += " ORDER BY rank LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(sql, params).fetchall()
+        return [dict(r) for r in rows]
+    except Exception:
+        logger.exception("FTS search failed for query=%r", query)
+        return []
     finally:
         conn.close()
 
