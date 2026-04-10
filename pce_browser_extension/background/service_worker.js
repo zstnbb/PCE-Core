@@ -298,28 +298,100 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 // Proactive injection fallback — mirrors manifest.json content_scripts
 // ---------------------------------------------------------------------------
 const _DOMAIN_CONTENT_SCRIPTS = {
-  "chatgpt.com":          ["detector.js", "behavior_tracker.js", "bridge.js", "chatgpt.js"],
-  "chat.openai.com":      ["detector.js", "behavior_tracker.js", "bridge.js", "chatgpt.js"],
-  "claude.ai":            ["detector.js", "behavior_tracker.js", "bridge.js", "claude.js"],
-  "gemini.google.com":    ["detector.js", "behavior_tracker.js", "bridge.js", "gemini.js"],
+  "chatgpt.com":          ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "chatgpt.js"],
+  "chat.openai.com":      ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "chatgpt.js"],
+  "claude.ai":            ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "claude.js"],
+  "gemini.google.com":    ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "gemini.js"],
   "aistudio.google.com":  ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "google_ai_studio.js"],
   "manus.im":             ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "manus.js"],
-  "chat.deepseek.com":    ["detector.js", "behavior_tracker.js", "bridge.js", "deepseek.js"],
+  "chat.deepseek.com":    ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "deepseek.js"],
   "chat.z.ai":            ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "zhipu.js"],
-  "www.perplexity.ai":    ["detector.js", "behavior_tracker.js", "bridge.js", "perplexity.js"],
-  "copilot.microsoft.com":["detector.js", "behavior_tracker.js", "bridge.js", "copilot.js"],
-  "poe.com":              ["detector.js", "behavior_tracker.js", "bridge.js", "poe.js"],
-  "huggingface.co":       ["detector.js", "behavior_tracker.js", "bridge.js", "huggingface.js"],
+  "www.perplexity.ai":    ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "perplexity.js"],
+  "copilot.microsoft.com":["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "copilot.js"],
+  "poe.com":              ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "poe.js"],
+  "huggingface.co":       ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "huggingface.js"],
   "grok.com":             ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "grok.js"],
-  "chat.mistral.ai":      ["detector.js", "behavior_tracker.js", "bridge.js", "generic.js"],
-  "kimi.moonshot.cn":     ["detector.js", "behavior_tracker.js", "bridge.js", "generic.js"],
-  "chatglm.cn":           ["detector.js", "behavior_tracker.js", "bridge.js", "generic.js"],
-  "chat.zhipuai.cn":      ["detector.js", "behavior_tracker.js", "bridge.js", "generic.js"],
+  "chat.mistral.ai":      ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "generic.js"],
+  "kimi.moonshot.cn":     ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "generic.js"],
+  "www.kimi.com":          ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "generic.js"],
+  "kimi.com":              ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "generic.js"],
+  "chatglm.cn":           ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "generic.js"],
+  "chat.zhipuai.cn":      ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "generic.js"],
 };
 
-function _getScriptsForUrl(url) {
+const _DOMAIN_EXTRACTOR_FLAGS = {
+  "chatgpt.com": "__PCE_CHATGPT_ACTIVE",
+  "chat.openai.com": "__PCE_CHATGPT_ACTIVE",
+  "claude.ai": "__PCE_CLAUDE_ACTIVE",
+  "gemini.google.com": "__PCE_GEMINI_ACTIVE",
+  "aistudio.google.com": "__PCE_GOOGLE_AI_STUDIO_ACTIVE",
+  "manus.im": "__PCE_MANUS_ACTIVE",
+  "chat.deepseek.com": "__PCE_DEEPSEEK_ACTIVE",
+  "chat.z.ai": "__PCE_ZHIPU_ACTIVE",
+  "www.perplexity.ai": "__PCE_PERPLEXITY_ACTIVE",
+  "copilot.microsoft.com": "__PCE_COPILOT_ACTIVE",
+  "poe.com": "__PCE_POE_ACTIVE",
+  "huggingface.co": "__PCE_HUGGINGFACE_ACTIVE",
+  "grok.com": "__PCE_GROK_ACTIVE",
+  "chat.mistral.ai": "__PCE_GENERIC_ACTIVE",
+  "kimi.moonshot.cn": "__PCE_GENERIC_ACTIVE",
+  "www.kimi.com": "__PCE_GENERIC_ACTIVE",
+  "kimi.com": "__PCE_GENERIC_ACTIVE",
+  "chatglm.cn": "__PCE_GENERIC_ACTIVE",
+  "chat.zhipuai.cn": "__PCE_GENERIC_ACTIVE",
+};
+
+const _UNIVERSAL_FALLBACK_SCRIPTS = [
+  "pce_dom_utils.js",
+  "behavior_tracker.js",
+  "bridge.js",
+  "universal_extractor.js",
+];
+
+function _matchDomainConfig(hostname) {
+  if (!hostname) return null;
+  if (_DOMAIN_CONTENT_SCRIPTS[hostname]) {
+    return { domain: hostname, scripts: _DOMAIN_CONTENT_SCRIPTS[hostname] };
+  }
+  for (const [domain, scripts] of Object.entries(_DOMAIN_CONTENT_SCRIPTS)) {
+    if (hostname.endsWith("." + domain)) {
+      return { domain, scripts };
+    }
+  }
+  return null;
+}
+
+function _toContentScriptPaths(files) {
+  return files.map((file) => "content_scripts/" + file);
+}
+
+function _getExtractorFlagForDomain(domain) {
+  if (!domain) return null;
+  if (_DOMAIN_EXTRACTOR_FLAGS[domain]) return _DOMAIN_EXTRACTOR_FLAGS[domain];
+  for (const [knownDomain, flag] of Object.entries(_DOMAIN_EXTRACTOR_FLAGS)) {
+    if (domain.endsWith("." + knownDomain)) return flag;
+  }
+  return null;
+}
+
+function _getDynamicScriptsForDomain(domain) {
+  const match = _matchDomainConfig(domain);
+  if (match) {
+    return _toContentScriptPaths(match.scripts.filter((file) => file !== "detector.js"));
+  }
+  return _toContentScriptPaths(_UNIVERSAL_FALLBACK_SCRIPTS);
+}
+
+function _getScriptsForUrl(url, { includeDetector = true } = {}) {
   let hostname;
   try { hostname = new URL(url).hostname; } catch { return null; }
+  const match = _matchDomainConfig(hostname);
+  if (match) {
+    const files = includeDetector
+      ? match.scripts
+      : match.scripts.filter((file) => file !== "detector.js");
+    return _toContentScriptPaths(files);
+  }
   // Exact match first
   if (_DOMAIN_CONTENT_SCRIPTS[hostname]) {
     return _DOMAIN_CONTENT_SCRIPTS[hostname].map(f => "content_scripts/" + f);
@@ -345,6 +417,42 @@ async function _tabHasBridge(tabId) {
   }
 }
 
+async function _getTabPipelineState(tabId, domain) {
+  const extractorFlag = _getExtractorFlagForDomain(domain);
+  try {
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId },
+      args: [extractorFlag],
+      func: (expectedExtractorFlag) => ({
+        bridge: Boolean(window.__PCE_BRIDGE_ACTIVE || window.__PCE_BRIDGE_LOADED),
+        domUtils: Boolean(window.__PCE_EXTRACT),
+        behavior: Boolean(window.__PCE_BEHAVIOR_TRACKER_ACTIVE),
+        extractor: expectedExtractorFlag
+          ? Boolean(window[expectedExtractorFlag])
+          : Boolean(window.__PCE_UNIVERSAL_EXTRACTOR_LOADED),
+      }),
+    });
+    return result?.result || {
+      bridge: false,
+      domUtils: false,
+      behavior: false,
+      extractor: false,
+    };
+  } catch {
+    return {
+      bridge: false,
+      domUtils: false,
+      behavior: false,
+      extractor: false,
+    };
+  }
+}
+
+async function _tabHasExpectedPipeline(tabId, domain) {
+  const state = await _getTabPipelineState(tabId, domain);
+  return Boolean(state.bridge && state.domUtils && state.behavior && state.extractor);
+}
+
 async function _proactiveInjectFallback(tabId, url) {
   // Brief delay: give static manifest content_scripts a chance to fire first
   await new Promise(r => setTimeout(r, 1500));
@@ -357,7 +465,8 @@ async function _proactiveInjectFallback(tabId, url) {
   const scripts = _getScriptsForUrl(url);
   if (!scripts) return;
 
-  if (await _tabHasBridge(tabId)) {
+  const domain = new URL(url).hostname;
+  if (await _tabHasExpectedPipeline(tabId, domain)) {
     injectedTabs.add(tabId);
     return;
   }
@@ -368,7 +477,7 @@ async function _proactiveInjectFallback(tabId, url) {
       files: scripts,
     });
     injectedTabs.add(tabId);
-    console.log(`[PCE] Proactive fallback injection: ${new URL(url).hostname} (tab ${tabId})`);
+    console.log(`[PCE] Proactive fallback injection: ${domain} (tab ${tabId})`);
   } catch (err) {
     console.debug(`[PCE] Proactive injection skipped: ${err.message}`);
   }
@@ -512,13 +621,13 @@ function isBlacklisted(domain) {
 }
 
 async function handleDynamicInjection(tabId, payload) {
+  const domain = payload?.domain || "unknown";
+
   // Skip if already injected in this tab
-  if (injectedTabs.has(tabId)) {
+  if (injectedTabs.has(tabId) && await _tabHasExpectedPipeline(tabId, domain)) {
     console.debug(`[PCE] Tab ${tabId} already injected, skipping`);
     return { injected: false, reason: "already_injected" };
   }
-
-  const domain = payload?.domain || "unknown";
 
   // Check blacklist before injecting
   if (isBlacklisted(domain)) {
@@ -526,7 +635,7 @@ async function handleDynamicInjection(tabId, payload) {
     return { injected: false, reason: "blacklisted" };
   }
 
-  if (await _tabHasBridge(tabId)) {
+  if (await _tabHasExpectedPipeline(tabId, domain)) {
     injectedTabs.add(tabId);
     return { injected: false, reason: "already_loaded" };
   }
@@ -539,14 +648,9 @@ async function handleDynamicInjection(tabId, payload) {
   );
 
   try {
-    // Inject behavior tracker + bridge + universal extractor
     await chrome.scripting.executeScript({
       target: { tabId },
-      files: [
-        "content_scripts/behavior_tracker.js",
-        "content_scripts/bridge.js",
-        "content_scripts/universal_extractor.js",
-      ],
+      files: _getDynamicScriptsForDomain(domain),
     });
 
     console.log(`[PCE] Successfully injected capture scripts into tab ${tabId} (${domain})`);

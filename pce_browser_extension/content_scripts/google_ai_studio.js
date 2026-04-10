@@ -92,7 +92,13 @@
     const out = [];
     for (const att of list || []) {
       if (!att || typeof att !== "object") continue;
-      const key = JSON.stringify(att);
+      const key = [
+        att.type || "",
+        att.url || "",
+        att.name || "",
+        att.title || "",
+        att.code || "",
+      ].join("|") || JSON.stringify(att);
       if (seen.has(key)) continue;
       seen.add(key);
       out.push(att);
@@ -100,9 +106,64 @@
     return out;
   }
 
+  function imageMediaType(src, name) {
+    const dataMatch = String(src || "").match(/^data:([^;,]+)[;,]/i);
+    if (dataMatch) return dataMatch[1];
+    const lower = String(name || src || "").toLowerCase();
+    if (lower.includes(".png")) return "image/png";
+    if (lower.includes(".jpg") || lower.includes(".jpeg")) return "image/jpeg";
+    if (lower.includes(".gif")) return "image/gif";
+    if (lower.includes(".webp")) return "image/webp";
+    return "";
+  }
+
+  function attachmentOnlyText(attachments) {
+    const labels = [];
+    for (const att of attachments || []) {
+      if (att?.type === "image_url" || att?.type === "image_generation") {
+        labels.push(`[Image attachment: ${att.alt || att.name || att.title || "image"}]`);
+      } else if (att?.type === "file") {
+        labels.push(`[File attachment: ${att.name || att.title || "file"}]`);
+      }
+    }
+    return labels.join("\n").trim();
+  }
+
   function extractLocalAttachments(el) {
     if (!el) return [];
     const attachments = [];
+
+    el.querySelectorAll("ms-image-chunk img, .image-container img.loaded-image, .image-container img[alt]").forEach((img) => {
+      const src = img.src || img.getAttribute("src") || "";
+      if (!src || src.startsWith("data:image/svg")) return;
+      const alt = (img.alt || img.getAttribute("alt") || "").trim();
+      const mediaType = imageMediaType(src, alt);
+      const att = {
+        type: "image_url",
+        url: src.startsWith("data:") ? `${src.slice(0, 200)}...[truncated]` : src.slice(0, 2000),
+        source_type: "google-ai-studio-image",
+      };
+      if (alt) {
+        att.alt = alt.slice(0, 200);
+        att.name = alt.slice(0, 200);
+      }
+      if (mediaType) att.media_type = mediaType;
+      attachments.push(att);
+    });
+
+    el.querySelectorAll("ms-file-chunk, [class*='file-chunk']").forEach((fileEl) => {
+      const nameEl = fileEl.querySelector(".name, [title]");
+      const name =
+        (nameEl?.getAttribute?.("title") || nameEl?.innerText || fileEl.innerText || "")
+          .split("\n")[0]
+          .trim();
+      if (!name || name.length < 3) return;
+      attachments.push({
+        type: "file",
+        name: name.slice(0, 200),
+        source_type: "google-ai-studio-file",
+      });
+    });
 
     el.querySelectorAll("pre").forEach((pre) => {
       const code = (pre.innerText || "").trim();
@@ -233,17 +294,18 @@
 
       if (cls.includes("user")) {
         const content = extractUserText(turn);
-        if (content) {
-          const att = dedupeAttachments([
-            ...extractAttachments(turn),
-            ...extractLocalAttachments(turn),
-          ]).map((attachment) => {
-            if (attachment?.type === "citation" && attachment.url) {
-              return { ...attachment, url: normalizeCitationUrl(attachment.url) };
-            }
-            return attachment;
-          });
-          const msg = { role: "user", content };
+        const att = dedupeAttachments([
+          ...extractAttachments(turn),
+          ...extractLocalAttachments(turn),
+        ]).map((attachment) => {
+          if (attachment?.type === "citation" && attachment.url) {
+            return { ...attachment, url: normalizeCitationUrl(attachment.url) };
+          }
+          return attachment;
+        });
+        const attachmentText = attachmentOnlyText(att);
+        if (content || attachmentText || att.length > 0) {
+          const msg = { role: "user", content: content || attachmentText || "[Attachment]" };
           if (att.length > 0) msg.attachments = att;
           messages.push(msg);
         }
@@ -270,8 +332,15 @@
       }
 
       const userContent = extractUserText(turn);
-      if (userContent) {
-        messages.push({ role: "user", content: userContent });
+      const userAtt = dedupeAttachments([
+        ...extractAttachments(turn),
+        ...extractLocalAttachments(turn),
+      ]);
+      const userAttachmentText = attachmentOnlyText(userAtt);
+      if (userContent || userAttachmentText || userAtt.length > 0) {
+        const msg = { role: "user", content: userContent || userAttachmentText || "[Attachment]" };
+        if (userAtt.length > 0) msg.attachments = userAtt;
+        messages.push(msg);
       }
       const assistantContent = extractAssistantText(turn);
       if (assistantContent) {

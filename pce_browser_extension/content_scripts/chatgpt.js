@@ -55,7 +55,9 @@
   }
 
   function fingerprint(msgs) {
-    // Content-based fingerprint so we detect when message text changes
+    if (window.__PCE_EXTRACT && window.__PCE_EXTRACT.fingerprintConversation) {
+      return window.__PCE_EXTRACT.fingerprintConversation(msgs);
+    }
     return msgs.map((m) => m.role + ":" + m.content.slice(0, 120)).join("|");
   }
 
@@ -189,7 +191,11 @@
         if (role === "user") {
           const text = el.innerText.trim();
           if (text) {
-            const att = extractAttachments(el);
+            const attSource =
+              el.closest('[data-testid^="conversation-turn"]') ||
+              el.parentElement ||
+              el;
+            const att = extractAttachments(attSource);
             const msg = { role: "user", content: text };
             if (att.length > 0) msg.attachments = att;
             messages.push(msg);
@@ -202,7 +208,11 @@
             let content = "";
             if (thinking) content += "<thinking>\n" + thinking + "\n</thinking>\n\n";
             if (reply) content += reply;
-            const att = extractAttachments(el);
+            const attSource =
+              el.closest('[data-testid^="conversation-turn"]') ||
+              el.parentElement ||
+              el;
+            const att = extractAttachments(attSource);
             const msg = { role: role || "assistant", content: content.trim() };
             if (att.length > 0) msg.attachments = att;
             messages.push(msg);
@@ -452,6 +462,12 @@
     hookNav();
     scheduledCapture();
   }
+
+  document.addEventListener("pce-manual-capture", () => {
+    sentCount = 0;
+    sentFingerprint = "";
+    captureConversation();
+  });
 
   // Boot
   if (document.readyState === "complete" || document.readyState === "interactive") {

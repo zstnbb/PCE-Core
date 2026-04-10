@@ -89,7 +89,9 @@
     {
       "matches": [
         "https://chat.mistral.ai/*",
-        "https://kimi.moonshot.cn/*"
+        "https://kimi.moonshot.cn/*",
+        "https://www.kimi.com/*",
+        "https://kimi.com/*"
       ],
       "js": ["content_scripts/pce_dom_utils.js", "content_scripts/detector.js", "content_scripts/behavior_tracker.js", "content_scripts/bridge.js", "content_scripts/generic.js"],
       "run_at": "document_start"
@@ -113,7 +115,9 @@
         "https://copilot.microsoft.com/*",
         "https://huggingface.co/chat/*",
         "https://chat.mistral.ai/*",
-        "https://kimi.moonshot.cn/*"
+        "https://kimi.moonshot.cn/*",
+        "https://www.kimi.com/*",
+        "https://kimi.com/*"
       ]
     }
   ],

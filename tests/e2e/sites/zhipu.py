@@ -19,9 +19,45 @@ class ZhiPuAdapter(BaseSiteAdapter):
     input_selector = 'textarea, [contenteditable="true"], [class*="chat-input"], [class*="input-box"]'
     send_button_selector = 'button[class*="send"], [class*="send-btn"], button[type="submit"]'
     response_container_selector = '[class*="message"][class*="assistant"], [class*="bot-message"], [class*="answer"], [class*="markdown"]'
+    file_input_selector = 'input[type="file"]'
+    image_input_selector = 'input[type="file"]'
+    supports_file_upload = True
+    supports_image_upload = True
 
     page_load_wait_s = 10
     response_timeout_s = 45
+
+    def check_logged_in(self, driver: WebDriver, timeout: float = 12) -> bool:
+        """Z.ai needs extra time for redirects and landing-page clicks."""
+        try:
+            driver.get(self.url)
+            time.sleep(min(self.page_load_wait_s, 6))
+
+            # Try clicking "new chat" if we landed on a splash page
+            for sel in ['a[href*="new"]', '[class*="new-chat"]']:
+                for el in self._find_elements(driver, sel):
+                    try:
+                        if el.is_displayed():
+                            el.click()
+                            time.sleep(2)
+                            break
+                    except Exception:
+                        pass
+
+            deadline = time.time() + timeout
+            selectors = [self.input_selector, 'textarea', '[contenteditable="true"]']
+            while time.time() < deadline:
+                for sel in selectors:
+                    try:
+                        for el in driver.find_elements(By.CSS_SELECTOR, sel):
+                            if el.is_displayed():
+                                return True
+                    except Exception:
+                        pass
+                time.sleep(0.5)
+            return False
+        except Exception:
+            return False
 
     def navigate(self, driver: WebDriver) -> bool:
         """Z.ai may redirect or have a landing page; handle it."""

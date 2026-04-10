@@ -56,6 +56,8 @@ const AI_API_DOMAINS = new Set([
   // Moonshot / Kimi
   "api.moonshot.cn",
   "kimi.moonshot.cn",
+  "www.kimi.com",
+  "kimi.com",
   // Zhipu / ChatGLM / Z.ai
   "open.bigmodel.cn",
   "chat.z.ai",
@@ -141,6 +143,8 @@ const WEB_UI_DOMAINS = new Set([
   "poe.com",
   "grok.com",
   "kimi.moonshot.cn",
+  "www.kimi.com",
+  "kimi.com",
   "copilot.microsoft.com",
   "huggingface.co",
   "www.perplexity.ai",
@@ -277,6 +281,8 @@ const HOST_TO_PROVIDER = {
   "huggingface.co": "huggingface",
   "api.moonshot.cn": "moonshot",
   "kimi.moonshot.cn": "moonshot",
+  "www.kimi.com": "moonshot",
+  "kimi.com": "moonshot",
   "open.bigmodel.cn": "zhipu",
   "chat.z.ai": "zhipu",
   "chatglm.cn": "zhipu",

@@ -20,6 +20,11 @@ class ChatGPTAdapter(BaseSiteAdapter):
     input_selector = "#prompt-textarea"
     send_button_selector = 'button[data-testid="send-button"]'
     response_container_selector = '[data-message-author-role="assistant"]'
+    login_wall_selectors = ['button[data-testid="login-button"]', '[data-testid="auth-login-button"]', 'a[href*="/auth/login"]']
+    file_input_selector = 'input[type="file"]:not([accept*="image"])'
+    image_input_selector = 'input[type="file"][accept*="image"]'
+    supports_file_upload = True
+    supports_image_upload = True
 
     page_load_wait_s = 4
     response_timeout_s = 45
@@ -32,24 +37,33 @@ class ChatGPTAdapter(BaseSiteAdapter):
             if not input_el:
                 return False
 
-            input_el.click()
+            try:
+                input_el.click()
+            except Exception:
+                driver.execute_script("arguments[0].focus();", input_el)
             time.sleep(0.3)
 
             # ChatGPT's prompt-textarea is contenteditable — use send_keys
             input_el.send_keys(msg)
             time.sleep(0.5)
 
-            # Click send button
-            btns = self._find_elements(driver, self.send_button_selector)
             clicked = False
-            for btn in btns:
-                try:
-                    if btn.is_displayed() and btn.is_enabled():
-                        btn.click()
+            deadline = time.time() + 20
+            while time.time() < deadline and not clicked:
+                for btn in self._find_elements(driver, self.send_button_selector):
+                    try:
+                        if not (btn.is_displayed() and btn.is_enabled()):
+                            continue
+                        try:
+                            btn.click()
+                        except Exception:
+                            driver.execute_script("arguments[0].click();", btn)
                         clicked = True
                         break
-                except Exception:
-                    pass
+                    except Exception:
+                        continue
+                if not clicked:
+                    time.sleep(0.5)
             if not clicked:
                 input_el.send_keys(Keys.ENTER)
 

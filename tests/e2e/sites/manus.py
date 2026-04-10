@@ -17,6 +17,9 @@ class ManusAdapter(BaseSiteAdapter):
     send_button_selector = None
     response_container_selector = '[class*="message"], [class*="task"], [class*="answer"], .prose'
 
+    supports_file_upload = True   # via clipboard paste fallback
+    supports_image_upload = True  # via clipboard paste fallback
+
     page_load_wait_s = 6
     response_timeout_s = 90
 

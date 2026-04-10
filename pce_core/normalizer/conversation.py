@@ -25,6 +25,8 @@ import logging
 import re
 from typing import Optional
 
+from pce_core.rich_content import build_content_json
+
 from .base import BaseNormalizer, NormalizedMessage, NormalizedResult
 
 logger = logging.getLogger("pce.normalizer.conversation")
@@ -242,9 +244,7 @@ class ConversationNormalizer(BaseNormalizer):
 
             # Merge: DOM-provided attachments + any extracted from raw JSON cleaning
             attachments = _dedupe_attachments(list(msg.get("attachments") or []) + extra_atts)
-            cj = None
-            if len(attachments) > 0:
-                cj = json.dumps({"attachments": attachments}, ensure_ascii=False)
+            cj = build_content_json(attachments, plain_text=content)
 
             messages.append(NormalizedMessage(
                 role=role,

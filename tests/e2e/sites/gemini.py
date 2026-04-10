@@ -20,6 +20,9 @@ class GeminiAdapter(BaseSiteAdapter):
     send_button_selector = 'button[aria-label*="Send" i], button.send-button, button[mattooltip*="Send" i]'
     response_container_selector = '.response-container, .model-response-text, message-content'
 
+    supports_file_upload = True   # via clipboard paste fallback
+    supports_image_upload = True  # via clipboard paste fallback
+
     page_load_wait_s = 5
     response_timeout_s = 45
 

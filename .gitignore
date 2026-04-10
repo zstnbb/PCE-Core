@@ -30,3 +30,5 @@ Thumbs.db
 # mitmproxy
 ~/.mitmproxy/
 /tests/e2e/screenshots
+/tests/e2e/e2e_state.json
+/logs/

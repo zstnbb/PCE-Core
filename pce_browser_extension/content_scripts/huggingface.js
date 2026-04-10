@@ -8,6 +8,9 @@
 (function () {
   "use strict";
 
+  if (window.__PCE_HUGGINGFACE_ACTIVE) return;
+  window.__PCE_HUGGINGFACE_ACTIVE = true;
+
   const PROVIDER = "huggingface";
   const SOURCE_NAME = "huggingface-web";
   const DEBOUNCE_MS = 2500;
@@ -126,6 +129,9 @@
   // -------------------------------------------------------------------------
 
   function fingerprint(msgs) {
+    if (window.__PCE_EXTRACT && window.__PCE_EXTRACT.fingerprintConversation) {
+      return window.__PCE_EXTRACT.fingerprintConversation(msgs);
+    }
     return msgs.map((m) => `${m.role}:${m.content.slice(0, 80)}`).join("|");
   }
 

@@ -20,6 +20,11 @@ class ClaudeAdapter(BaseSiteAdapter):
     input_selector = '[contenteditable="true"]'
     send_button_selector = 'button[aria-label="Send Message"]'
     response_container_selector = '[data-is-streaming], .font-claude-message'
+    login_wall_selectors = ['button[data-testid="login-button"]', 'a[href*="/login"]']
+    file_input_selector = 'input[type="file"]'
+    image_input_selector = 'input[type="file"]'
+    supports_file_upload = True
+    supports_image_upload = True
 
     page_load_wait_s = 4
     response_timeout_s = 45

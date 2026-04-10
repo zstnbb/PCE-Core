@@ -10,6 +10,9 @@
 (function () {
   "use strict";
 
+  if (window.__PCE_GENERIC_ACTIVE) return;
+  window.__PCE_GENERIC_ACTIVE = true;
+
   const DEBOUNCE_MS = 3000;
   const POLL_INTERVAL_MS = 5000;
 

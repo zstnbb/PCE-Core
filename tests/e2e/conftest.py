@@ -6,9 +6,19 @@ Launches Chrome with:
   - Selenium WebDriver control
 
 Requirements:
-    - Chrome must be CLOSED before running (profile lock)
     - PCE Core running at http://127.0.0.1:9800
     - pip install selenium webdriver-manager
+
+Profile modes:
+    - default clone mode copies the selected Chrome profile into a temp dir.
+    - set PCE_CHROME_DEBUG_ADDRESS=127.0.0.1:<port> to attach to an
+      already-launched debugging Chrome without copying profile files.
+    - set PCE_CHROME_PROFILE_MODE=managed to use ~/.pce/chrome_profile as a
+      dedicated live-test browser profile. Log in once there, then reuse it.
+    - set PCE_CHROME_PROFILE_MODE=direct or PCE_CHROME_PROFILE_COPY=0 to use
+      the real profile directly; Chrome must be closed in that mode.
+    - set PCE_CHROME_PROXY=host:port, http://host:port, or direct to make
+      browser networking deterministic for live external sites.
 """
 
 import json
@@ -54,6 +64,49 @@ def _get_chrome_profile_dir() -> str:
 def _get_profile_directory_name() -> str | None:
     """Return the Chrome profile directory name, if explicitly configured."""
     return os.environ.get("PCE_CHROME_PROFILE_DIR", "").strip() or None
+
+
+def _get_chrome_debug_address() -> str | None:
+    """Return an existing Chrome DevTools address to attach to, if configured."""
+    return (
+        os.environ.get("PCE_CHROME_DEBUG_ADDRESS", "").strip()
+        or os.environ.get("PCE_CHROME_REMOTE_DEBUGGING_ADDRESS", "").strip()
+        or None
+    )
+
+
+def _get_profile_mode() -> str:
+    """Return the configured E2E profile mode."""
+    explicit = os.environ.get("PCE_CHROME_PROFILE_MODE", "").strip().lower()
+    if explicit:
+        return explicit
+    # Backward compatibility with the old boolean switch.
+    if os.environ.get("PCE_CHROME_PROFILE_COPY", "1").strip() == "0":
+        return "direct"
+    return "managed"
+
+
+def _get_chrome_proxy_args() -> list[str]:
+    """Return Chrome proxy flags for deterministic live-site navigation."""
+    proxy = os.environ.get("PCE_CHROME_PROXY", "").strip()
+    bypass = os.environ.get(
+        "PCE_CHROME_PROXY_BYPASS",
+        "127.0.0.1;localhost",
+    ).strip()
+    args: list[str] = []
+
+    if proxy:
+        proxy_mode = proxy.lower()
+        if proxy_mode in {"direct", "none", "off"}:
+            args.append("--no-proxy-server")
+        elif proxy_mode != "system":
+            if "://" not in proxy:
+                proxy = f"http://{proxy}"
+            args.append(f"--proxy-server={proxy}")
+
+    if bypass:
+        args.append(f"--proxy-bypass-list={bypass}")
+    return args
 
 
 def _get_extension_dir() -> str:
@@ -163,7 +216,6 @@ def _launch_debug_chrome(
         chrome_binary,
         f"--user-data-dir={profile_root}",
         f"--remote-debugging-port={port}",
-        "--proxy-bypass-list=127.0.0.1;localhost",
         "--no-first-run",
         "--no-default-browser-check",
         "--disable-blink-features=AutomationControlled",
@@ -171,13 +223,13 @@ def _launch_debug_chrome(
         "--window-size=1280,900",
         "about:blank",
     ]
+    args.extend(_get_chrome_proxy_args())
     if profile_dir_name:
         args.insert(2, f"--profile-directory={profile_dir_name}")
     if ext_dir:
         args[3:3] = [
             "--enable-extensions",
             f"--load-extension={ext_dir}",
-            f"--disable-extensions-except={ext_dir}",
         ]
 
     proc = subprocess.Popen(
@@ -215,11 +267,13 @@ def _build_isolated_user_data_dir(
     src_root = Path(source_root)
     temp_root = Path(tempfile.mkdtemp(prefix="pce-chrome-profile-"))
 
-    # Local State maps profile metadata and is enough for Chrome to recognize
-    # the copied profile directory in the isolated user data dir.
-    local_state = src_root / "Local State"
-    if local_state.is_file():
-        shutil.copy2(local_state, temp_root / "Local State")
+    # Copying Local State from a live/default Chrome profile can crash the
+    # isolated Selenium browser because it carries machine/profile-level
+    # feature and extension state. Leave it out unless explicitly requested.
+    if os.environ.get("PCE_CHROME_PROFILE_COPY_LOCAL_STATE", "").strip() == "1":
+        local_state = src_root / "Local State"
+        if local_state.is_file():
+            shutil.copy2(local_state, temp_root / "Local State")
 
     # Copy the chosen profile only. This keeps the clone relatively small and
     # avoids locking the original user-data-dir.
@@ -243,8 +297,31 @@ def _build_isolated_user_data_dir(
         "Shared Dictionary",
         "OptimizationGuidePredictionModels",
         "Safe Browsing Network",
+        # Do not clone arbitrary user-installed extensions into Selenium. They
+        # can crash or hijack the test browser; this fixture explicitly loads
+        # only the unpacked PCE extension after the clone is built.
+        "Extensions",
+        "Extension State",
+        "Local Extension Settings",
+        "Managed Extension Settings",
+        "Sync Extension Settings",
+        # NOTE: Cookies are intentionally kept so clone mode preserves login
+        # state. Use 'managed' mode if Cookies cause profile lock issues.
+        "Sessions",
+        "Session_*",
+        "Tabs_*",
     )
-    shutil.copytree(src_profile, dst_profile, ignore=ignore)
+    try:
+        shutil.copytree(src_profile, dst_profile, ignore=ignore)
+    except shutil.Error as exc:
+        if os.environ.get("PCE_CHROME_PROFILE_COPY_STRICT", "").strip() == "1":
+            raise
+        logger.warning(
+            "Chrome profile copy skipped locked/unavailable files and will continue: %s",
+            exc,
+        )
+        if not dst_profile.exists():
+            raise
     return str(temp_root), profile_dir
 
 
@@ -286,17 +363,31 @@ def _check_chrome_not_running(profile_root: str | None = None) -> bool:
 @pytest.fixture(scope="session")
 def driver():
     """Session-scoped Selenium WebDriver: Chrome with user profile + PCE extension."""
-    profile_root = os.environ.get("PCE_CHROME_PROFILE", _get_chrome_profile_dir())
-    profile_dir_name = _get_profile_directory_name()
+    debugger_address = _get_chrome_debug_address()
+    profile_mode = _get_profile_mode()
+    if profile_mode == "managed":
+        profile_root = os.environ.get(
+            "PCE_CHROME_MANAGED_PROFILE",
+            str(Path.home() / ".pce" / "chrome_profile"),
+        )
+        Path(profile_root).mkdir(parents=True, exist_ok=True)
+        profile_dir_name = None
+    else:
+        profile_root = os.environ.get("PCE_CHROME_PROFILE", _get_chrome_profile_dir())
+        profile_dir_name = _get_profile_directory_name()
     ext_dir = _get_extension_dir()
-    use_profile_copy = os.environ.get("PCE_CHROME_PROFILE_COPY", "1").strip() != "0"
+    use_profile_copy = profile_mode == "clone" and debugger_address is None
+    attach_existing = debugger_address is not None
     extension_preinstalled = False
 
     logger.info("Chrome user-data-dir: %s", profile_root)
     logger.info("Chrome profile directory: %s", profile_dir_name or "Default")
+    logger.info("Chrome profile mode: %s", "debug" if attach_existing else profile_mode)
     logger.info("Extension: %s", ext_dir)
 
-    if use_profile_copy:
+    if attach_existing:
+        logger.info("Attaching to existing Chrome debugger: %s", debugger_address)
+    elif use_profile_copy:
         profile_root, profile_dir_name = _build_isolated_user_data_dir(
             profile_root, profile_dir_name,
         )
@@ -318,12 +409,17 @@ def driver():
     service = Service(driver_path) if driver_path else None
     chrome_proc = None
 
-    if use_profile_copy or not _is_default_chrome_user_data_dir(profile_root):
+    if attach_existing:
+        options = Options()
+        options.debugger_address = debugger_address
+        chrome_driver = webdriver.Chrome(service=service, options=options)
+    elif use_profile_copy or not _is_default_chrome_user_data_dir(profile_root):
         options = Options()
         options.add_argument(f"--user-data-dir={profile_root}")
         if profile_dir_name:
             options.add_argument(f"--profile-directory={profile_dir_name}")
-        options.add_argument("--proxy-bypass-list=127.0.0.1;localhost")
+        for proxy_arg in _get_chrome_proxy_args():
+            options.add_argument(proxy_arg)
         options.add_argument("--no-first-run")
         options.add_argument("--no-default-browser-check")
         options.add_argument("--disable-blink-features=AutomationControlled")
@@ -334,7 +430,6 @@ def driver():
         if use_profile_copy or not extension_preinstalled:
             options.add_argument("--enable-extensions")
             options.add_argument(f"--load-extension={ext_dir}")
-            options.add_argument(f"--disable-extensions-except={ext_dir}")
 
         logger.info("Launching Chrome via Selenium...")
         chrome_driver = webdriver.Chrome(service=service, options=options)
@@ -360,7 +455,14 @@ def driver():
 
     # Cleanup
     try:
-        chrome_driver.quit()
+        if attach_existing:
+            # Do not close a user-managed debugging browser. Stop the local
+            # chromedriver service when available and leave Chrome untouched.
+            service_obj = getattr(chrome_driver, "service", None)
+            if service_obj is not None:
+                service_obj.stop()
+        else:
+            chrome_driver.quit()
     except Exception:
         pass
     if chrome_proc is not None:

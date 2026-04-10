@@ -11,6 +11,10 @@ class PoeAdapter(BaseSiteAdapter):
     input_selector = 'textarea.GrowingTextArea_textArea__ZWQbP, textarea[placeholder*="聊天" i], textarea[placeholder*="chat" i], textarea'
     send_button_selector = 'button[aria-label="发送信息"], button[aria-label="Send message"]'
     response_container_selector = '[class*="Message_botMessage"], [class*="botMessage"], [class*="ChatMessage"]'
+    file_input_selector = 'input[type="file"]'
+    image_input_selector = 'input[type="file"]'
+    supports_file_upload = True
+    supports_image_upload = True
 
     page_load_wait_s = 5
     response_timeout_s = 60

@@ -227,6 +227,9 @@
   // -------------------------------------------------------------------------
 
   function fingerprint(msgs) {
+    if (window.__PCE_EXTRACT && window.__PCE_EXTRACT.fingerprintConversation) {
+      return window.__PCE_EXTRACT.fingerprintConversation(msgs);
+    }
     return msgs.map((m) => `${m.role}:${m.content.slice(0, 80)}`).join("|");
   }
 

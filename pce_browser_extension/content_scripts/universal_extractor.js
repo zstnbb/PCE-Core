@@ -26,10 +26,15 @@
     "__PCE_CLAUDE_ACTIVE",
     "__PCE_DEEPSEEK_ACTIVE",
     "__PCE_GEMINI_ACTIVE",
+    "__PCE_GOOGLE_AI_STUDIO_ACTIVE",
+    "__PCE_MANUS_ACTIVE",
     "__PCE_PERPLEXITY_ACTIVE",
     "__PCE_GROK_ACTIVE",
     "__PCE_POE_ACTIVE",
     "__PCE_COPILOT_ACTIVE",
+    "__PCE_HUGGINGFACE_ACTIVE",
+    "__PCE_ZHIPU_ACTIVE",
+    "__PCE_GENERIC_ACTIVE",
   ];
   for (const flag of _SITE_EXTRACTORS) {
     if (window[flag]) {
@@ -264,6 +269,8 @@
   // -------------------------------------------------------------------------
 
   function fingerprint(msgs) {
+    const shared = _pce().fingerprintConversation;
+    if (shared) return shared(msgs);
     return msgs.map((m) => `${m.role}:${m.content.slice(0, 80)}`).join("|");
   }
 

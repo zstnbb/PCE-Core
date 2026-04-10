@@ -28,6 +28,8 @@ import json
 import logging
 from typing import Optional
 
+from pce_core.rich_content import build_content_json
+
 from .base import BaseNormalizer, NormalizedMessage, NormalizedResult
 
 logger = logging.getLogger("pce.normalizer.anthropic")
@@ -98,7 +100,7 @@ class AnthropicMessagesNormalizer(BaseNormalizer):
             content = msg.get("content")
             text, attachments = _extract_rich_blocks(content)
             if text is not None:
-                cj = json.dumps({"attachments": attachments}, ensure_ascii=False) if attachments else None
+                cj = build_content_json(attachments, plain_text=text)
                 messages.append(NormalizedMessage(
                     role=role,
                     content_text=text,
@@ -125,7 +127,7 @@ class AnthropicMessagesNormalizer(BaseNormalizer):
             content_blocks = resp_data.get("content", [])
             text, attachments = _extract_rich_blocks(content_blocks)
             if text:
-                cj = json.dumps({"attachments": attachments}, ensure_ascii=False) if attachments else None
+                cj = build_content_json(attachments, plain_text=text)
                 messages.append(NormalizedMessage(
                     role=resp_role,
                     content_text=text,

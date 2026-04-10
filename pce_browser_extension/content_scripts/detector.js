@@ -36,6 +36,8 @@
     "huggingface.co",
     "chat.mistral.ai",
     "kimi.moonshot.cn",
+    "www.kimi.com",
+    "kimi.com",
     "you.com",
     "pi.ai",
     "chat.lmsys.org",

@@ -1,14 +1,17 @@
 """Convenience script to run PCE browser E2E capture tests.
 
 Usage:
-    python run_e2e.py                    # Test all sites
+    python run_e2e.py                    # Test all sites (3-phase)
     python run_e2e.py chatgpt claude     # Test specific sites
     python run_e2e.py --list             # List available sites
     python run_e2e.py --no-reset         # Keep existing capture data
+    python run_e2e.py --force            # Re-test even if previously passed
+    python run_e2e.py --legacy           # Use old test_capture.py instead
 
 Prerequisites:
-    1. Close Chrome (Playwright needs the profile lock)
-    2. PCE Core running: python -m pce_app --no-tray --no-browser
+    1. PCE Core running: python -m pce_app --no-tray --no-browser
+    2. Managed Chrome profile logged into AI sites (~/.pce/chrome_profile)
+       (first run: PCE_CHROME_PROFILE_MODE=managed, log in manually, then reuse)
 """
 
 import os
@@ -36,10 +39,14 @@ def main():
 
     # Parse flags
     no_reset = "--no-reset" in args
+    force = "--force" in args
+    legacy = "--legacy" in args
     sites = [a for a in args if not a.startswith("--")]
 
     if no_reset:
         os.environ["PCE_E2E_NO_RESET"] = "1"
+    if force:
+        os.environ["PCE_E2E_FORCE"] = "1"
 
     if sites:
         # Validate
@@ -51,13 +58,13 @@ def main():
         os.environ["PCE_E2E_SITES"] = ",".join(sites)
 
     # Run via pytest
+    test_file = "tests/e2e/test_capture.py" if legacy else "tests/e2e/test_three_phase.py"
     import pytest
     exit_code = pytest.main([
-        "tests/e2e/test_capture.py",
+        test_file,
         "-v",
         "-s",
         "--tb=short",
-        "-x",  # Stop on first failure (easier for iterative debugging)
     ])
     sys.exit(exit_code)
 

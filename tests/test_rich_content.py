@@ -263,12 +263,17 @@ class TestConversationRichContent:
 
         user_msg = result.messages[0]
         assert user_msg.content_json is not None
-        att = json.loads(user_msg.content_json)["attachments"]
+        user_cj = json.loads(user_msg.content_json)
+        assert user_cj["rich_content"]["schema"] == "pce.rich_content.v1"
+        assert user_cj["rich_content"]["blocks"][0]["type"] == "image"
+        att = user_cj["attachments"]
         assert len(att) == 1
         assert att[0]["type"] == "image_url"
 
         asst_msg = result.messages[1]
-        att2 = json.loads(asst_msg.content_json)["attachments"]
+        asst_cj = json.loads(asst_msg.content_json)
+        assert [block["type"] for block in asst_cj["rich_content"]["blocks"]] == ["code", "citation"]
+        att2 = asst_cj["attachments"]
         assert len(att2) == 2
         types = {a["type"] for a in att2}
         assert "code_block" in types
@@ -515,6 +520,8 @@ class TestPipelineAttachmentMerge:
 
         merged = json.loads(_merge_content_json(existing, incoming))
         attachments = merged["attachments"]
+        assert merged["rich_content"]["schema"] == "pce.rich_content.v1"
+        assert [block["type"] for block in merged["rich_content"]["blocks"]] == ["image", "file"]
         assert len(attachments) == 2
         image = next(att for att in attachments if att["type"] == "image_url")
         assert image["file_id"] == "file_abc123"

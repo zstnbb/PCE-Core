@@ -50,11 +50,42 @@
                   (typeof att.output === "string" ? att.output.slice(0, 80) : "");
                 return `${attType}:${detail}`;
               })
-              .join(",");
+              .join(",")
           : "";
         return `${msg?.role || "unknown"}:${content}:${attSig}`;
       })
       .join("|");
+  }
+
+  function inferMediaTypeFromName(name) {
+    const lower = String(name || "").toLowerCase();
+    if (!lower || !lower.includes(".")) return "";
+    const ext = lower.split(".").pop();
+    const map = {
+      png: "image/png",
+      jpg: "image/jpeg",
+      jpeg: "image/jpeg",
+      gif: "image/gif",
+      webp: "image/webp",
+      svg: "image/svg+xml",
+      pdf: "application/pdf",
+      txt: "text/plain",
+      md: "text/markdown",
+      csv: "text/csv",
+      json: "application/json",
+      py: "text/x-python",
+      js: "text/javascript",
+      ts: "text/typescript",
+      html: "text/html",
+      doc: "application/msword",
+      docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      xls: "application/vnd.ms-excel",
+      xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      ppt: "application/vnd.ms-powerpoint",
+      pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      zip: "application/zip",
+    };
+    return map[ext] || "";
   }
 
   // -------------------------------------------------------------------------
@@ -72,6 +103,50 @@
   function extractAttachments(el) {
     const attachments = [];
     if (!el) return attachments;
+    const upsertFileAttachment = (next) => {
+      if (!next || !next.name) return;
+      const nameKey = next.name.toLowerCase();
+      const existing = attachments.find(
+        (att) => att.type === "file" && String(att.name || "").toLowerCase() === nameKey
+      );
+      if (!existing) {
+        attachments.push(next);
+        return;
+      }
+      if (!existing.url && next.url) existing.url = next.url;
+      if (!existing.media_type && next.media_type) existing.media_type = next.media_type;
+      if (!existing.title && next.title) existing.title = next.title;
+      if (!existing.source_type && next.source_type) existing.source_type = next.source_type;
+    };
+    const buildFileAttachment = (fileEl, name) => {
+      const anchor =
+        (fileEl.matches && fileEl.matches("a[href]") && fileEl) ||
+        fileEl.querySelector?.("a[href]") ||
+        fileEl.closest?.("a[href]") ||
+        null;
+      const rawUrl = anchor
+        ? normalizeCitationUrl(anchor.href || anchor.getAttribute("href") || "")
+        : "";
+      const mediaType =
+        fileEl.getAttribute?.("type") ||
+        fileEl.getAttribute?.("data-mime-type") ||
+        fileEl.dataset?.mimeType ||
+        inferMediaTypeFromName(name);
+      const title =
+        (anchor && (anchor.getAttribute("download") || anchor.title || "")) ||
+        fileEl.getAttribute?.("title") ||
+        "";
+      const att = {
+        type: "file",
+        name: name.slice(0, 200),
+      };
+      if (rawUrl && !rawUrl.startsWith("javascript:") && !rawUrl.startsWith("#")) {
+        att.url = rawUrl.slice(0, 1000);
+      }
+      if (mediaType) att.media_type = mediaType;
+      if (title && title !== name) att.title = title.slice(0, 200);
+      return att;
+    };
 
     // --- Images (user-uploaded, AI-generated, inline) ---
     el.querySelectorAll("img").forEach((img) => {
@@ -146,7 +221,7 @@
           if (!name || name.length < 2 || name.length > 200) return;
           // Skip if it looks like a button label
           if (fileEl.tagName === "BUTTON" && name.length < 15) return;
-          attachments.push({ type: "file", name: name.slice(0, 200) });
+          upsertFileAttachment(buildFileAttachment(fileEl, name));
         });
       } catch { /* skip invalid selector */ }
     }
@@ -165,9 +240,25 @@
       const firstLine = text.split("\n")[0].trim();
       if (_fileExtRe.test(firstLine) && !_existingFileNames.has(firstLine)) {
         _existingFileNames.add(firstLine);
-        attachments.push({ type: "file", name: firstLine.slice(0, 200) });
+        upsertFileAttachment(buildFileAttachment(chip, firstLine));
       }
     });
+
+    if (!attachments.some((att) => att.type === "file")) {
+      const lines = (el.innerText || "")
+        .split(/\n+/)
+        .map((line) => line.replace(/\s+/g, " ").trim())
+        .filter(Boolean);
+      const firstLine = lines[0] || "";
+      if (_fileExtRe.test(firstLine)) {
+        upsertFileAttachment({
+          type: "file",
+          name: firstLine.slice(0, 200),
+          source_type: "text-fallback",
+          media_type: inferMediaTypeFromName(firstLine),
+        });
+      }
+    }
 
     // --- Citations / external links ---
     el.querySelectorAll("a[href]").forEach((a) => {
@@ -413,6 +504,37 @@
       if (m) return m[1];
     }
     return path.length > 1 ? path : null;
+  }
+
+  // -------------------------------------------------------------------------
+  // Cross-world capture bridge
+  // -------------------------------------------------------------------------
+
+  let lastManualCaptureToken = "";
+
+  function bridgeManualCaptureRequest() {
+    const root = document.documentElement;
+    if (!root) return;
+    const token = root.getAttribute("data-pce-manual-capture") || "";
+    if (!token || token === lastManualCaptureToken) return;
+    lastManualCaptureToken = token;
+    document.dispatchEvent(new CustomEvent("pce-manual-capture"));
+  }
+
+  try {
+    const root = document.documentElement;
+    if (root) {
+      const observer = new MutationObserver(() => {
+        bridgeManualCaptureRequest();
+      });
+      observer.observe(root, {
+        attributes: true,
+        attributeFilter: ["data-pce-manual-capture"],
+      });
+      bridgeManualCaptureRequest();
+    }
+  } catch {
+    // Non-fatal: manual capture still works when triggered inside the extension world.
   }
 
   // -------------------------------------------------------------------------

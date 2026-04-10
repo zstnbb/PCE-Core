@@ -498,7 +498,7 @@ async function loadSessionMessages(sessionId) {
     let attCount = 0;
     messages.forEach((m) => {
       if (m.content_json) {
-        try { attCount += JSON.parse(m.content_json).attachments?.length || 0; } catch {}
+        try { attCount += getRenderableAttachments(JSON.parse(m.content_json)).length; } catch {}
       }
     });
     const attLabel = attCount > 0 ? ` · ${attCount} attachments` : "";
@@ -549,6 +549,20 @@ const ATT_ICONS = {
   canvas:            '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>',
 };
 
+function getRenderableAttachments(data) {
+  if (Array.isArray(data?.attachments)) return data.attachments;
+
+  const blocks = data?.rich_content?.blocks;
+  if (!Array.isArray(blocks)) return [];
+  return blocks
+    .map((block) => {
+      if (!block || typeof block !== "object") return null;
+      if (block.data && typeof block.data === "object") return block.data;
+      return { ...block, type: block.attachment_type || block.type || "unknown" };
+    })
+    .filter(Boolean);
+}
+
 function renderAttachments(contentJsonStr) {
   let data;
   try {
@@ -556,7 +570,7 @@ function renderAttachments(contentJsonStr) {
   } catch {
     return "";
   }
-  const attachments = data?.attachments;
+  const attachments = getRenderableAttachments(data);
   if (!Array.isArray(attachments) || attachments.length === 0) return "";
 
   const cards = attachments.map((att) => renderOneAttachment(att)).filter(Boolean);
@@ -628,19 +642,29 @@ function renderCodeOutput(att, icon) {
     </div>`;
 }
 
+function isOpenableAttachmentUrl(url, type = "file") {
+  if (!url || typeof url !== "string") return false;
+  if (/^https?:\/\//i.test(url)) return true;
+  if (type === "image" && /^data:image\//i.test(url)) return true;
+  return false;
+}
+
 function renderImage(att, icon, typeLabel) {
   const url = att.url || "";
   const alt = att.alt || att.detail || "";
-  const truncatedUrl = url.length > 80 ? url.slice(0, 80) + "..." : url;
-  // Show image if URL is a real http(s) link, otherwise show placeholder
-  const isViewable = url.startsWith("http");
+  const ref = att.file_id || url;
+  const truncatedUrl = ref.length > 80 ? ref.slice(0, 80) + "..." : ref;
+  const isViewable = isOpenableAttachmentUrl(url, "image");
+  const openAction = isViewable
+    ? `<div class="att-actions"><a class="att-link" href="${escapeHtml(url)}" target="_blank" rel="noopener">Open image</a></div>`
+    : (truncatedUrl ? `<div class="att-actions"><span class="att-ref">${escapeHtml(truncatedUrl)}</span></div>` : "");
   const imgHtml = isViewable
-    ? `<img src="${escapeHtml(url)}" alt="${escapeHtml(alt)}" class="att-image-preview" loading="lazy" />`
+    ? `<a class="att-image-link" href="${escapeHtml(url)}" target="_blank" rel="noopener"><img src="${escapeHtml(url)}" alt="${escapeHtml(alt)}" class="att-image-preview" loading="lazy" /></a>`
     : `<div class="att-image-placeholder">${icon}<span>${escapeHtml(truncatedUrl || "Image reference")}</span></div>`;
   return `
     <div class="att-card att-image">
       <div class="att-header">${icon}<span class="att-type">${escapeHtml(typeLabel)}</span>${alt ? `<span class="att-detail">${escapeHtml(alt)}</span>` : ""}</div>
-      <div class="att-body">${imgHtml}</div>
+      <div class="att-body">${imgHtml}${openAction}</div>
     </div>`;
 }
 
@@ -675,10 +699,20 @@ function renderToolResult(att, icon) {
 function renderFile(att, icon, typeLabel) {
   const name = att.name || att.title || "File";
   const mediaType = att.media_type || att.source_type || "";
+  const url = att.url || "";
+  const ref = att.file_id || url || "";
+  const isOpenable = isOpenableAttachmentUrl(url);
+  const titleHtml = isOpenable
+    ? `<a class="att-link att-file-link" href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(name)}</a>`
+    : `<span class="att-filename">${escapeHtml(name)}</span>`;
+  const metaParts = [mediaType, att.file_id || ""].filter(Boolean);
+  const actionHtml = isOpenable
+    ? `<div class="att-actions"><a class="att-link" href="${escapeHtml(url)}" target="_blank" rel="noopener">Open file</a></div>`
+    : (ref ? `<div class="att-actions"><span class="att-ref">${escapeHtml(ref.length > 96 ? ref.slice(0, 96) + "..." : ref)}</span></div>` : "");
   return `
     <div class="att-card att-file">
       <div class="att-header">${icon}<span class="att-type">${escapeHtml(typeLabel)}</span></div>
-      <div class="att-body"><span class="att-filename">${escapeHtml(name)}</span>${mediaType ? `<span class="att-detail">${escapeHtml(mediaType)}</span>` : ""}</div>
+      <div class="att-body">${titleHtml}${metaParts.length ? `<span class="att-detail">${escapeHtml(metaParts.join(" · "))}</span>` : ""}${actionHtml}</div>
     </div>`;
 }
 

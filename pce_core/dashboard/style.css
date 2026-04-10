@@ -1610,6 +1610,11 @@ select:focus { border-color: var(--accent); }
   object-fit: contain;
 }
 
+.att-image-link {
+  display: inline-flex;
+  max-width: 100%;
+}
+
 .att-image-placeholder {
   display: flex;
   align-items: center;
@@ -1624,6 +1629,37 @@ select:focus { border-color: var(--accent); }
 }
 
 .att-image-placeholder svg { flex-shrink: 0; color: var(--orange); }
+
+.att-actions {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.att-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.att-link:hover {
+  text-decoration: underline;
+}
+
+.att-ref {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--bg-base);
+  color: var(--text-muted);
+  font-family: "Consolas", "Monaco", monospace;
+  font-size: 11px;
+  word-break: break-all;
+}
 
 /* Tool call */
 .att-tool-call { border-left: 3px solid var(--accent); }
@@ -1659,6 +1695,10 @@ select:focus { border-color: var(--accent); }
   font-weight: 600;
   color: var(--text-primary);
   font-size: 13px;
+}
+
+.att-file-link {
+  font-family: "Consolas", "Monaco", monospace;
 }
 
 /* Audio */

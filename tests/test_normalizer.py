@@ -81,7 +81,8 @@ def _test_openai_normalizer():
         path="/v1/chat/completions",
     )
     assert result3 is not None
-    assert result3.messages[0].content_text == "What is this?"
+    assert result3.messages[0].content_text == "What is this?\n[Image]"
+    assert result3.messages[0].content_json is not None
     print("[PASS] OpenAI: multimodal content array")
 
     # Invalid body
@@ -160,7 +161,8 @@ def _test_anthropic_normalizer():
     )
     assert result3 is not None
     assert "Let me search" in result3.messages[-1].content_text
-    assert "[tool_use: web_search]" in result3.messages[-1].content_text
+    assert "[Tool call: web_search]" in result3.messages[-1].content_text
+    assert result3.messages[-1].content_json is not None
     print("[PASS] Anthropic: tool_use in response")
 
     # Invalid body

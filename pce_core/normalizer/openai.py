@@ -28,6 +28,8 @@ import logging
 import re
 from typing import Optional
 
+from pce_core.rich_content import build_content_json
+
 from .base import BaseNormalizer, NormalizedMessage, NormalizedResult
 
 logger = logging.getLogger("pce.normalizer.openai")
@@ -116,7 +118,7 @@ class OpenAIChatNormalizer(BaseNormalizer):
                 continue
             role = msg.get("role", "user")
             text, attachments = _extract_rich_content(msg)
-            cj = json.dumps({"attachments": attachments}, ensure_ascii=False) if attachments else None
+            cj = build_content_json(attachments, plain_text=text)
             messages.append(NormalizedMessage(
                 role=role,
                 content_text=text,
@@ -150,7 +152,7 @@ class OpenAIChatNormalizer(BaseNormalizer):
                     role = msg.get("role", "assistant")
                     text, attachments = _extract_rich_content(msg)
                     if text:
-                        cj = json.dumps({"attachments": attachments}, ensure_ascii=False) if attachments else None
+                        cj = build_content_json(attachments, plain_text=text)
                         messages.append(NormalizedMessage(
                             role=role,
                             content_text=text,

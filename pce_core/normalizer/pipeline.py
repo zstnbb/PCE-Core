@@ -19,6 +19,7 @@ from ..db import (
     query_sessions,
     get_connection,
 )
+from ..rich_content import build_content_json, load_attachments_from_content_json
 from .base import normalize_pair, NormalizedResult
 
 logger = logging.getLogger("pce.normalizer.pipeline")
@@ -285,7 +286,7 @@ def _try_generic_normalize(
         text, attachments = _extract_generic_rich(msg, content)
         if not text or len(text.strip()) < 1:
             continue
-        cj = json.dumps({"attachments": attachments}, ensure_ascii=False) if attachments else None
+        cj = build_content_json(attachments, plain_text=text)
         messages.append(NormalizedMessage(
             role=role,
             content_text=text,
@@ -316,7 +317,7 @@ def _try_generic_normalize(
             text, attachments = _extract_generic_rich(msg, msg.get("content", ""))
             if not text:
                 continue
-            cj = json.dumps({"attachments": attachments}, ensure_ascii=False) if attachments else None
+            cj = build_content_json(attachments, plain_text=text)
             messages.append(NormalizedMessage(
                 role=role,
                 content_text=text,
@@ -887,14 +888,7 @@ def _normalize_message_text_for_dedup(text: str) -> str:
 
 
 def _load_attachments(content_json: Optional[str]) -> list[dict]:
-    if not content_json:
-        return []
-    try:
-        data = json.loads(content_json)
-    except (json.JSONDecodeError, TypeError):
-        return []
-    attachments = data.get("attachments")
-    return attachments if isinstance(attachments, list) else []
+    return load_attachments_from_content_json(content_json)
 
 
 def _extract_attachment_file_id(att: dict) -> str:
@@ -980,10 +974,7 @@ def _merge_content_json(existing_json: Optional[str], incoming_json: Optional[st
 
     if not order:
         return existing_json or incoming_json
-    return json.dumps(
-        {"attachments": [merged[key] for key in order]},
-        ensure_ascii=False,
-    )
+    return build_content_json([merged[key] for key in order])
 
 
 def _choose_better_content_text(existing_text: Optional[str], incoming_text: Optional[str]) -> Optional[str]:
