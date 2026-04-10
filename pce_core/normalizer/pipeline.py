@@ -782,6 +782,13 @@ def _persist_result(
             db_path=db_path,
         )
 
+    # Auto-tag session metadata (language, topics, tokens, models)
+    try:
+        from ..tagger import tag_session
+        tag_session(session_id, db_path=db_path)
+    except Exception:
+        logger.debug("Auto-tag failed for session %s (non-fatal)", session_id[:8])
+
     logger.info(
         "Normalized %s -> session %s (%d new, %d enriched, provider=%s, existing=%s)",
         pair_id[:8], session_id[:8], msg_count, enriched_count, result.provider, is_existing,

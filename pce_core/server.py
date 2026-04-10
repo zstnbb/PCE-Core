@@ -395,12 +395,22 @@ def capture_health():
 # Query: sessions
 # ---------------------------------------------------------------------------
 
-@app.get("/api/v1/sessions", response_model=list[SessionRecord])
+@app.get("/api/v1/sessions")
 def list_sessions(
     last: int = Query(20, ge=1, le=500),
     provider: Optional[str] = None,
+    language: Optional[str] = None,
+    topic: Optional[str] = None,
+    since: Optional[float] = None,
+    until: Optional[float] = None,
+    min_messages: Optional[int] = None,
+    q: Optional[str] = None,
 ):
-    return query_sessions(last=last, provider=provider)
+    return query_sessions(
+        last=last, provider=provider, language=language,
+        topic=topic, since=since, until=until,
+        min_messages=min_messages, title_search=q,
+    )
 
 
 @app.get("/api/v1/sessions/{session_id}/messages", response_model=list[MessageRecord])

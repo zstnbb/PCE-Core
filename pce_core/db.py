@@ -208,6 +208,17 @@ def init_db(db_path: Optional[Path] = None) -> None:
         if "meta_json" not in cols:
             conn.execute("ALTER TABLE raw_captures ADD COLUMN meta_json TEXT")
             logger.info("Migrated raw_captures: added meta_json column")
+        # Migrate: add session metadata columns if missing
+        sess_cols = {row[1] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()}
+        for col, coltype in [
+            ("language", "TEXT"),
+            ("topic_tags", "TEXT"),
+            ("total_tokens", "INTEGER"),
+            ("model_names", "TEXT"),
+        ]:
+            if col not in sess_cols:
+                conn.execute(f"ALTER TABLE sessions ADD COLUMN {col} {coltype}")
+                logger.info("Migrated sessions: added %s column", col)
         # Migrate: rebuild FTS index if empty but messages exist
         try:
             fts_count = conn.execute(
@@ -689,21 +700,46 @@ def query_sessions(
     *,
     last: int = 20,
     provider: Optional[str] = None,
+    language: Optional[str] = None,
+    topic: Optional[str] = None,
+    since: Optional[float] = None,
+    until: Optional[float] = None,
+    min_messages: Optional[int] = None,
+    title_search: Optional[str] = None,
     db_path: Optional[Path] = None,
 ) -> list[dict]:
-    """Return recent sessions."""
+    """Return recent sessions with optional filters."""
     conn = get_connection(db_path)
     conn.row_factory = sqlite3.Row
     try:
+        clauses: list[str] = []
+        params: list = []
         if provider:
-            rows = conn.execute(
-                "SELECT * FROM sessions WHERE provider = ? ORDER BY started_at DESC LIMIT ?",
-                (provider, last),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM sessions ORDER BY started_at DESC LIMIT ?", (last,)
-            ).fetchall()
+            clauses.append("provider = ?")
+            params.append(provider)
+        if language:
+            clauses.append("language = ?")
+            params.append(language)
+        if topic:
+            clauses.append("topic_tags LIKE ?")
+            params.append(f"%{topic}%")
+        if since is not None:
+            clauses.append("started_at >= ?")
+            params.append(since)
+        if until is not None:
+            clauses.append("started_at <= ?")
+            params.append(until)
+        if min_messages is not None:
+            clauses.append("message_count >= ?")
+            params.append(min_messages)
+        if title_search:
+            clauses.append("title_hint LIKE ?")
+            params.append(f"%{title_search}%")
+
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        sql = f"SELECT * FROM sessions{where} ORDER BY started_at DESC LIMIT ?"
+        params.append(last)
+        rows = conn.execute(sql, params).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
