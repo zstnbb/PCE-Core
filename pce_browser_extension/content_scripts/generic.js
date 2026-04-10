@@ -166,7 +166,7 @@
       host: hostname,
       path: window.location.pathname,
       model_name: null,
-      session_hint: null,
+      session_hint: (window.__PCE_EXTRACT && window.__PCE_EXTRACT.getSessionHint) ? window.__PCE_EXTRACT.getSessionHint() : null,
       conversation: {
         messages,
         url: window.location.href,

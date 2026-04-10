@@ -36,6 +36,24 @@ _FILE_UPLOAD_RE = re.compile(
 )
 
 
+def _estimate_tokens(text: Optional[str]) -> Optional[int]:
+    """Estimate token count from text using a simple heuristic.
+
+    - English/Latin: ~1.3 tokens per whitespace-separated word
+    - CJK characters: ~1.5 tokens per character
+    Returns None if text is empty.
+    """
+    if not text:
+        return None
+    cjk = sum(1 for c in text if '\u4e00' <= c <= '\u9fff'
+              or '\u3040' <= c <= '\u30ff'
+              or '\uac00' <= c <= '\ud7af')
+    words = len(text.split())
+    # CJK chars are roughly 1.5 tokens each; Latin words ~1.3 tokens
+    estimate = int(cjk * 1.5 + (words - cjk) * 1.3)
+    return max(estimate, 1) if text.strip() else None
+
+
 def try_normalize_pair(
     pair_id: str,
     source_id: str,
@@ -737,6 +755,7 @@ def _persist_result(
             "content_json": msg.content_json,
         }  # prevent within-batch dupes
 
+        token_est = msg.token_estimate or _estimate_tokens(msg.content_text)
         msg_id = insert_message(
             session_id=session_id,
             ts=msg.ts or created_at,
@@ -745,7 +764,7 @@ def _persist_result(
             content_json=msg.content_json,
             model_name=msg.model_name or result.model_name,
             capture_pair_id=pair_id,
-            token_estimate=msg.token_estimate,
+            token_estimate=token_est,
             db_path=db_path,
         )
         if msg_id:
