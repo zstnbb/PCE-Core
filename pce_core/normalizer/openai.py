@@ -65,7 +65,7 @@ _COMPATIBLE_HOSTS = {
     # Zhipu / ChatGLM (uses OpenAI-compatible format)
     "open.bigmodel.cn", "chat.z.ai", "chatglm.cn", "chat.zhipuai.cn", "maas.aminer.cn",
     # Moonshot / Kimi
-    "api.moonshot.cn", "kimi.moonshot.cn",
+    "api.moonshot.cn", "kimi.moonshot.cn", "www.kimi.com", "kimi.com",
     # Local
     "localhost", "127.0.0.1",
 }

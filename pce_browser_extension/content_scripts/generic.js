@@ -32,6 +32,9 @@
     "chat.z.ai": "zhipu",
     "chatglm.cn": "zhipu",
     "chat.zhipuai.cn": "zhipu",
+    "kimi.moonshot.cn": "moonshot",
+    "www.kimi.com": "moonshot",
+    "kimi.com": "moonshot",
   };
 
   const hostname = window.location.hostname;
@@ -62,6 +65,8 @@
 
     // Common selectors across AI chat UIs
     const selectors = [
+      // Kimi (segment-based layout)
+      '.segment.segment-user, .segment.segment-assistant',
       // Gemini
       'message-content[class*="user"], message-content[class*="model"]',
       '[data-message-author], [data-author-role]',

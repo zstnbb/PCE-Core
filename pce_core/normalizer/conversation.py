@@ -49,6 +49,8 @@ _CONVERSATION_HOSTS = {
     "huggingface.co",
     "chat.mistral.ai",
     "kimi.moonshot.cn",
+    "www.kimi.com",
+    "kimi.com",
 }
 
 
