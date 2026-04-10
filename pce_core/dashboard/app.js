@@ -73,6 +73,26 @@ function prettyJson(str) {
   }
 }
 
+function formatTopicTags(tagsJson) {
+  try {
+    const tags = JSON.parse(tagsJson);
+    if (!Array.isArray(tags) || tags.length === 0) return "";
+    return tags.map((t) => `<span class="tag tag-topic">${escapeHtml(t)}</span>`).join("");
+  } catch {
+    return "";
+  }
+}
+
+function formatModelNames(modelsJson) {
+  try {
+    const models = JSON.parse(modelsJson);
+    if (!Array.isArray(models) || models.length === 0) return "";
+    return escapeHtml(models.join(", "));
+  } catch {
+    return "";
+  }
+}
+
 // ── Lightweight Markdown Renderer ────────────────────────
 function renderMarkdown(text) {
   if (!text) return "";
@@ -475,9 +495,12 @@ function renderSessionList(sessions) {
       <div class="session-row" data-session-id="${escapeHtml(s.id)}">
         <span class="session-time">${formatTime(s.started_at)}</span>
         <span class="tag tag-provider">${escapeHtml(s.provider)}</span>
+        ${s.language ? `<span class="tag tag-lang">${escapeHtml(s.language)}</span>` : ""}
         <span class="session-title">${escapeHtml(s.title_hint || "Untitled session")}</span>
         <span class="session-meta">${s.message_count} msgs</span>
-        <span class="session-meta">${escapeHtml(s.tool_family || "")}</span>
+        ${s.total_tokens ? `<span class="session-meta">${s.total_tokens} tokens</span>` : ""}
+        ${s.topic_tags ? formatTopicTags(s.topic_tags) : ""}
+        ${s.model_names ? `<span class="session-meta session-models">${formatModelNames(s.model_names)}</span>` : ""}
       </div>
     `
     )
@@ -491,6 +514,7 @@ function renderSessionList(sessions) {
 }
 
 async function loadSessionMessages(sessionId) {
+  _currentSessionId = sessionId;
   try {
     const messages = await api(`/sessions/${sessionId}/messages`);
     const container = document.getElementById("session-messages");
@@ -757,6 +781,30 @@ document.getElementById("capture-back").addEventListener("click", () => {
 
 document.getElementById("session-refresh").addEventListener("click", loadSessions);
 document.getElementById("capture-refresh").addEventListener("click", loadCaptures);
+
+// ── Export ──────────────────────────────────────────────
+let _currentSessionId = null;
+
+document.getElementById("export-md").addEventListener("click", () => {
+  if (!_currentSessionId) return;
+  window.open(`${API}/export/session/${_currentSessionId}?format=markdown`, "_blank");
+});
+
+document.getElementById("export-json").addEventListener("click", async () => {
+  if (!_currentSessionId) return;
+  try {
+    const data = await api(`/export/session/${_currentSessionId}?format=json`);
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `session-${_currentSessionId.slice(0, 8)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    console.error("Export failed:", e);
+  }
+});
 
 document.getElementById("session-provider-filter").addEventListener("change", loadSessions);
 document.getElementById("capture-provider-filter").addEventListener("change", loadCaptures);

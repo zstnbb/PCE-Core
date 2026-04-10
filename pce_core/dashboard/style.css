@@ -654,6 +654,12 @@ select:focus { border-color: var(--accent); }
 .tag-clipboard { background: var(--orange-dim); color: var(--orange); }
 .tag-network_intercept { background: var(--cyan-dim); color: var(--cyan); }
 .tag-provider { background: var(--accent-glow); color: var(--accent); }
+.tag-lang { background: var(--cyan-dim); color: var(--cyan); font-size: 10px; }
+.tag-topic { background: var(--green-dim); color: var(--green); font-size: 10px; }
+.session-models { font-size: 11px; color: var(--text-muted); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.detail-actions { display: flex; gap: 6px; margin-left: auto; }
+.btn-export { background: var(--accent-glow); color: var(--accent); border: 1px solid var(--accent); font-size: 11px; cursor: pointer; }
+.btn-export:hover { background: var(--accent); color: var(--bg-primary); }
 
 .capture-time, .session-time {
   font-size: 12px;

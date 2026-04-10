@@ -92,6 +92,16 @@ class CaptureRecord(BaseModel):
     meta_json: Optional[str] = None
 
 
+class StorageInfo(BaseModel):
+    """Storage usage statistics."""
+
+    db_size_mb: float = 0
+    raw_captures_count: int = 0
+    sessions_count: int = 0
+    messages_count: int = 0
+    oldest_capture_days: float = 0
+
+
 class StatsOut(BaseModel):
     """Summary statistics."""
 
@@ -101,6 +111,7 @@ class StatsOut(BaseModel):
     by_direction: dict[str, int] = {}
     earliest: Optional[float] = None
     latest: Optional[float] = None
+    storage: Optional[StorageInfo] = None
 
 
 class SessionRecord(BaseModel):
@@ -116,6 +127,10 @@ class SessionRecord(BaseModel):
     message_count: int = 0
     title_hint: Optional[str] = None
     created_via: Optional[str] = None
+    language: Optional[str] = None
+    topic_tags: Optional[str] = None
+    total_tokens: Optional[int] = None
+    model_names: Optional[str] = None
 
 
 class MessageRecord(BaseModel):

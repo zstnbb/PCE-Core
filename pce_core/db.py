@@ -428,6 +428,14 @@ def get_stats(db_path: Optional[Path] = None) -> dict:
         earliest = conn.execute("SELECT MIN(created_at) as t FROM raw_captures").fetchone()["t"]
         latest = conn.execute("SELECT MAX(created_at) as t FROM raw_captures").fetchone()["t"]
 
+        # Storage info
+        import time as _time
+        sessions_count = conn.execute("SELECT COUNT(*) as c FROM sessions").fetchone()["c"]
+        messages_count = conn.execute("SELECT COUNT(*) as c FROM messages").fetchone()["c"]
+        db_file = db_path or DB_PATH
+        db_size_mb = round(db_file.stat().st_size / 1024 / 1024, 2) if db_file.exists() else 0
+        oldest_days = round((_time.time() - earliest) / 86400, 1) if earliest else 0
+
         return {
             "total_captures": total,
             "by_provider": by_provider,
@@ -435,6 +443,13 @@ def get_stats(db_path: Optional[Path] = None) -> dict:
             "by_direction": by_direction,
             "earliest": earliest,
             "latest": latest,
+            "storage": {
+                "db_size_mb": db_size_mb,
+                "raw_captures_count": total,
+                "sessions_count": sessions_count,
+                "messages_count": messages_count,
+                "oldest_capture_days": oldest_days,
+            },
         }
     finally:
         conn.close()
@@ -758,6 +773,30 @@ def query_messages(session_id: str, db_path: Optional[Path] = None) -> list[dict
         conn.close()
 
 
+def _has_cjk(text: str) -> bool:
+    """Return True if text contains CJK characters."""
+    return any('\u4e00' <= c <= '\u9fff' or '\u3040' <= c <= '\u30ff'
+               or '\uac00' <= c <= '\ud7af' for c in text)
+
+
+def _sanitize_fts_query(query: str) -> str:
+    """Sanitize a user query for FTS5 MATCH safety.
+
+    FTS5 has special syntax characters (quotes, parentheses, AND/OR/NOT, *, ^, NEAR)
+    that can cause parse errors if passed raw. We wrap each token in double quotes
+    to treat them as literal phrases.
+    """
+    import re
+    # Remove characters that are FTS5 operators
+    cleaned = re.sub(r'["\(\)\*\^\{\}]', ' ', query)
+    # Split into tokens and quote each one
+    tokens = cleaned.split()
+    if not tokens:
+        return ""
+    # Wrap each token in double quotes for literal matching
+    return " ".join(f'"{t}"' for t in tokens if t.strip())
+
+
 def search_messages(
     query: str,
     *,
@@ -765,10 +804,83 @@ def search_messages(
     limit: int = 20,
     db_path: Optional[Path] = None,
 ) -> list[dict]:
-    """Full-text search on messages via FTS5.
+    """Full-text search on messages.
 
+    Uses FTS5 for Latin text, falls back to LIKE for CJK queries since
+    the unicode61 tokenizer doesn't split CJK characters into words.
     Returns messages with parent session info and highlighted snippets.
     """
+    if _has_cjk(query):
+        return _search_messages_like(query, provider=provider, limit=limit, db_path=db_path)
+    return _search_messages_fts(query, provider=provider, limit=limit, db_path=db_path)
+
+
+def _search_messages_like(
+    query: str,
+    *,
+    provider: Optional[str] = None,
+    limit: int = 20,
+    db_path: Optional[Path] = None,
+) -> list[dict]:
+    """LIKE-based search fallback for CJK queries."""
+    conn = get_connection(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        sql = """
+            SELECT m.id, m.session_id, m.role, m.content_text, m.model_name,
+                   m.ts, m.token_estimate,
+                   s.provider, s.title_hint, s.started_at as session_started,
+                   s.tool_family
+            FROM messages m
+            JOIN sessions s ON m.session_id = s.id
+            WHERE m.content_text LIKE ?
+        """
+        params: list = [f"%{query}%"]
+        if provider:
+            sql += " AND s.provider = ?"
+            params.append(provider)
+        sql += " ORDER BY m.ts DESC LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(sql, params).fetchall()
+
+        # Build snippets manually with <mark> highlighting
+        results = []
+        for r in rows:
+            d = dict(r)
+            text = d.get("content_text") or ""
+            idx = text.lower().find(query.lower())
+            if idx >= 0:
+                start = max(0, idx - 40)
+                end = min(len(text), idx + len(query) + 40)
+                prefix = "..." if start > 0 else ""
+                suffix = "..." if end < len(text) else ""
+                snippet = (prefix + text[start:idx]
+                           + "<mark>" + text[idx:idx + len(query)] + "</mark>"
+                           + text[idx + len(query):end] + suffix)
+            else:
+                snippet = text[:80] + ("..." if len(text) > 80 else "")
+            d["snippet"] = snippet
+            results.append(d)
+        return results
+    except Exception:
+        logger.exception("LIKE search failed for query=%r", query)
+        return []
+    finally:
+        conn.close()
+
+
+def _search_messages_fts(
+    query: str,
+    *,
+    provider: Optional[str] = None,
+    limit: int = 20,
+    db_path: Optional[Path] = None,
+) -> list[dict]:
+    """FTS5-based search for Latin text."""
+    safe_query = _sanitize_fts_query(query)
+    if not safe_query:
+        return []
+
     conn = get_connection(db_path)
     conn.row_factory = sqlite3.Row
     try:
@@ -783,7 +895,7 @@ def search_messages(
             JOIN sessions s ON m.session_id = s.id
             WHERE messages_fts MATCH ?
         """
-        params: list = [query]
+        params: list = [safe_query]
         if provider:
             sql += " AND s.provider = ?"
             params.append(provider)

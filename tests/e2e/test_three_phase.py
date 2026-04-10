@@ -527,8 +527,8 @@ def test_three_phase(test_id, driver):
 
 def _icon(val):
     if val is None:
-        return "—"
-    return "✓" if val else "✗"
+        return "-"
+    return "OK" if val else "XX"
 
 
 @pytest.fixture(scope="session", autouse=True)

@@ -444,7 +444,7 @@ def search(
 @app.get("/api/v1/export/session/{session_id}")
 def export_session(
     session_id: str,
-    format: str = Query("markdown", regex="^(markdown|json)$"),
+    format: str = Query("markdown", pattern="^(markdown|json)$"),
 ):
     """Export a single session as Markdown or JSON."""
     from .exporter import export_session_markdown, export_session_json
@@ -463,7 +463,7 @@ def export_session(
 
 @app.get("/api/v1/export/sessions")
 def export_sessions_bulk(
-    format: str = Query("jsonl", regex="^(jsonl)$"),
+    format: str = Query("jsonl", pattern="^(jsonl)$"),
     provider: Optional[str] = None,
     since: Optional[float] = None,
 ):
