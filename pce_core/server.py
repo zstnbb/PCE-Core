@@ -14,7 +14,7 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import __version__
@@ -435,6 +435,45 @@ def search(
     from .db import search_messages
     results = search_messages(q, provider=provider, limit=limit)
     return results
+
+
+# ---------------------------------------------------------------------------
+# Data Export
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/export/session/{session_id}")
+def export_session(
+    session_id: str,
+    format: str = Query("markdown", regex="^(markdown|json)$"),
+):
+    """Export a single session as Markdown or JSON."""
+    from .exporter import export_session_markdown, export_session_json
+
+    if format == "markdown":
+        md = export_session_markdown(session_id)
+        if not md:
+            raise HTTPException(status_code=404, detail="Session not found or empty")
+        return Response(content=md, media_type="text/markdown; charset=utf-8")
+    else:
+        data = export_session_json(session_id)
+        if not data:
+            raise HTTPException(status_code=404, detail="Session not found or empty")
+        return data
+
+
+@app.get("/api/v1/export/sessions")
+def export_sessions_bulk(
+    format: str = Query("jsonl", regex="^(jsonl)$"),
+    provider: Optional[str] = None,
+    since: Optional[float] = None,
+):
+    """Batch export sessions as JSONL (streaming)."""
+    from .exporter import export_sessions_jsonl
+
+    def generate():
+        yield from export_sessions_jsonl(provider=provider, since=since)
+
+    return StreamingResponse(generate(), media_type="application/x-ndjson")
 
 
 # ---------------------------------------------------------------------------
