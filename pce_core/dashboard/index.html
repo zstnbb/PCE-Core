@@ -25,6 +25,10 @@
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
           <span>Sessions</span>
         </a></li>
+        <li><a href="#" data-view="favorites">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          <span>Favorites</span>
+        </a></li>
         <li><a href="#" data-view="search">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           <span>Search</span>
@@ -164,11 +168,43 @@
             <button id="session-back" class="btn-sm">&larr; Back</button>
             <h3 id="session-title">Session</h3>
             <div class="detail-actions">
+              <button id="session-fav-btn" class="btn-sm btn-fav" title="Favorite this session">
+                <svg class="star-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                Favorite
+              </button>
               <button id="export-md" class="btn-sm btn-export">Export MD</button>
               <button id="export-json" class="btn-sm btn-export">Export JSON</button>
             </div>
           </div>
           <div id="session-messages" class="messages-list"></div>
+        </div>
+      </section>
+
+      <!-- Favorites View -->
+      <section id="view-favorites" class="view">
+        <div class="view-header">
+          <h2>
+            <svg class="header-icon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            Favorites
+          </h2>
+          <div class="filters-bar" style="margin-bottom:0">
+            <button id="favorites-refresh" class="btn-sm">Refresh</button>
+          </div>
+        </div>
+        <p class="favorites-desc">Favorited sessions are protected from deletion. They will survive a baseline reset.</p>
+        <div id="favorites-list" class="sessions-list"></div>
+
+        <!-- Favorite Session Detail (inline) -->
+        <div id="favorite-detail" class="session-detail hidden">
+          <div class="detail-header">
+            <button id="favorite-back" class="btn-sm">&larr; Back</button>
+            <h3 id="favorite-title">Session</h3>
+            <div class="detail-actions">
+              <button id="favorite-export-md" class="btn-sm btn-export">Export MD</button>
+              <button id="favorite-export-json" class="btn-sm btn-export">Export JSON</button>
+            </div>
+          </div>
+          <div id="favorite-messages" class="messages-list"></div>
         </div>
       </section>
 

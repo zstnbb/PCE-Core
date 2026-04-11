@@ -131,6 +131,7 @@ class SessionRecord(BaseModel):
     topic_tags: Optional[str] = None
     total_tokens: Optional[int] = None
     model_names: Optional[str] = None
+    favorited: int = 0
 
 
 class MessageRecord(BaseModel):

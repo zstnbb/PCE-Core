@@ -1,0 +1,449 @@
+{
+  "chatgpt": {
+    "clickable": [],
+    "fileInputs": [
+      {
+        "accept": "",
+        "aria": "",
+        "cls": "",
+        "hidden": true,
+        "idx": 0,
+        "multiple": true,
+        "title": ""
+      },
+      {
+        "accept": "image/*",
+        "aria": "",
+        "cls": "sr-only select-none",
+        "hidden": false,
+        "idx": 1,
+        "multiple": true,
+        "title": ""
+      },
+      {
+        "accept": "image/*",
+        "aria": "",
+        "cls": "sr-only select-none",
+        "hidden": false,
+        "idx": 2,
+        "multiple": true,
+        "title": ""
+      }
+    ],
+    "title": "ChatGPT",
+    "url": "https://chatgpt.com/"
+  },
+  "deepseek": {
+    "clickable": [],
+    "fileInputs": [
+      {
+        "accept": ".pdf,.png,.jpg,.jpeg,.svg,.svgz,.bmp,.gif,.webp,.ico,.xbm,.dib,.pjp,.tif,.pjpeg,.avif,.apng,.tiff,.jfif,.txt,.md,.csv,.tsv,.html,.json,.log,.dot,.go,.h,.c,.cpp,.cxx,.cc,.cs,.java,.js,.css,.jsp,.php,.py,.py3,.asp,.yaml,.yml,.ini,.conf,.ts,.tsx,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.abap,.asc,.ash,.ampl,.mod,.g4,.apib,.apl,.dyalog,.asax,.ascx,.ashx,.asmx,.aspx,.axd,.dats,.hats,.sats,.as,.adb,.ada,.ads,.agda,.als,.apacheconf,.vhost,.cls,.applescript,.scpt,.arc,.ino,.asciidoc,.adoc,.aj,.asm,.a51,.inc,.nasm,.aug,.ahk,.ahkl,.au3,.awk,.auk,.gawk,.mawk,.nawk,.bat,.cmd,.befunge,.bison,.bb,.decls,.bmx,.bsv,.boo,.b,.bf,.brs,.bro,.cats,.idc,.w,.cake,.cshtml,.csx,.c++,.cp,.h++,.hh,.hpp,.hxx,.inl,.ipp,.tcc,.tpp,.c-objdump,.chs,.clp,.cmake,.in,.cob,.cbl,.ccp,.cobol,.cpy,.capnp,.mss,.ceylon,.chpl,.ch,.ck,.cirru,.clw,.icl,.dcl,.click,.clj,.boot,.cl2,.cljc,.cljs,.hl,.cljscm,.cljx,.hic,.coffee,._coffee,.cjsx,.cson,.iced,.cfm,.cfml,.cfc,.lisp,.asd,.cl,.l,.lsp,.ny,.podsl,.sexp,.cps,.coq,.v,.cppobjdump,.c++-objdump,.c++objdump,.cpp-objdump,.cxx-objdump,.creole,.cr,.feature,.cu,.cuh,.cy,.pyx,.pxd,.pxi,.d,.di,.d-objdump,.com,.dm,.zone,.arpa,.darcspatch,.dpatch,.dart,.diff,.patch,.dockerfile,.djs,.dylan,.dyl,.intr,.lid,.E,.ecl,.eclxml,.sch,.brd,.epj,.e,.ex,.exs,.elm,.el,.emacs,.desktop,.em,.emberscript,.erl,.es,.escript,.hrl,.xrl,.yrl,.fs,.fsi,.fsx,.fx,.flux,.f90,.f,.f03,.f08,.f77,.f95,.for,.fpp,.factor,.fy,.fancypack,.fan,.fth,.4th,.forth,.fr,.frt,.ftl,.g,.gco,.gcode,.gms,.gap,.gd,.gi,.tst,.s,.ms,.glsl,.fp,.frag,.frg,.fsh,.fshader,.geo,.geom,.glslv,.gshader,.shader,.vert,.vrx,.vsh,.vshader,.gml,.kid,.ebuild,.eclass,.po,.pot,.glf,.gp,.gnu,.gnuplot,.plot,.plt,.golo,.gs,.gst,.gsx,.vark,.grace,.gradle,.gf,.graphql,.gv,.man,.1in,.1m,.1x,.3in,.3m,.3qt,.3x,.me,.n,.rno,.roff,.groovy,.grt,.gtpl,.gvy,.gsp,.hcl,.tf,.hlsl,.fxh,.hlsli,.htm,.st,.xht,.xhtml,.mustache,.jinja,.eex,.erb,.deface,.phtml,.http,.haml,.handlebars,.hbs,.hb,.hs,.hsc,.hx,.hxsl,.hy,.pro,.dlm,.ipf,.cfg,.prefs,.properties,.irclog,.weechatlog,.idr,.lidr,.ni,.i7x,.iss,.io,.ik,.thy,.ijs,.flex,.jflex,.geojson,.lock,.topojson,.json5,.jsonld,.jq,.jsx,.jade,.j,._js,.bones,.es6,.jake,.jsb,.jscad,.jsfl,.jsm,.jss,.njs,.pac,.sjs,.ssjs,.sublime-build,.sublime-commands,.sublime-completions,.sublime-keymap,.sublime-macro,.sublime-menu,.sublime-mousemap,.sublime-project,.sublime-settings,.sublime-theme,.sublime-workspace,.sublime_metrics,.sublime_session,.xsjs,.xsjslib,.jl,.ipynb,.krl,.kicad_pcb,.kit,.kt,.ktm,.kts,.lfe,.ll,.lol,.lsl,.lslp,.lvproj,.lasso,.las,.lasso8,.lasso9,.ldml,.latte,.lean,.hlean,.less,.lex,.ly,.ily,.m,.ld,.lds,.liquid,.lagda,.litcoffee,.lhs,.ls,._ls,.xm,.x,.xi,.lgt,.logtalk,.lookml,.lua,.fcgi,.nse,.pd_lua,.rbxs,.wlua,.mumps,.m4,.mcr,.mtml,.muf,.mak,.mk,.mkfile,.mako,.mao,.markdown,.mkd,.mkdn,.mkdown,.ron,.mask,.mathematica,.cdf,.ma,.map,.mt,.nb,.nbp,.wl,.wlt,.matlab,.maxpat,.maxhelp,.maxproj,.mxt,.pat,.mediawiki,.wiki,.moo,.metal,.minid,.druby,.duby,.mir,.mirah,.mo,.mms,.mmk,.monkey,.moon,.myt,.ncl,.nl,.nsi,.nsh,.axs,.axi,.nlogo,.nginxconf,.nim,.nimrod,.ninja,.nit,.nix,.nu,.numpy,.numpyw,.numsc,.ml,.eliom,.eliomi,.ml4,.mli,.mll,.mly,.objdump,.mm,.sj,.omgrofl,.opa,.opal,.opencl,.p,.scad,.org,.ox,.oxh,.oxo,.oxygene,.oz,.pwn,.aw,.ctp,.php3,.php4,.php5,.php6,.php7,.php8,.phps,.phpt,.pls,.pck,.pkb,.pks,.plb,.plsql,.sql,.pov,.pan,.psc,.parrot,.pasm,.pir,.pas,.dfm,.dpr,.lpr,.pp,.pl,.al,.cgi,.perl,.ph,.plx,.pm,.pod,.psgi,.t,.6pl,.6pm,.nqp,.p6,.p6l,.p6m,.pl6,.pm6,.pkl,.pig,.pike,.pmod,.pogo,.pony,.ps,.eps,.ps1,.psd1,.psm1,.pde,.prolog,.yap,.spin,.proto,.pub,.pd,.pb,.pbi,.purs,.bzl,.gyp,.lmi,.pyde,.pyi,.pyp,.pyt,.pyw,.rpy,.tac,.wsgi,.xpy,.pytb,.qml,.qbs,.pri,.r,.rd,.rsx,.raml,.rdoc,.rbbas,.rbfrm,.rbmnu,.rbres,.rbtbar,.rbuistate,.rhtml,.rmd,.rkt,.rktd,.rktl,.scrbl,.rl,.raw,.reb,.r2,.r3,.rebol,.red,.reds,.cw,.rs,.rsh,.robot,.rg,.rb,.builder,.gemspec,.god,.irbrc,.jbuilder,.mspec,.pluginspec,.podspec,.rabl,.rake,.rbuild,.rbw,.rbx,.ru,.ruby,.thor,.watchr,.sas,.scss,.smt2,.smt,.sparql,.rq,.sqf,.hqf,.cql,.ddl,.prc,.tab,.udf,.viw,.db2,.ston,.sage,.sagews,.sls,.sass,.scala,.sbt,.sc,.scaml,.scm,.sld,.sps,.ss,.sci,.sce,.self,.sh,.bash,.bats,.command,.ksh,.tmux,.tool,.zsh,.sh-session,.shen,.sl,.slim,.smali,.tpl,.sp,.sma,.nut,.stan,.ML,.fun,.sig,.sml,.do,.ado,.doh,.ihlp,.mata,.matah,.sthlp,.styl,.scd,.swift,.sv,.svh,.vh,.toml,.txl,.tcl,.adp,.tm,.tcsh,.csh,.tex,.aux,.bbx,.bib,.cbx,.dtx,.ins,.lbx,.ltx,.mkii,.mkiv,.mkvi,.sty,.toc,.tea,.no,.textile,.thrift,.tu,.ttl,.twig,.upc,.anim,.asset,.meta,.prefab,.unity,.uno,.uc,.ur,.urs,.vcl,.vhdl,.vhd,.vhf,.vhi,.vho,.vhs,.vht,.vhw,.vala,.vapi,.veo,.vim,.vb,.bas,.frm,.frx,.vba,.vbhtml,.vbs,.volt,.vue,.owl,.webidl,.x10,.xc,.xml,.ant,.axml,.ccxml,.clixml,.cproject,.csl,.csproj,.ct,.dita,.ditamap,.ditaval,.config,.dotsettings,.filters,.fsproj,.fxml,.glade,.grxml,.iml,.ivy,.jelly,.jsproj,.kml,.launch,.mdpolicy,.mxml,.nproj,.nuspec,.odd,.osm,.plist,.props,.ps1xml,.psc1,.pt,.rdf,.rss,.scxml,.srdf,.storyboard,.stTheme,.sublime-snippet,.targets,.tmCommand,.tml,.tmLanguage,.tmPreferences,.tmSnippet,.tmTheme,.ui,.urdf,.ux,.vbproj,.vcxproj,.vssettings,.vxml,.wsdl,.wsf,.wxi,.wxl,.wxs,.x3d,.xacro,.xaml,.xib,.xlf,.xliff,.xmi,.dist,.xproj,.xsd,.xul,.zcml,.xsp-config,.metadata,.xpl,.xproc,.xquery,.xq,.xql,.xqm,.xqy,.xs,.xslt,.xsl,.xojo_code,.xojo_menu,.xojo_report,.xojo_script,.xojo_toolbar,.xojo_window,.xtend,.reek,.rviz,.sublime-syntax,.syntax,.yang,.y,.yacc,.yy,.zep,.zimpl,.zmpl,.zpl,.ec,.eh,.edn,.fish,.mu,.nc,.ooc,.rst,.rest,.wisp,.prg,.prw,.gitignore,.gitkeep,.gitmodules,.example,.avifs,.blp,.bufr,.bw,.cur,.dcx,.dds,.emf,.fit,.fits,.flc,.fli,.ftc,.ftu,.gbr,.grib,.h5,.hdf,.hif,.icb,.icns,.iim,.im,.j2c,.j2k,.jp2,.jpc,.jpe,.jpf,.jpx,.mpeg,.mpg,.msp,.pbm,.pcd,.pcx,.pfm,.pgm,.pnm,.ppm,.psd,.pxr,.qoi,.ras,.rgb,.rgba,.sgi,.tga,.vda,.vst,.wmf,.xpm,.epub,.mobi",
+        "aria": "",
+        "cls": "",
+        "hidden": true,
+        "idx": 0,
+        "multiple": true,
+        "title": ""
+      }
+    ],
+    "title": "DeepSeek - 探索未至之境",
+    "url": "https://chat.deepseek.com/"
+  },
+  "gemini": {
+    "clickable": [],
+    "fileInputs": [],
+    "title": "Google Gemini",
+    "url": "https://gemini.google.com/app"
+  },
+  "googleaistudio": {
+    "clickable": [
+      {
+        "aria": "",
+        "cls": "banner-and-app-container ng-tns-c997340804-0",
+        "idx": 0,
+        "tag": "div",
+        "text": "Skip to main content expand_more chat_spark Playground chevron_right Code, Example, and Pong Requested Information Provided Code Snippet and Link Provided Python Code and Link Requested Code and Link View all history trending_flat design_services Build chevron_right speed Dashboard chevron_right developer_guide Documentation arrow_outward search Search Ctrl / notifications What's new key Get API key settings Settings zstnbb@gmail.com menu_open Playground share compare_arrows add more_vert Explore Google models star Featured Test out our most advanced and newest models. chat_bubble Code and Chat Build chatbots, agents, and code with Gemini 3. image Image Generation Create and edit images with Nano Banana and Imagen. movie Video Generation Generate videos with Veo models, our state of the art video generation models. mic Speech and Music Explore our text to speech and music generation models. bolt Real-time Real-time voice and video with Gemini Live. Start building → key_off widgets Tools mic add_circle Run Ctrl keyboard_return Run settings code Get code reset_settings close Gemini 3 Flash Preview gemini-3-flash-preview Our most intelligent model built for speed, combining frontier intelligence with superior search and grounding. System instructions Optional tone and style instructions for the model No API Key Switch to a paid API key to unlock higher quota and more features. Temperature Thinking level High expand_more Tools Structured outputs Edit Code execution Function calling Edit Grounding with Google Search Grounding with Google Maps URL context expand_more Advanced settings",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "makersuite-layout ng-tns-c997340804-0",
+        "idx": 2,
+        "tag": "div",
+        "text": "expand_more chat_spark Playground chevron_right Code, Example, and Pong Requested Information Provided Code Snippet and Link Provided Python Code and Link Requested Code and Link View all history trending_flat design_services Build chevron_right speed Dashboard chevron_right developer_guide Documentation arrow_outward search Search Ctrl / notifications What's new key Get API key settings Settings zstnbb@gmail.com menu_open Playground share compare_arrows add more_vert Explore Google models star Featured Test out our most advanced and newest models. chat_bubble Code and Chat Build chatbots, agents, and code with Gemini 3. image Image Generation Create and edit images with Nano Banana and Imagen. movie Video Generation Generate videos with Veo models, our state of the art video generation models. mic Speech and Music Explore our text to speech and music generation models. bolt Real-time Real-time voice and video with Gemini Live. Start building → key_off widgets Tools mic add_circle Run Ctrl keyboard_return Run settings code Get code reset_settings close Gemini 3 Flash Preview gemini-3-flash-preview Our most intelligent model built for speed, combining frontier intelligence with superior search and grounding. System instructions Optional tone and style instructions for the model No API Key Switch to a paid API key to unlock higher quota and more features. Temperature Thinking level High expand_more Tools Structured outputs Edit Code execution Function calling Edit Grounding with Google Search Grounding with Google Maps URL context expand_more Advanced settings",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "layout-wrapper ng-tns-c997340804-0",
+        "idx": 57,
+        "tag": "div",
+        "text": "menu_open Playground share compare_arrows add more_vert Explore Google models star Featured Test out our most advanced and newest models. chat_bubble Code and Chat Build chatbots, agents, and code with Gemini 3. image Image Generation Create and edit images with Nano Banana and Imagen. movie Video Generation Generate videos with Veo models, our state of the art video generation models. mic Speech and Music Explore our text to speech and music generation models. bolt Real-time Real-time voice and video with Gemini Live. Start building → key_off widgets Tools mic add_circle Run Ctrl keyboard_return Run settings code Get code reset_settings close Gemini 3 Flash Preview gemini-3-flash-preview Our most intelligent model built for speed, combining frontier intelligence with superior search and grounding. System instructions Optional tone and style instructions for the model No API Key Switch to a paid API key to unlock higher quota and more features. Temperature Thinking level High expand_more Tools Structured outputs Edit Code execution Function calling Edit Grounding with Google Search Grounding with Google Maps URL context expand_more Advanced settings",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "layout-main ng-tns-c997340804-0",
+        "idx": 58,
+        "tag": "div",
+        "text": "menu_open Playground share compare_arrows add more_vert Explore Google models star Featured Test out our most advanced and newest models. chat_bubble Code and Chat Build chatbots, agents, and code with Gemini 3. image Image Generation Create and edit images with Nano Banana and Imagen. movie Video Generation Generate videos with Veo models, our state of the art video generation models. mic Speech and Music Explore our text to speech and music generation models. bolt Real-time Real-time voice and video with Gemini Live. Start building → key_off widgets Tools mic add_circle Run Ctrl keyboard_return Run settings code Get code reset_settings close Gemini 3 Flash Preview gemini-3-flash-preview Our most intelligent model built for speed, combining frontier intelligence with superior search and grounding. System instructions Optional tone and style instructions for the model No API Key Switch to a paid API key to unlock higher quota and more features. Temperature Thinking level High expand_more Tools Structured outputs Edit Code execution Function calling Edit Grounding with Google Search Grounding with Google Maps URL context expand_more Advanced settings",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "router-outlet-wrapper ng-tns-c997340804-0",
+        "idx": 59,
+        "tag": "span",
+        "text": "menu_open Playground share compare_arrows add more_vert Explore Google models star Featured Test out our most advanced and newest models. chat_bubble Code and Chat Build chatbots, agents, and code with Gemini 3. image Image Generation Create and edit images with Nano Banana and Imagen. movie Video Generation Generate videos with Veo models, our state of the art video generation models. mic Speech and Music Explore our text to speech and music generation models. bolt Real-time Real-time voice and video with Gemini Live. Start building → key_off widgets Tools mic add_circle Run Ctrl keyboard_return Run settings code Get code reset_settings close Gemini 3 Flash Preview gemini-3-flash-preview Our most intelligent model built for speed, combining frontier intelligence with superior search and grounding. System instructions Optional tone and style instructions for the model No API Key Switch to a paid API key to unlock higher quota and more features. Temperature Thinking level High expand_more Tools Structured outputs Edit Code execution Function calling Edit Grounding with Google Search Grounding with Google Maps URL context expand_more Advanced settings",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "toolbar-container ng-tns-c235590005-6",
+        "idx": 61,
+        "tag": "div",
+        "text": "menu_open Playground share compare_arrows add more_vert",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "toolbar-right ng-tns-c235590005-6",
+        "idx": 68,
+        "tag": "div",
+        "text": "share compare_arrows add more_vert",
+        "title": ""
+      },
+      {
+        "aria": "New chat",
+        "cls": "mat-mdc-tooltip-trigger ng-tns-c235590005-6 ng-trigger ng-trigger-slidingInOut ms-button-borderless ms-button-icon ng-st",
+        "idx": 73,
+        "tag": "button",
+        "text": "add",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "material-symbols-outlined notranslate ms-button-icon-symbol ng-tns-c235590005-6 ng-star-inserted",
+        "idx": 74,
+        "tag": "span",
+        "text": "add",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "chat-container",
+        "idx": 79,
+        "tag": "div",
+        "text": "Explore Google models star Featured Test out our most advanced and newest models. chat_bubble Code and Chat Build chatbots, agents, and code with Gemini 3. image Image Generation Create and edit images with Nano Banana and Imagen. movie Video Generation Generate videos with Veo models, our state of the art video generation models. mic Speech and Music Explore our text to speech and music generation models. bolt Real-time Real-time voice and video with Gemini Live. Start building →",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "chat-view-container zero-state ng-star-inserted",
+        "idx": 80,
+        "tag": "div",
+        "text": "Explore Google models star Featured Test out our most advanced and newest models. chat_bubble Code and Chat Build chatbots, agents, and code with Gemini 3. image Image Generation Create and edit images with Nano Banana and Imagen. movie Video Generation Generate videos with Veo models, our state of the art video generation models. mic Speech and Music Explore our text to speech and music generation models. bolt Real-time Real-time voice and video with Gemini Live. Start building →",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "main-content-container ng-tns-c705268308-9",
+        "idx": 81,
+        "tag": "div",
+        "text": "Explore Google models star Featured Test out our most advanced and newest models. chat_bubble Code and Chat Build chatbots, agents, and code with Gemini 3. image Image Generation Create and edit images with Nano Banana and Imagen. movie Video Generation Generate videos with Veo models, our state of the art video generation models. mic Speech and Music Explore our text to speech and music generation models. bolt Real-time Real-time voice and video with Gemini Live. Start building →",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "category-grid animate-in ng-star-inserted",
+        "idx": 82,
+        "tag": "div",
+        "text": "star Featured Test out our most advanced and newest models. chat_bubble Code and Chat Build chatbots, agents, and code with Gemini 3. image Image Generation Create and edit images with Nano Banana and Imagen. movie Video Generation Generate videos with Veo models, our state of the art video generation models. mic Speech and Music Explore our text to speech and music generation models. bolt Real-time Real-time voice and video with Gemini Live.",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "category-card ng-star-inserted",
+        "idx": 91,
+        "tag": "button",
+        "text": "image Image Generation Create and edit images with Nano Banana and Imagen.",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "card-header",
+        "idx": 92,
+        "tag": "div",
+        "text": "image Image Generation",
+        "title": ""
+      }
+    ],
+    "fileInputs": [],
+    "title": "Google AI Studio",
+    "url": "https://aistudio.google.com/prompts/new_chat"
+  },
+  "perplexity": {
+    "clickable": [],
+    "fileInputs": [
+      {
+        "accept": ".bash,.bat,.c,.coffee,.conf,.config,.cpp,.cs,.css,.csv,.cxx,.dart,.diff,.doc,.docx,.fish,.go,.h,.hpp,.htm,.html,.in,.ini,.ipynb,.java,.js,.json,.jsx,.ksh,.kt,.kts,.latex,.less,.log,.lua,.m,.markdown,.md,.pdf,.php,.pl,.pm,.pptx,.py,.r,.R,.rb,.rmd,.rs,.scala,.sh,.sql,.swift,.t,.tex,.text,.toml,.ts,.tsx,.txt,.xlsx,.xml,.yaml,.yml,.zsh,.jpeg,.jpg,.jpe,.jp2,.png,.gif,.bmp,.tiff,.tif,.svg,.webp,.ico,.avif,.heic,.heif,.mp3,.wav,.aiff,.ogg,.flac,.mp4,.mpeg,.mov,.avi,.flv,.mpg,.webm,.wmv,.3gp",
+        "aria": "",
+        "cls": "",
+        "hidden": true,
+        "idx": 0,
+        "multiple": true,
+        "title": ""
+      }
+    ],
+    "title": "Perplexity",
+    "url": "https://www.perplexity.ai/"
+  },
+  "poe": {
+    "clickable": [
+      {
+        "aria": "",
+        "cls": "",
+        "idx": 0,
+        "tag": "div",
+        "text": "1 Assistant GPT-4-Turbo Script-Bot-Creator 更多 新建群聊 探索 官方 脚本 搜索 图片 视频 音频 画布 简体中文 热门 精选 上新 文本分析 创意写作 实用 建议 互动游戏 学习 专业 爱好 趣味 编程 角色扮演 思维 翻译 AI Next 官方机器人 查看全部 Assistant Script-Bot-Creator Canvas-Creator Claude-Opus-4.6 Nano-Banana-2 GPT-5.4 Claude-Sonnet-4.6 GPT-5.4-Nano GPT-5.4-Mini Gemini-3.1-Pro Next 图像机器人 查看全部 Nano-Banana-Pro Nano-Banana Wan2.7-Image Nano-Banana-2 视频机器人 查看全部 Veo-3.1 Veo-3.1-Lite 上新 Wan-2.7 Sora-2-Pro 音频机器人 查看全部 ElevenLabs-Music Lyria-3 ElevenLabs-v3 MiniMax-Speech-2.8 Next 搜索机器人 查看全部 Web-Search o3-deep-research o4-mini-deep-research GPT-4o-Search GPT-4o-mini-Search Perplexity-Sonar-Pro Perplexity-Sonar-Rsn-Pro Gemini-2.5-Flash GPT-Researcher Reka-Research Next 在外部应用中使用积分 查看全部 Claude Code Coding agent Codex Coding agent OpenCode Coding agent Kilo Code Coding agent Roo Code Coding agent OpenClaw Agent platform Cline Coding agent LLM Command-line tool Next 提供商 OpenAI Anthropic Google fal Empirio Labs AI XAI ElevenLabs Together AI Fireworks AI Bytedance Novita AI RunwayML Mistral CerebrasAI Next 脚本机器人 查看全部 ArtByGorpAI 491 PoePulse 552 FaviconFinder 265 PDF-To-Excel-AI 775 Business-Logo-Bot 2505 DreamKey 742 Big-Brain-Teacher 1708 Podify 1551 SheetGenie-AI 1038 Quizly 775 Next 画布 查看全部 HairFlip 2076 Chibify 2425 Play_chess_vs_GM_Tal 93 EpicBreakoutRPG 64 CellEater 61 Mastermind_Game 64 MakeItMore 55 PourChallenge 156 Farm-Road 207 Flappy_Plane_Game 132 Next 简体中文机器人 查看全部 trans-363 114 Bazi-Suanming-Bot 170 momozi2-gemini 120 Thesis_Rev250730 7 AstrologyDice 7 C-Bean-bag 296 Gat_WordETL 2 China_Pink 17 6Xforetell 26 gwjg7701-flgw 1 Next 热门机器人 查看全部 HumanWriter10.0 5173 ChatGPT-Essay-Writer 5152 Miss-Tarot 1161 BibleTeacher-bot 1270 Personal-ReWriter 382 USEnglish 1239 PsychologicalExpert 1389 So_Unfiltered_AI 1402 Iudia 1793 Creative_WritingS 1082 Next 特色机器人 查看全部 RealVisXL 508 ReversePrompter 52 MoreWatercollar 21 EmojiArtistAI 140 ResumeReview 108 chibi_artist84 63 90sWebPage 43 LOL_BUILDER_AI 58 ExcelFormulaPro_V2 56 pixel-artist-bot 76 Next",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "DesktopAppNavbarWrapper_container__p2jdD",
+        "idx": 1,
+        "tag": "div",
+        "text": "1 Assistant GPT-4-Turbo Script-Bot-Creator 更多 新建群聊 探索 官方 脚本 搜索 图片 视频 音频 画布 简体中文 热门 精选 上新 文本分析 创意写作 实用 建议 互动游戏 学习 专业 爱好 趣味 编程 角色扮演 思维 翻译 AI Next 官方机器人 查看全部 Assistant Script-Bot-Creator Canvas-Creator Claude-Opus-4.6 Nano-Banana-2 GPT-5.4 Claude-Sonnet-4.6 GPT-5.4-Nano GPT-5.4-Mini Gemini-3.1-Pro Next 图像机器人 查看全部 Nano-Banana-Pro Nano-Banana Wan2.7-Image Nano-Banana-2 视频机器人 查看全部 Veo-3.1 Veo-3.1-Lite 上新 Wan-2.7 Sora-2-Pro 音频机器人 查看全部 ElevenLabs-Music Lyria-3 ElevenLabs-v3 MiniMax-Speech-2.8 Next 搜索机器人 查看全部 Web-Search o3-deep-research o4-mini-deep-research GPT-4o-Search GPT-4o-mini-Search Perplexity-Sonar-Pro Perplexity-Sonar-Rsn-Pro Gemini-2.5-Flash GPT-Researcher Reka-Research Next 在外部应用中使用积分 查看全部 Claude Code Coding agent Codex Coding agent OpenCode Coding agent Kilo Code Coding agent Roo Code Coding agent OpenClaw Agent platform Cline Coding agent LLM Command-line tool Next 提供商 OpenAI Anthropic Google fal Empirio Labs AI XAI ElevenLabs Together AI Fireworks AI Bytedance Novita AI RunwayML Mistral CerebrasAI Next 脚本机器人 查看全部 ArtByGorpAI 491 PoePulse 552 FaviconFinder 265 PDF-To-Excel-AI 775 Business-Logo-Bot 2505 DreamKey 742 Big-Brain-Teacher 1708 Podify 1551 SheetGenie-AI 1038 Quizly 775 Next 画布 查看全部 HairFlip 2076 Chibify 2425 Play_chess_vs_GM_Tal 93 EpicBreakoutRPG 64 CellEater 61 Mastermind_Game 64 MakeItMore 55 PourChallenge 156 Farm-Road 207 Flappy_Plane_Game 132 Next 简体中文机器人 查看全部 trans-363 114 Bazi-Suanming-Bot 170 momozi2-gemini 120 Thesis_Rev250730 7 AstrologyDice 7 C-Bean-bag 296 Gat_WordETL 2 China_Pink 17 6Xforetell 26 gwjg7701-flgw 1 Next 热门机器人 查看全部 HumanWriter10.0 5173 ChatGPT-Essay-Writer 5152 Miss-Tarot 1161 BibleTeacher-bot 1270 Personal-ReWriter 382 USEnglish 1239 PsychologicalExpert 1389 So_Unfiltered_AI 1402 Iudia 1793 Creative_WritingS 1082 Next 特色机器人 查看全部 RealVisXL 508 ReversePrompter 52 MoreWatercollar 21 EmojiArtistAI 140 ResumeReview 108 chibi_artist84 63 90sWebPage 43 LOL_BUILDER_AI 58 ExcelFormulaPro_V2 56 pixel-artist-bot 76 Next",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "AnnouncementWrapper_container__Z51yh",
+        "idx": 2,
+        "tag": "div",
+        "text": "1 Assistant GPT-4-Turbo Script-Bot-Creator 更多 新建群聊 探索 官方 脚本 搜索 图片 视频 音频 画布 简体中文 热门 精选 上新 文本分析 创意写作 实用 建议 互动游戏 学习 专业 爱好 趣味 编程 角色扮演 思维 翻译 AI Next 官方机器人 查看全部 Assistant Script-Bot-Creator Canvas-Creator Claude-Opus-4.6 Nano-Banana-2 GPT-5.4 Claude-Sonnet-4.6 GPT-5.4-Nano GPT-5.4-Mini Gemini-3.1-Pro Next 图像机器人 查看全部 Nano-Banana-Pro Nano-Banana Wan2.7-Image Nano-Banana-2 视频机器人 查看全部 Veo-3.1 Veo-3.1-Lite 上新 Wan-2.7 Sora-2-Pro 音频机器人 查看全部 ElevenLabs-Music Lyria-3 ElevenLabs-v3 MiniMax-Speech-2.8 Next 搜索机器人 查看全部 Web-Search o3-deep-research o4-mini-deep-research GPT-4o-Search GPT-4o-mini-Search Perplexity-Sonar-Pro Perplexity-Sonar-Rsn-Pro Gemini-2.5-Flash GPT-Researcher Reka-Research Next 在外部应用中使用积分 查看全部 Claude Code Coding agent Codex Coding agent OpenCode Coding agent Kilo Code Coding agent Roo Code Coding agent OpenClaw Agent platform Cline Coding agent LLM Command-line tool Next 提供商 OpenAI Anthropic Google fal Empirio Labs AI XAI ElevenLabs Together AI Fireworks AI Bytedance Novita AI RunwayML Mistral CerebrasAI Next 脚本机器人 查看全部 ArtByGorpAI 491 PoePulse 552 FaviconFinder 265 PDF-To-Excel-AI 775 Business-Logo-Bot 2505 DreamKey 742 Big-Brain-Teacher 1708 Podify 1551 SheetGenie-AI 1038 Quizly 775 Next 画布 查看全部 HairFlip 2076 Chibify 2425 Play_chess_vs_GM_Tal 93 EpicBreakoutRPG 64 CellEater 61 Mastermind_Game 64 MakeItMore 55 PourChallenge 156 Farm-Road 207 Flappy_Plane_Game 132 Next 简体中文机器人 查看全部 trans-363 114 Bazi-Suanming-Bot 170 momozi2-gemini 120 Thesis_Rev250730 7 AstrologyDice 7 C-Bean-bag 296 Gat_WordETL 2 China_Pink 17 6Xforetell 26 gwjg7701-flgw 1 Next 热门机器人 查看全部 HumanWriter10.0 5173 ChatGPT-Essay-Writer 5152 Miss-Tarot 1161 BibleTeacher-bot 1270 Personal-ReWriter 382 USEnglish 1239 PsychologicalExpert 1389 So_Unfiltered_AI 1402 Iudia 1793 Creative_WritingS 1082 Next 特色机器人 查看全部 RealVisXL 508 ReversePrompter 52 MoreWatercollar 21 EmojiArtistAI 140 ResumeReview 108 chibi_artist84 63 90sWebPage 43 LOL_BUILDER_AI 58 ExcelFormulaPro_V2 56 pixel-artist-bot 76 Next",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "SidebarLayout_layoutWrapper__mPYi4 SidebarLayout_layoutWrapperOverflow__0hyZ4",
+        "idx": 3,
+        "tag": "div",
+        "text": "1 Assistant GPT-4-Turbo Script-Bot-Creator 更多 新建群聊 探索 官方 脚本 搜索 图片 视频 音频 画布 简体中文 热门 精选 上新 文本分析 创意写作 实用 建议 互动游戏 学习 专业 爱好 趣味 编程 角色扮演 思维 翻译 AI Next 官方机器人 查看全部 Assistant Script-Bot-Creator Canvas-Creator Claude-Opus-4.6 Nano-Banana-2 GPT-5.4 Claude-Sonnet-4.6 GPT-5.4-Nano GPT-5.4-Mini Gemini-3.1-Pro Next 图像机器人 查看全部 Nano-Banana-Pro Nano-Banana Wan2.7-Image Nano-Banana-2 视频机器人 查看全部 Veo-3.1 Veo-3.1-Lite 上新 Wan-2.7 Sora-2-Pro 音频机器人 查看全部 ElevenLabs-Music Lyria-3 ElevenLabs-v3 MiniMax-Speech-2.8 Next 搜索机器人 查看全部 Web-Search o3-deep-research o4-mini-deep-research GPT-4o-Search GPT-4o-mini-Search Perplexity-Sonar-Pro Perplexity-Sonar-Rsn-Pro Gemini-2.5-Flash GPT-Researcher Reka-Research Next 在外部应用中使用积分 查看全部 Claude Code Coding agent Codex Coding agent OpenCode Coding agent Kilo Code Coding agent Roo Code Coding agent OpenClaw Agent platform Cline Coding agent LLM Command-line tool Next 提供商 OpenAI Anthropic Google fal Empirio Labs AI XAI ElevenLabs Together AI Fireworks AI Bytedance Novita AI RunwayML Mistral CerebrasAI Next 脚本机器人 查看全部 ArtByGorpAI 491 PoePulse 552 FaviconFinder 265 PDF-To-Excel-AI 775 Business-Logo-Bot 2505 DreamKey 742 Big-Brain-Teacher 1708 Podify 1551 SheetGenie-AI 1038 Quizly 775 Next 画布 查看全部 HairFlip 2076 Chibify 2425 Play_chess_vs_GM_Tal 93 EpicBreakoutRPG 64 CellEater 61 Mastermind_Game 64 MakeItMore 55 PourChallenge 156 Farm-Road 207 Flappy_Plane_Game 132 Next 简体中文机器人 查看全部 trans-363 114 Bazi-Suanming-Bot 170 momozi2-gemini 120 Thesis_Rev250730 7 AstrologyDice 7 C-Bean-bag 296 Gat_WordETL 2 China_Pink 17 6Xforetell 26 gwjg7701-flgw 1 Next 热门机器人 查看全部 HumanWriter10.0 5173 ChatGPT-Essay-Writer 5152 Miss-Tarot 1161 BibleTeacher-bot 1270 Personal-ReWriter 382 USEnglish 1239 PsychologicalExpert 1389 So_Unfiltered_AI 1402 Iudia 1793 Creative_WritingS 1082 Next 特色机器人 查看全部 RealVisXL 508 ReversePrompter 52 MoreWatercollar 21 EmojiArtistAI 140 ResumeReview 108 chibi_artist84 63 90sWebPage 43 LOL_BUILDER_AI 58 ExcelFormulaPro_V2 56 pixel-artist-bot 76 Next",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "SidebarLayout_wrapper__LeEqV",
+        "idx": 151,
+        "tag": "div",
+        "text": "Assistant GPT-4-Turbo Script-Bot-Creator 更多 新建群聊 探索 官方 脚本 搜索 图片 视频 音频 画布 简体中文 热门 精选 上新 文本分析 创意写作 实用 建议 互动游戏 学习 专业 爱好 趣味 编程 角色扮演 思维 翻译 AI Next 官方机器人 查看全部 Assistant Script-Bot-Creator Canvas-Creator Claude-Opus-4.6 Nano-Banana-2 GPT-5.4 Claude-Sonnet-4.6 GPT-5.4-Nano GPT-5.4-Mini Gemini-3.1-Pro Next 图像机器人 查看全部 Nano-Banana-Pro Nano-Banana Wan2.7-Image Nano-Banana-2 视频机器人 查看全部 Veo-3.1 Veo-3.1-Lite 上新 Wan-2.7 Sora-2-Pro 音频机器人 查看全部 ElevenLabs-Music Lyria-3 ElevenLabs-v3 MiniMax-Speech-2.8 Next 搜索机器人 查看全部 Web-Search o3-deep-research o4-mini-deep-research GPT-4o-Search GPT-4o-mini-Search Perplexity-Sonar-Pro Perplexity-Sonar-Rsn-Pro Gemini-2.5-Flash GPT-Researcher Reka-Research Next 在外部应用中使用积分 查看全部 Claude Code Coding agent Codex Coding agent OpenCode Coding agent Kilo Code Coding agent Roo Code Coding agent OpenClaw Agent platform Cline Coding agent LLM Command-line tool Next 提供商 OpenAI Anthropic Google fal Empirio Labs AI XAI ElevenLabs Together AI Fireworks AI Bytedance Novita AI RunwayML Mistral CerebrasAI Next 脚本机器人 查看全部 ArtByGorpAI 491 PoePulse 552 FaviconFinder 265 PDF-To-Excel-AI 775 Business-Logo-Bot 2505 DreamKey 742 Big-Brain-Teacher 1708 Podify 1551 SheetGenie-AI 1038 Quizly 775 Next 画布 查看全部 HairFlip 2076 Chibify 2425 Play_chess_vs_GM_Tal 93 EpicBreakoutRPG 64 CellEater 61 Mastermind_Game 64 MakeItMore 55 PourChallenge 156 Farm-Road 207 Flappy_Plane_Game 132 Next 简体中文机器人 查看全部 trans-363 114 Bazi-Suanming-Bot 170 momozi2-gemini 120 Thesis_Rev250730 7 AstrologyDice 7 C-Bean-bag 296 Gat_WordETL 2 China_Pink 17 6Xforetell 26 gwjg7701-flgw 1 Next 热门机器人 查看全部 HumanWriter10.0 5173 ChatGPT-Essay-Writer 5152 Miss-Tarot 1161 BibleTeacher-bot 1270 Personal-ReWriter 382 USEnglish 1239 PsychologicalExpert 1389 So_Unfiltered_AI 1402 Iudia 1793 Creative_WritingS 1082 Next 特色机器人 查看全部 RealVisXL 508 ReversePrompter 52 MoreWatercollar 21 EmojiArtistAI 140 ResumeReview 108 chibi_artist84 63 90sWebPage 43 LOL_BUILDER_AI 58 ExcelFormulaPro_V2 56 pixel-artist-bot 76 Next",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "MainColumn_scrollSection__A9NHB MainColumn_scrollSectionOverflow__FbPqw",
+        "idx": 160,
+        "tag": "div",
+        "text": "Assistant GPT-4-Turbo Script-Bot-Creator 更多 新建群聊 探索 官方 脚本 搜索 图片 视频 音频 画布 简体中文 热门 精选 上新 文本分析 创意写作 实用 建议 互动游戏 学习 专业 爱好 趣味 编程 角色扮演 思维 翻译 AI Next 官方机器人 查看全部 Assistant Script-Bot-Creator Canvas-Creator Claude-Opus-4.6 Nano-Banana-2 GPT-5.4 Claude-Sonnet-4.6 GPT-5.4-Nano GPT-5.4-Mini Gemini-3.1-Pro Next 图像机器人 查看全部 Nano-Banana-Pro Nano-Banana Wan2.7-Image Nano-Banana-2 视频机器人 查看全部 Veo-3.1 Veo-3.1-Lite 上新 Wan-2.7 Sora-2-Pro 音频机器人 查看全部 ElevenLabs-Music Lyria-3 ElevenLabs-v3 MiniMax-Speech-2.8 Next 搜索机器人 查看全部 Web-Search o3-deep-research o4-mini-deep-research GPT-4o-Search GPT-4o-mini-Search Perplexity-Sonar-Pro Perplexity-Sonar-Rsn-Pro Gemini-2.5-Flash GPT-Researcher Reka-Research Next 在外部应用中使用积分 查看全部 Claude Code Coding agent Codex Coding agent OpenCode Coding agent Kilo Code Coding agent Roo Code Coding agent OpenClaw Agent platform Cline Coding agent LLM Command-line tool Next 提供商 OpenAI Anthropic Google fal Empirio Labs AI XAI ElevenLabs Together AI Fireworks AI Bytedance Novita AI RunwayML Mistral CerebrasAI Next 脚本机器人 查看全部 ArtByGorpAI 491 PoePulse 552 FaviconFinder 265 PDF-To-Excel-AI 775 Business-Logo-Bot 2505 DreamKey 742 Big-Brain-Teacher 1708 Podify 1551 SheetGenie-AI 1038 Quizly 775 Next 画布 查看全部 HairFlip 2076 Chibify 2425 Play_chess_vs_GM_Tal 93 EpicBreakoutRPG 64 CellEater 61 Mastermind_Game 64 MakeItMore 55 PourChallenge 156 Farm-Road 207 Flappy_Plane_Game 132 Next 简体中文机器人 查看全部 trans-363 114 Bazi-Suanming-Bot 170 momozi2-gemini 120 Thesis_Rev250730 7 AstrologyDice 7 C-Bean-bag 296 Gat_WordETL 2 China_Pink 17 6Xforetell 26 gwjg7701-flgw 1 Next 热门机器人 查看全部 HumanWriter10.0 5173 ChatGPT-Essay-Writer 5152 Miss-Tarot 1161 BibleTeacher-bot 1270 Personal-ReWriter 382 USEnglish 1239 PsychologicalExpert 1389 So_Unfiltered_AI 1402 Iudia 1793 Creative_WritingS 1082 Next 特色机器人 查看全部 RealVisXL 508 ReversePrompter 52 MoreWatercollar 21 EmojiArtistAI 140 ResumeReview 108 chibi_artist84 63 90sWebPage 43 LOL_BUILDER_AI 58 ExcelFormulaPro_V2 56 pixel-artist-bot 76 Next",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "MainColumn_column__UEunw MainColumn_noMaxWidth__8pWAi",
+        "idx": 161,
+        "tag": "div",
+        "text": "Assistant GPT-4-Turbo Script-Bot-Creator 更多 新建群聊 探索 官方 脚本 搜索 图片 视频 音频 画布 简体中文 热门 精选 上新 文本分析 创意写作 实用 建议 互动游戏 学习 专业 爱好 趣味 编程 角色扮演 思维 翻译 AI Next 官方机器人 查看全部 Assistant Script-Bot-Creator Canvas-Creator Claude-Opus-4.6 Nano-Banana-2 GPT-5.4 Claude-Sonnet-4.6 GPT-5.4-Nano GPT-5.4-Mini Gemini-3.1-Pro Next 图像机器人 查看全部 Nano-Banana-Pro Nano-Banana Wan2.7-Image Nano-Banana-2 视频机器人 查看全部 Veo-3.1 Veo-3.1-Lite 上新 Wan-2.7 Sora-2-Pro 音频机器人 查看全部 ElevenLabs-Music Lyria-3 ElevenLabs-v3 MiniMax-Speech-2.8 Next 搜索机器人 查看全部 Web-Search o3-deep-research o4-mini-deep-research GPT-4o-Search GPT-4o-mini-Search Perplexity-Sonar-Pro Perplexity-Sonar-Rsn-Pro Gemini-2.5-Flash GPT-Researcher Reka-Research Next 在外部应用中使用积分 查看全部 Claude Code Coding agent Codex Coding agent OpenCode Coding agent Kilo Code Coding agent Roo Code Coding agent OpenClaw Agent platform Cline Coding agent LLM Command-line tool Next 提供商 OpenAI Anthropic Google fal Empirio Labs AI XAI ElevenLabs Together AI Fireworks AI Bytedance Novita AI RunwayML Mistral CerebrasAI Next 脚本机器人 查看全部 ArtByGorpAI 491 PoePulse 552 FaviconFinder 265 PDF-To-Excel-AI 775 Business-Logo-Bot 2505 DreamKey 742 Big-Brain-Teacher 1708 Podify 1551 SheetGenie-AI 1038 Quizly 775 Next 画布 查看全部 HairFlip 2076 Chibify 2425 Play_chess_vs_GM_Tal 93 EpicBreakoutRPG 64 CellEater 61 Mastermind_Game 64 MakeItMore 55 PourChallenge 156 Farm-Road 207 Flappy_Plane_Game 132 Next 简体中文机器人 查看全部 trans-363 114 Bazi-Suanming-Bot 170 momozi2-gemini 120 Thesis_Rev250730 7 AstrologyDice 7 C-Bean-bag 296 Gat_WordETL 2 China_Pink 17 6Xforetell 26 gwjg7701-flgw 1 Next 热门机器人 查看全部 HumanWriter10.0 5173 ChatGPT-Essay-Writer 5152 Miss-Tarot 1161 BibleTeacher-bot 1270 Personal-ReWriter 382 USEnglish 1239 PsychologicalExpert 1389 So_Unfiltered_AI 1402 Iudia 1793 Creative_WritingS 1082 Next 特色机器人 查看全部 RealVisXL 508 ReversePrompter 52 MoreWatercollar 21 EmojiArtistAI 140 ResumeReview 108 chibi_artist84 63 90sWebPage 43 LOL_BUILDER_AI 58 ExcelFormulaPro_V2 56 pixel-artist-bot 76 Next",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "ChatHomeMain_exploreBotsCarousel__wddju ChatHomeMain_centeredWide__Bt1jJ",
+        "idx": 201,
+        "tag": "div",
+        "text": "官方 脚本 搜索 图片 视频 音频 画布 简体中文 热门 精选 上新 文本分析 创意写作 实用 建议 互动游戏 学习 专业 爱好 趣味 编程 角色扮演 思维 翻译 AI Next 官方机器人 查看全部 Assistant Script-Bot-Creator Canvas-Creator Claude-Opus-4.6 Nano-Banana-2 GPT-5.4 Claude-Sonnet-4.6 GPT-5.4-Nano GPT-5.4-Mini Gemini-3.1-Pro Next 图像机器人 查看全部 Nano-Banana-Pro Nano-Banana Wan2.7-Image Nano-Banana-2 视频机器人 查看全部 Veo-3.1 Veo-3.1-Lite 上新 Wan-2.7 Sora-2-Pro 音频机器人 查看全部 ElevenLabs-Music Lyria-3 ElevenLabs-v3 MiniMax-Speech-2.8 Next 搜索机器人 查看全部 Web-Search o3-deep-research o4-mini-deep-research GPT-4o-Search GPT-4o-mini-Search Perplexity-Sonar-Pro Perplexity-Sonar-Rsn-Pro Gemini-2.5-Flash GPT-Researcher Reka-Research Next 在外部应用中使用积分 查看全部 Claude Code Coding agent Codex Coding agent OpenCode Coding agent Kilo Code Coding agent Roo Code Coding agent OpenClaw Agent platform Cline Coding agent LLM Command-line tool Next 提供商 OpenAI Anthropic Google fal Empirio Labs AI XAI ElevenLabs Together AI Fireworks AI Bytedance Novita AI RunwayML Mistral CerebrasAI Next 脚本机器人 查看全部 ArtByGorpAI 491 PoePulse 552 FaviconFinder 265 PDF-To-Excel-AI 775 Business-Logo-Bot 2505 DreamKey 742 Big-Brain-Teacher 1708 Podify 1551 SheetGenie-AI 1038 Quizly 775 Next 画布 查看全部 HairFlip 2076 Chibify 2425 Play_chess_vs_GM_Tal 93 EpicBreakoutRPG 64 CellEater 61 Mastermind_Game 64 MakeItMore 55 PourChallenge 156 Farm-Road 207 Flappy_Plane_Game 132 Next 简体中文机器人 查看全部 trans-363 114 Bazi-Suanming-Bot 170 momozi2-gemini 120 Thesis_Rev250730 7 AstrologyDice 7 C-Bean-bag 296 Gat_WordETL 2 China_Pink 17 6Xforetell 26 gwjg7701-flgw 1 Next 热门机器人 查看全部 HumanWriter10.0 5173 ChatGPT-Essay-Writer 5152 Miss-Tarot 1161 BibleTeacher-bot 1270 Personal-ReWriter 382 USEnglish 1239 PsychologicalExpert 1389 So_Unfiltered_AI 1402 Iudia 1793 Creative_WritingS 1082 Next 特色机器人 查看全部 RealVisXL 508 ReversePrompter 52 MoreWatercollar 21 EmojiArtistAI 140 ResumeReview 108 chibi_artist84 63 90sWebPage 43 LOL_BUILDER_AI 58 ExcelFormulaPro_V2 56 pixel-artist-bot 76 Next",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "InfiniteScroll_container__PHsd4",
+        "idx": 236,
+        "tag": "div",
+        "text": "官方机器人 查看全部 Assistant Script-Bot-Creator Canvas-Creator Claude-Opus-4.6 Nano-Banana-2 GPT-5.4 Claude-Sonnet-4.6 GPT-5.4-Nano GPT-5.4-Mini Gemini-3.1-Pro Next 图像机器人 查看全部 Nano-Banana-Pro Nano-Banana Wan2.7-Image Nano-Banana-2 视频机器人 查看全部 Veo-3.1 Veo-3.1-Lite 上新 Wan-2.7 Sora-2-Pro 音频机器人 查看全部 ElevenLabs-Music Lyria-3 ElevenLabs-v3 MiniMax-Speech-2.8 Next 搜索机器人 查看全部 Web-Search o3-deep-research o4-mini-deep-research GPT-4o-Search GPT-4o-mini-Search Perplexity-Sonar-Pro Perplexity-Sonar-Rsn-Pro Gemini-2.5-Flash GPT-Researcher Reka-Research Next 在外部应用中使用积分 查看全部 Claude Code Coding agent Codex Coding agent OpenCode Coding agent Kilo Code Coding agent Roo Code Coding agent OpenClaw Agent platform Cline Coding agent LLM Command-line tool Next 提供商 OpenAI Anthropic Google fal Empirio Labs AI XAI ElevenLabs Together AI Fireworks AI Bytedance Novita AI RunwayML Mistral CerebrasAI Next 脚本机器人 查看全部 ArtByGorpAI 491 PoePulse 552 FaviconFinder 265 PDF-To-Excel-AI 775 Business-Logo-Bot 2505 DreamKey 742 Big-Brain-Teacher 1708 Podify 1551 SheetGenie-AI 1038 Quizly 775 Next 画布 查看全部 HairFlip 2076 Chibify 2425 Play_chess_vs_GM_Tal 93 EpicBreakoutRPG 64 CellEater 61 Mastermind_Game 64 MakeItMore 55 PourChallenge 156 Farm-Road 207 Flappy_Plane_Game 132 Next 简体中文机器人 查看全部 trans-363 114 Bazi-Suanming-Bot 170 momozi2-gemini 120 Thesis_Rev250730 7 AstrologyDice 7 C-Bean-bag 296 Gat_WordETL 2 China_Pink 17 6Xforetell 26 gwjg7701-flgw 1 Next 热门机器人 查看全部 HumanWriter10.0 5173 ChatGPT-Essay-Writer 5152 Miss-Tarot 1161 BibleTeacher-bot 1270 Personal-ReWriter 382 USEnglish 1239 PsychologicalExpert 1389 So_Unfiltered_AI 1402 Iudia 1793 Creative_WritingS 1082 Next 特色机器人 查看全部 RealVisXL 508 ReversePrompter 52 MoreWatercollar 21 EmojiArtistAI 140 ResumeReview 108 chibi_artist84 63 90sWebPage 43 LOL_BUILDER_AI 58 ExcelFormulaPro_V2 56 pixel-artist-bot 76 Next",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "HorizontalPager_horizontalPagerContainer__HrSRx HomePageTruncatedSwimlanes_scrollableRow__RajnQ",
+        "idx": 309,
+        "tag": "div",
+        "text": "图像机器人 查看全部 Nano-Banana-Pro Nano-Banana Wan2.7-Image Nano-Banana-2 视频机器人 查看全部 Veo-3.1 Veo-3.1-Lite 上新 Wan-2.7 Sora-2-Pro 音频机器人 查看全部 ElevenLabs-Music Lyria-3 ElevenLabs-v3 MiniMax-Speech-2.8 Next",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "HorizontalPager_horizontalPageWrapper__wAsH9 HorizontalPager_hideScrollBar__5OuLu",
+        "idx": 310,
+        "tag": "div",
+        "text": "图像机器人 查看全部 Nano-Banana-Pro Nano-Banana Wan2.7-Image Nano-Banana-2 视频机器人 查看全部 Veo-3.1 Veo-3.1-Lite 上新 Wan-2.7 Sora-2-Pro 音频机器人 查看全部 ElevenLabs-Music Lyria-3 ElevenLabs-v3 MiniMax-Speech-2.8",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "HomePageTruncatedSwimlanes_cardRow__PRmXb",
+        "idx": 312,
+        "tag": "div",
+        "text": "图像机器人 查看全部 Nano-Banana-Pro Nano-Banana Wan2.7-Image Nano-Banana-2 视频机器人 查看全部 Veo-3.1 Veo-3.1-Lite 上新 Wan-2.7 Sora-2-Pro 音频机器人 查看全部 ElevenLabs-Music Lyria-3 ElevenLabs-v3 MiniMax-Speech-2.8",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "HomePageTruncatedSwimlaneCard_cardContainer__UgQz3",
+        "idx": 313,
+        "tag": "div",
+        "text": "图像机器人 查看全部 Nano-Banana-Pro Nano-Banana Wan2.7-Image Nano-Banana-2",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "HomePageTruncatedSwimlaneCard_botGrid__OXYZI",
+        "idx": 317,
+        "tag": "div",
+        "text": "Nano-Banana-Pro Nano-Banana Wan2.7-Image Nano-Banana-2",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "ExploreBotsCarouselCompactItem_redesignSectionContainer__x_iWf cursor-pointer",
+        "idx": 330,
+        "tag": "div",
+        "text": "Wan2.7-Image",
+        "title": ""
+      }
+    ],
+    "fileInputs": [
+      {
+        "accept": "",
+        "aria": "",
+        "cls": "ChatMessageFileInputButton_input__svNx4",
+        "hidden": true,
+        "idx": 0,
+        "multiple": true,
+        "title": ""
+      }
+    ],
+    "title": "(1) Poe",
+    "url": "https://poe.com/"
+  },
+  "grok": {
+    "clickable": [
+      {
+        "aria": "",
+        "cls": "group/sidebar-wrapper flex flex-col h-svh w-full has-[[data-variant=inset]]:bg-sidebar isolate",
+        "idx": 1,
+        "tag": "div",
+        "text": "切换侧边栏 搜索 Ctrl+K 新建聊天 Ctrl+J 语音 Imagine 项目 新项目 历史记录 今天 PONG Reply Instruction Echo with Pong and Link Pong response with code and link Ping Pong Exchange Ping Pong Exchange 昨天 Ping Pong Exchange Ping-Pong Exchange PONG Reply Challenge PONG Reply Ping Pong Exchange Ping Pong Exchange Ping Pong Exchange Ping Pong Reply 更早的 Character in Skin-Tight Leotard Image AI in Interdisciplinary Knowledge Integration AI连接跨领域知识的方法与应用 虚幻引擎蓝图物品栏系统实现 Good Morning China Greeting 夜班工作健康风险及其缓解方法 技术进步的“双刃剑效应” 查看全部 Imagine 私密模式 Auto 新建 · 按住 Ctrl+D 进行听写 X 关联你的 𝕏 账户 解锁早期功能和个性化内容。 连接 解锁扩展能力 免费试用 升级到 SuperGrok",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "flex flex-1 min-h-0 relative",
+        "idx": 2,
+        "tag": "div",
+        "text": "切换侧边栏 搜索 Ctrl+K 新建聊天 Ctrl+J 语音 Imagine 项目 新项目 历史记录 今天 PONG Reply Instruction Echo with Pong and Link Pong response with code and link Ping Pong Exchange Ping Pong Exchange 昨天 Ping Pong Exchange Ping-Pong Exchange PONG Reply Challenge PONG Reply Ping Pong Exchange Ping Pong Exchange Ping Pong Exchange Ping Pong Reply 更早的 Character in Skin-Tight Leotard Image AI in Interdisciplinary Knowledge Integration AI连接跨领域知识的方法与应用 虚幻引擎蓝图物品栏系统实现 Good Morning China Greeting 夜班工作健康风险及其缓解方法 技术进步的“双刃剑效应” 查看全部 Imagine 私密模式 Auto 新建 · 按住 Ctrl+D 进行听写 X 关联你的 𝕏 账户 解锁早期功能和个性化内容。 连接 解锁扩展能力 免费试用 升级到 SuperGrok",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "group peer md:block text-sidebar-foreground z-[40] print:hidden",
+        "idx": 3,
+        "tag": "div",
+        "text": "切换侧边栏 搜索 Ctrl+K 新建聊天 Ctrl+J 语音 Imagine 项目 新项目 历史记录 今天 PONG Reply Instruction Echo with Pong and Link Pong response with code and link Ping Pong Exchange Ping Pong Exchange 昨天 Ping Pong Exchange Ping-Pong Exchange PONG Reply Challenge PONG Reply Ping Pong Exchange Ping Pong Exchange Ping Pong Exchange Ping Pong Reply 更早的 Character in Skin-Tight Leotard Image AI in Interdisciplinary Knowledge Integration AI连接跨领域知识的方法与应用 虚幻引擎蓝图物品栏系统实现 Good Morning China Greeting 夜班工作健康风险及其缓解方法 技术进步的“双刃剑效应” 查看全部",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "inset-y-0 h-full box-content md:flex overflow-hidden relative transition-[left,right,width] duration-200 ease-out w-[--s",
+        "idx": 4,
+        "tag": "div",
+        "text": "切换侧边栏 搜索 Ctrl+K 新建聊天 Ctrl+J 语音 Imagine 项目 新项目 历史记录 今天 PONG Reply Instruction Echo with Pong and Link Pong response with code and link Ping Pong Exchange Ping Pong Exchange 昨天 Ping Pong Exchange Ping-Pong Exchange PONG Reply Challenge PONG Reply Ping Pong Exchange Ping Pong Exchange Ping Pong Exchange Ping Pong Reply 更早的 Character in Skin-Tight Leotard Image AI in Interdisciplinary Knowledge Integration AI连接跨领域知识的方法与应用 虚幻引擎蓝图物品栏系统实现 Good Morning China Greeting 夜班工作健康风险及其缓解方法 技术进步的“双刃剑效应” 查看全部",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "flex h-full w-full flex-col bg-surface-base group-data-[variant=floating]:rounded-xl",
+        "idx": 5,
+        "tag": "div",
+        "text": "切换侧边栏 搜索 Ctrl+K 新建聊天 Ctrl+J 语音 Imagine 项目 新项目 历史记录 今天 PONG Reply Instruction Echo with Pong and Link Pong response with code and link Ping Pong Exchange Ping Pong Exchange 昨天 Ping Pong Exchange Ping-Pong Exchange PONG Reply Challenge PONG Reply Ping Pong Exchange Ping Pong Exchange Ping Pong Exchange Ping Pong Reply 更早的 Character in Skin-Tight Leotard Image AI in Interdisciplinary Knowledge Integration AI连接跨领域知识的方法与应用 虚幻引擎蓝图物品栏系统实现 Good Morning China Greeting 夜班工作健康风险及其缓解方法 技术进步的“双刃剑效应” 查看全部",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "flex min-h-0 flex-col overflow-auto grow group-data-[collapsible=icon]:overflow-hidden relative overflow-y-auto overflow",
+        "idx": 39,
+        "tag": "div",
+        "text": "项目 新项目 历史记录 今天 PONG Reply Instruction Echo with Pong and Link Pong response with code and link Ping Pong Exchange Ping Pong Exchange 昨天 Ping Pong Exchange Ping-Pong Exchange PONG Reply Challenge PONG Reply Ping Pong Exchange Ping Pong Exchange Ping Pong Exchange Ping Pong Reply 更早的 Character in Skin-Tight Leotard Image AI in Interdisciplinary Knowledge Integration AI连接跨领域知识的方法与应用 虚幻引擎蓝图物品栏系统实现 Good Morning China Greeting 夜班工作健康风险及其缓解方法 技术进步的“双刃剑效应” 查看全部",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "relative flex w-full min-w-0 flex-col px-1.5 py-[2px] shrink-0 transition-[width,transform,opacity] duration-200 ease-ou",
+        "idx": 48,
+        "tag": "div",
+        "text": "历史记录 今天 PONG Reply Instruction Echo with Pong and Link Pong response with code and link Ping Pong Exchange Ping Pong Exchange 昨天 Ping Pong Exchange Ping-Pong Exchange PONG Reply Challenge PONG Reply Ping Pong Exchange Ping Pong Exchange Ping Pong Exchange Ping Pong Reply 更早的 Character in Skin-Tight Leotard Image AI in Interdisciplinary Knowledge Integration AI连接跨领域知识的方法与应用 虚幻引擎蓝图物品栏系统实现 Good Morning China Greeting 夜班工作健康风险及其缓解方法 技术进步的“双刃剑效应” 查看全部",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "",
+        "idx": 100,
+        "tag": "div",
+        "text": "Character in Skin-Tight Leotard Image",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "flex-1 select-none text-nowrap max-w-full overflow-hidden inline-block truncate group-hover/sidebar-menu-item:[text-over",
+        "idx": 101,
+        "tag": "span",
+        "text": "Character in Skin-Tight Leotard Image",
+        "title": ""
+      }
+    ],
+    "fileInputs": [
+      {
+        "accept": "",
+        "aria": "",
+        "cls": "hidden",
+        "hidden": true,
+        "idx": 0,
+        "multiple": true,
+        "title": ""
+      }
+    ],
+    "title": "Grok",
+    "url": "https://grok.com/"
+  },
+  "manus": {
+    "clickable": [],
+    "fileInputs": [],
+    "title": "Manus",
+    "url": "https://manus.im/app"
+  },
+  "zai": {
+    "clickable": [],
+    "fileInputs": [
+      {
+        "accept": ".pdf,.docx,.doc,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.csv,.py,.txt,.md,.bmp,.gif,.mp4",
+        "aria": "",
+        "cls": "",
+        "hidden": true,
+        "idx": 0,
+        "multiple": true,
+        "title": ""
+      }
+    ],
+    "title": "Z.ai - Free AI Chatbot & Agent powered by GLM-5.1 & GLM-5",
+    "url": "https://chat.z.ai/"
+  }
+}

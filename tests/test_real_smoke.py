@@ -555,3 +555,219 @@ class TestLiveEdgeCases:
             "body_format": "text",
         })
         assert r.status_code == 201
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 8. Favorites – toggle, filter, reset-protection
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestFavorites:
+    """Validates the entire favorites lifecycle including deletion protection."""
+
+    def _create_session_via_capture(self, c, provider="openai", label=None):
+        """Helper: ingest a request+response pair so the normalizer creates a session.
+
+        Returns (pair_id, label) where label is the unique user content used
+        as title_hint for finding the session later.
+        """
+        import uuid as _uuid
+        pair_id = _uuid.uuid4().hex[:16]
+        label = label or f"fav-test-{_uuid.uuid4().hex[:8]}"
+
+        req_body = json.dumps({
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": label}],
+        })
+        resp_body = json.dumps({
+            "id": f"chatcmpl-{pair_id}",
+            "choices": [{"message": {"role": "assistant", "content": f"reply-{pair_id}"}}],
+            "model": "gpt-4",
+            "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+        })
+
+        # Request
+        r = c.post("/api/v1/captures", json={
+            "direction": "request",
+            "source_type": "proxy",
+            "host": "api.openai.com",
+            "path": "/v1/chat/completions",
+            "method": "POST",
+            "provider": provider,
+            "body_json": req_body,
+            "body_format": "json",
+            "pair_id": pair_id,
+        })
+        assert r.status_code == 201
+
+        # Response (triggers normalization → creates session)
+        r = c.post("/api/v1/captures", json={
+            "direction": "response",
+            "source_type": "proxy",
+            "host": "api.openai.com",
+            "path": "/v1/chat/completions",
+            "method": "POST",
+            "provider": provider,
+            "status_code": 200,
+            "body_json": resp_body,
+            "body_format": "json",
+            "pair_id": pair_id,
+        })
+        assert r.status_code == 201
+        return pair_id, label
+
+    def _find_session_by_title(self, c, title):
+        """Find a session whose title_hint matches the given title."""
+        sessions = c.get("/api/v1/sessions?last=500").json()
+        matches = [s for s in sessions if s.get("title_hint") == title]
+        return matches[0] if matches else None
+
+    def test_favorite_toggle(self, live_server):
+        """Favoriting and unfavoriting a session toggles the flag correctly."""
+        c = live_server
+        _, label = self._create_session_via_capture(c, label="fav-toggle-test")
+        sess = self._find_session_by_title(c, label)
+        assert sess is not None
+        sid = sess["id"]
+
+        # Initially not favorited
+        assert sess.get("favorited", 0) == 0
+
+        # Favorite it
+        r = c.put(f"/api/v1/sessions/{sid}/favorite?favorited=true")
+        assert r.status_code == 200
+        assert r.json()["favorited"] is True
+
+        # Verify via query
+        s = c.get("/api/v1/sessions?last=500").json()
+        match = [x for x in s if x["id"] == sid]
+        assert match[0]["favorited"] == 1
+
+        # Unfavorite
+        r = c.put(f"/api/v1/sessions/{sid}/favorite?favorited=false")
+        assert r.status_code == 200
+        assert r.json()["favorited"] is False
+
+        s = c.get("/api/v1/sessions?last=500").json()
+        match = [x for x in s if x["id"] == sid]
+        assert match[0]["favorited"] == 0
+
+    def test_favorites_filter(self, live_server):
+        """The favorited=true query parameter returns only favorited sessions."""
+        c = live_server
+        _, label1 = self._create_session_via_capture(c, label="fav-filter-sess-1")
+        _, label2 = self._create_session_via_capture(c, label="fav-filter-sess-2")
+
+        sess1 = self._find_session_by_title(c, label1)
+        sess2 = self._find_session_by_title(c, label2)
+        assert sess1 and sess2
+
+        # Favorite only one
+        sid = sess1["id"]
+        c.put(f"/api/v1/sessions/{sid}/favorite?favorited=true")
+
+        # Query favorites only
+        favs = c.get("/api/v1/sessions?last=500&favorited=true").json()
+        assert len(favs) >= 1
+        assert all(f["favorited"] == 1 for f in favs)
+        fav_ids = {f["id"] for f in favs}
+        assert sid in fav_ids
+
+        # Clean up
+        c.put(f"/api/v1/sessions/{sid}/favorite?favorited=false")
+
+    def test_reset_protects_favorited_sessions(self, live_server):
+        """The core safety guarantee: reset deletes non-favorited but keeps favorited."""
+        c = live_server
+
+        # Create two sessions with unique labels
+        pair_a, label_a = self._create_session_via_capture(c, label="fav-protect-alpha")
+        pair_b, label_b = self._create_session_via_capture(c, label="fav-protect-beta")
+
+        sess_a = self._find_session_by_title(c, label_a)
+        sess_b = self._find_session_by_title(c, label_b)
+        assert sess_a is not None, f"Session A ({label_a}) not found"
+        assert sess_b is not None, f"Session B ({label_b}) not found"
+
+        sid_a = sess_a["id"]
+        sid_b = sess_b["id"]
+
+        # Favorite session A only
+        r = c.put(f"/api/v1/sessions/{sid_a}/favorite?favorited=true")
+        assert r.status_code == 200
+
+        # Get message count for session A before reset
+        msgs_a_before = c.get(f"/api/v1/sessions/{sid_a}/messages").json()
+        assert len(msgs_a_before) >= 1
+
+        # Perform reset
+        r = c.post("/api/v1/dev/reset")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["status"] == "ok"
+        assert data["favorites_protected"] >= 1
+
+        # Session A (favorited) must survive
+        favs = c.get("/api/v1/sessions?last=500&favorited=true").json()
+        fav_ids = {f["id"] for f in favs}
+        assert sid_a in fav_ids, "Favorited session was deleted by reset!"
+
+        # Messages for session A must survive
+        msgs_a_after = c.get(f"/api/v1/sessions/{sid_a}/messages").json()
+        assert len(msgs_a_after) == len(msgs_a_before), "Messages of favorited session were deleted!"
+
+        # Raw captures for session A must survive
+        for msg in msgs_a_after:
+            if msg.get("capture_pair_id"):
+                pair_r = c.get(f"/api/v1/captures/pair/{msg['capture_pair_id']}")
+                assert pair_r.status_code == 200
+                assert len(pair_r.json()) > 0, "Raw captures of favorited session were deleted!"
+
+        # Session B (not favorited) must be gone
+        all_sessions = c.get("/api/v1/sessions?last=500").json()
+        all_ids = {s["id"] for s in all_sessions}
+        assert sid_b not in all_ids, "Non-favorited session survived reset!"
+
+    def test_unfavorite_then_reset_deletes(self, live_server):
+        """After unfavoriting, the session becomes deletable again."""
+        c = live_server
+
+        # Create and favorite a session
+        _, label = self._create_session_via_capture(c, label="fav-unprotect-test")
+        sess = self._find_session_by_title(c, label)
+        assert sess is not None
+        sid = sess["id"]
+
+        c.put(f"/api/v1/sessions/{sid}/favorite?favorited=true")
+
+        # Verify it's protected
+        favs = c.get("/api/v1/sessions?last=500&favorited=true").json()
+        assert any(f["id"] == sid for f in favs)
+
+        # Unfavorite
+        c.put(f"/api/v1/sessions/{sid}/favorite?favorited=false")
+
+        # Reset — should now delete it
+        c.post("/api/v1/dev/reset")
+
+        all_sessions = c.get("/api/v1/sessions?last=500").json()
+        all_ids = {s["id"] for s in all_sessions}
+        assert sid not in all_ids, "Unfavorited session should have been deleted by reset!"
+
+    def test_double_favorite_idempotent(self, live_server):
+        """Favoriting an already-favorited session is a no-op."""
+        c = live_server
+        _, label = self._create_session_via_capture(c, label="fav-idempotent-test")
+        sess = self._find_session_by_title(c, label)
+        assert sess is not None
+        sid = sess["id"]
+
+        c.put(f"/api/v1/sessions/{sid}/favorite?favorited=true")
+        c.put(f"/api/v1/sessions/{sid}/favorite?favorited=true")
+
+        favs = c.get("/api/v1/sessions?last=500&favorited=true").json()
+        matches = [f for f in favs if f["id"] == sid]
+        assert len(matches) == 1  # exactly one, not duplicated
+
+        # Clean up
+        c.put(f"/api/v1/sessions/{sid}/favorite?favorited=false")
+        c.post("/api/v1/dev/reset")

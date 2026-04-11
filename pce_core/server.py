@@ -24,6 +24,7 @@ from .db import (
     SOURCE_MCP,
     SOURCE_PROXY,
     add_custom_domain,
+    count_favorited_sessions,
     get_custom_domains,
     get_capture_health,
     get_source_activity,
@@ -40,6 +41,7 @@ from .db import (
     refresh_custom_domains,
     remove_custom_domain,
     reset_all_data,
+    set_session_favorite,
 )
 from .models import (
     CaptureIn,
@@ -405,12 +407,23 @@ def list_sessions(
     until: Optional[float] = None,
     min_messages: Optional[int] = None,
     q: Optional[str] = None,
+    favorited: Optional[bool] = None,
 ):
     return query_sessions(
         last=last, provider=provider, language=language,
         topic=topic, since=since, until=until,
         min_messages=min_messages, title_search=q,
+        favorited_only=bool(favorited) if favorited is not None else False,
     )
+
+
+@app.put("/api/v1/sessions/{session_id}/favorite")
+def toggle_favorite(session_id: str, favorited: bool = True):
+    """Set or clear the favorite flag on a session."""
+    ok = set_session_favorite(session_id, favorited=favorited)
+    if not ok:
+        raise HTTPException(500, "Failed to update favorite")
+    return {"ok": True, "session_id": session_id, "favorited": favorited}
 
 
 @app.get("/api/v1/sessions/{session_id}/messages", response_model=list[MessageRecord])

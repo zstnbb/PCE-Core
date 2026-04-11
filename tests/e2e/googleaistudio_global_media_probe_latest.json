@@ -1,0 +1,596 @@
+{
+  "count": 10,
+  "items": [
+    {
+      "ancestors": [
+        {
+          "cls": "avatar",
+          "html": "<img _ngcontent-ng-c2297666190=\"\" class=\"avatar\" src=\"https://lh3.googleusercontent.com/a/ACg8ocJqwp85NDlt3qx1gti-bB1OcgMO1ioqhQy3qZyhhwBRU0QEsw=s64-cc-mo\" alt=\"nbb zst\" loading=\"auto\">",
+          "tag": "IMG",
+          "text": ""
+        },
+        {
+          "cls": "medium ng-star-inserted",
+          "html": "<connect-avatar _ngcontent-ng-c909730968=\"\" _nghost-ng-c2297666190=\"\" class=\"medium ng-star-inserted\" style=\"\"><img _ngcontent-ng-c2297666190=\"\" class=\"avatar\" src=\"https://lh3.googleusercontent.com/a/ACg8ocJqwp85NDlt3qx1gti-bB1OcgMO1ioqhQy3qZyhhwBRU0QEsw=s64-cc-mo\" alt=\"nbb zst\" loading=\"auto\"></connect-avatar>",
+          "tag": "CONNECT-AVATAR",
+          "text": ""
+        },
+        {
+          "cls": "mat-mdc-tooltip-trigger button-container",
+          "html": "<div _ngcontent-ng-c909730968=\"\" role=\"button\" tabindex=\"0\" cdkoverlayorigin=\"\" class=\"mat-mdc-tooltip-trigger button-container\" aria-label=\"Google 账号：nbb zst (zstnbb@gmail.com)\"><connect-avatar _ngcontent-ng-c909730968=\"\" _nghost-ng-c2297666190=\"\" class=\"medium ng-star-inserted\" style=\"\"><img _ngcontent-ng-c2297666190=\"\" class=\"avatar\" src=\"https://lh3.googleusercontent.com/a/ACg8ocJqwp85NDlt3qx1gti-bB1OcgMO1ioqhQy3qZyhhwBRU0QEsw=s64-cc-mo\" alt=\"nbb zst\" loading=\"auto\"></connect-avatar><!----><",
+          "tag": "DIV",
+          "text": ""
+        },
+        {
+          "cls": "container ng-star-inserted",
+          "html": "<div _ngcontent-ng-c909730968=\"\" id=\"account-switcher-button\" class=\"container ng-star-inserted\"><div _ngcontent-ng-c909730968=\"\" role=\"button\" tabindex=\"0\" cdkoverlayorigin=\"\" class=\"mat-mdc-tooltip-trigger button-container\" aria-label=\"Google 账号：nbb zst (zstnbb@gmail.com)\"><connect-avatar _ngcontent-ng-c909730968=\"\" _nghost-ng-c2297666190=\"\" class=\"medium ng-star-inserted\" style=\"\"><img _ngcontent-ng-c2297666190=\"\" class=\"avatar\" src=\"https://lh3.googleusercontent.com/a/ACg8ocJqwp85NDlt3qx1gti",
+          "tag": "DIV",
+          "text": ""
+        },
+        {
+          "cls": "ng-tns-c3730625814-1 ng-star-inserted",
+          "html": "<alkali-accountswitcher _ngcontent-ng-c3730625814=\"\" _nghost-ng-c909730968=\"\" class=\"ng-tns-c3730625814-1 ng-star-inserted\"><div _ngcontent-ng-c909730968=\"\" id=\"account-switcher-button\" class=\"container ng-star-inserted\"><div _ngcontent-ng-c909730968=\"\" role=\"button\" tabindex=\"0\" cdkoverlayorigin=\"\" class=\"mat-mdc-tooltip-trigger button-container\" aria-label=\"Google 账号：nbb zst (zstnbb@gmail.com)\"><connect-avatar _ngcontent-ng-c909730968=\"\" _nghost-ng-c2297666190=\"\" class=\"medium ng-star-inserted",
+          "tag": "ALKALI-ACCOUNTSWITCHER",
+          "text": ""
+        },
+        {
+          "cls": "account-switcher-container ng-tns-c3730625814-1 ng-star-inserted",
+          "html": "<div _ngcontent-ng-c3730625814=\"\" class=\"account-switcher-container ng-tns-c3730625814-1 ng-star-inserted\" style=\"\"><button _ngcontent-ng-c3730625814=\"\" ms-button=\"\" class=\"account-switcher-button ng-tns-c3730625814-1 ms-button-borderless\" aria-disabled=\"false\"><div _ngcontent-ng-c3730625814=\"\" class=\"avatar-placeholder ng-tns-c3730625814-1\"></div><span _ngcontent-ng-c3730625814=\"\" class=\"account-switcher-text ng-tns-c3730625814-1 ng-trigger ng-trigger-fadeInOut ng-star-inserted\"> zstnbb@gmail.c",
+          "tag": "DIV",
+          "text": "zstnbb@gmail.com"
+        },
+        {
+          "cls": "bottom-actions ng-tns-c3730625814-1",
+          "html": "<div _ngcontent-ng-c3730625814=\"\" class=\"bottom-actions ng-tns-c3730625814-1\"><ms-navbar-disclaimer _ngcontent-ng-c3730625814=\"\" class=\"ng-tns-c3730625814-1 ng-tns-c4021880408-2 ng-star-inserted\" _nghost-ng-c4021880408=\"\" style=\"\"><div _ngcontent-ng-c4021880408=\"\" class=\"disclaimer-container ng-tns-c4021880408-2 ng-star-inserted\"><div _ngcontent-ng-c4021880408=\"\" class=\"disclaimer ng-tns-c4021880408-2 ng-trigger ng-trigger-fadeInOut ng-star-inserted\"><!----><!----><!----></div><!----><!----></di",
+          "tag": "DIV",
+          "text": "search Search Ctrl / notifications What's new key Get API key settings Settings zstnbb@gmail.com"
+        },
+        {
+          "cls": "ng-tns-c3730625814-1",
+          "html": "<nav _ngcontent-ng-c3730625814=\"\" class=\"ng-tns-c3730625814-1\"><ms-nav-items _ngcontent-ng-c3730625814=\"\" class=\"ng-tns-c3730625814-1\" _nghost-ng-c2408917954=\"\"><!----><ms-nav-items-main _ngcontent-ng-c2408917954=\"\" class=\"nav_items_nav_mode ng-star-inserted\" _nghost-ng-c1893306542=\"\" style=\"\"><ms-nav-items-playground _ngcontent-ng-c1893306542=\"\" _nghost-ng-c3442284879=\"\" class=\"ng-tns-c3442284879-4 ng-star-inserted\"><div _ngcontent-ng-c3442284879=\"\" class=\"wrapper ng-tns-c3442284879-4\"><a _ngco",
+          "tag": "NAV",
+          "text": "chat_spark Playground chevron_right Image Attachment Details Attachment Confirmation And Source Attachment Confirmation And Code Attachment Confirmation And Code Received Text Attachment: Sample Note "
+        }
+      ],
+      "aria": "",
+      "cls": "avatar",
+      "outer": "<img _ngcontent-ng-c2297666190=\"\" class=\"avatar\" src=\"https://lh3.googleusercontent.com/a/ACg8ocJqwp85NDlt3qx1gti-bB1OcgMO1ioqhQy3qZyhhwBRU0QEsw=s64-cc-mo\" alt=\"nbb zst\" loading=\"auto\">",
+      "src": "https://lh3.googleusercontent.com/a/ACg8ocJqwp85NDlt3qx1gti-bB1OcgMO1ioqhQy3qZyhhwBRU0QEsw=s64-cc-mo",
+      "tag": "IMG",
+      "text": "",
+      "title": ""
+    },
+    {
+      "ancestors": [
+        {
+          "cls": "ng-star-inserted",
+          "html": "<ms-prompt-chunk _ngcontent-ng-c2281276263=\"\" _nghost-ng-c3242716017=\"\" id=\"FFF1D6C8-C784-40F3-809D-B8FC31543C48\" class=\"ng-star-inserted\"><!----><!----><ms-image-chunk _ngcontent-ng-c3242716017=\"\" _nghost-ng-c772619731=\"\" class=\"ng-star-inserted\"><div _ngcontent-ng-c772619731=\"\" class=\"image-container\"><!----><div _ngcontent-ng-c772619731=\"\" class=\"bottom-right-image-controls ng-star-inserted\"><button _ngcontent-ng-c772619731=\"\" ms-button=\"\" variant=\"icon-borderless\" aria-label=\"Download\" matto",
+          "tag": "MS-PROMPT-CHUNK",
+          "text": ""
+        },
+        {
+          "cls": "turn-content",
+          "html": "<div _ngcontent-ng-c2281276263=\"\" msheightchanged=\"\" class=\"turn-content\"><!----><div _ngcontent-ng-c2281276263=\"\" role=\"heading\" aria-level=\"3\" class=\"author-label ng-star-inserted\"> User <span _ngcontent-ng-c2281276263=\"\" class=\"mat-mdc-tooltip-trigger timestamp ng-star-inserted\" aria-describedby=\"cdk-describedby-message-ng-1-48\" cdk-describedby-host=\"ng-1\">12:00</span><!----><!----></div><!----><!----><!----><ms-prompt-chunk _ngcontent-ng-c2281276263=\"\" _nghost-ng-c3242716017=\"\" id=\"FFF1D6C8-",
+          "tag": "DIV",
+          "text": "User 12:00"
+        },
+        {
+          "cls": "virtual-scroll-container user-prompt-container",
+          "html": "<div _ngcontent-ng-c2281276263=\"\" class=\"virtual-scroll-container user-prompt-container\" data-turn-role=\"User\"><div _ngcontent-ng-c2281276263=\"\" style=\"height: 276.156px;\"></div><div _ngcontent-ng-c2281276263=\"\" msheightchanged=\"\" class=\"turn-content\"><!----><div _ngcontent-ng-c2281276263=\"\" role=\"heading\" aria-level=\"3\" class=\"author-label ng-star-inserted\"> User <span _ngcontent-ng-c2281276263=\"\" class=\"mat-mdc-tooltip-trigger timestamp ng-star-inserted\" aria-describedby=\"cdk-describedby-messa",
+          "tag": "DIV",
+          "text": "User 12:00"
+        },
+        {
+          "cls": "chat-turn-container code-block-aligner render user ng-star-inserted",
+          "html": "<div _ngcontent-ng-c2281276263=\"\" tabindex=\"-1\" cdkmonitorsubtreefocus=\"\" class=\"chat-turn-container code-block-aligner render user ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions-container\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions hover-or-edit\"><!----><!----><!----><ms-chat-turn-options _ngcontent-ng-c2281276263=\"\" mattooltip=\"More options\" mattooltipposition=\"below\" class=\"mat-mdc-tooltip-trigger\" aria-describedby=\"cdk-describedby-message-ng-1-44\" cdk-describedby-ho",
+          "tag": "DIV",
+          "text": "more_vert User 12:00"
+        },
+        {
+          "cls": "ng-star-inserted",
+          "html": "<ms-chat-turn _ngcontent-ng-c1343344911=\"\" _nghost-ng-c2281276263=\"\" id=\"turn-FFF1D6C8-C784-40F3-809D-B8FC31543C48\" class=\"ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" tabindex=\"-1\" cdkmonitorsubtreefocus=\"\" class=\"chat-turn-container code-block-aligner render user ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions-container\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions hover-or-edit\"><!----><!----><!----><ms-chat-turn-options _ngcontent-ng-c2281276263=\"\" mattooltip=\"M",
+          "tag": "MS-CHAT-TURN",
+          "text": "more_vert User 12:00"
+        },
+        {
+          "cls": "chat-session-content",
+          "html": "<div _ngcontent-ng-c1343344911=\"\" class=\"chat-session-content\"><!----><ms-chat-turn _ngcontent-ng-c1343344911=\"\" _nghost-ng-c2281276263=\"\" id=\"turn-FFF1D6C8-C784-40F3-809D-B8FC31543C48\" class=\"ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" tabindex=\"-1\" cdkmonitorsubtreefocus=\"\" class=\"chat-turn-container code-block-aligner render user ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions-container\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions hover-or-edit\"><!----><!----><",
+          "tag": "DIV",
+          "text": "more_vert User 12:00 edit more_vert PCE-RICH-googleaistudio-image-1775793609 Confirm which attachment you received in one short sentence. Then include this markdown link exactly: Source and a fenced p"
+        },
+        {
+          "cls": "",
+          "html": "<div _ngcontent-ng-c3582078194=\"\"><div _ngcontent-ng-c1343344911=\"\" class=\"chat-session-content\"><!----><ms-chat-turn _ngcontent-ng-c1343344911=\"\" _nghost-ng-c2281276263=\"\" id=\"turn-FFF1D6C8-C784-40F3-809D-B8FC31543C48\" class=\"ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" tabindex=\"-1\" cdkmonitorsubtreefocus=\"\" class=\"chat-turn-container code-block-aligner render user ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions-container\"><div _ngcontent-ng-c2281276263=\"\" class=\"acti",
+          "tag": "DIV",
+          "text": "more_vert User 12:00 edit more_vert PCE-RICH-googleaistudio-image-1775793609 Confirm which attachment you received in one short sentence. Then include this markdown link exactly: Source and a fenced p"
+        },
+        {
+          "cls": "hide-scrollbar",
+          "html": "<ms-autoscroll-container _ngcontent-ng-c1343344911=\"\" tabindex=\"-1\" class=\"hide-scrollbar\" _nghost-ng-c3582078194=\"\" style=\"--ms-autoscroll-container-scrolled: 1;\"><div _ngcontent-ng-c3582078194=\"\"><div _ngcontent-ng-c1343344911=\"\" class=\"chat-session-content\"><!----><ms-chat-turn _ngcontent-ng-c1343344911=\"\" _nghost-ng-c2281276263=\"\" id=\"turn-FFF1D6C8-C784-40F3-809D-B8FC31543C48\" class=\"ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" tabindex=\"-1\" cdkmonitorsubtreefocus=\"\" class=\"chat-turn-",
+          "tag": "MS-AUTOSCROLL-CONTAINER",
+          "text": "more_vert User 12:00 edit more_vert PCE-RICH-googleaistudio-image-1775793609 Confirm which attachment you received in one short sentence. Then include this markdown link exactly: Source and a fenced p"
+        }
+      ],
+      "aria": "",
+      "cls": "ng-star-inserted",
+      "outer": "<ms-prompt-chunk _ngcontent-ng-c2281276263=\"\" _nghost-ng-c3242716017=\"\" id=\"FFF1D6C8-C784-40F3-809D-B8FC31543C48\" class=\"ng-star-inserted\"><!----><!----><ms-image-chunk _ngcontent-ng-c3242716017=\"\" _nghost-ng-c772619731=\"\" class=\"ng-star-inserted\"><div _ngcontent-ng-c772619731=\"\" class=\"image-container\"><!----><div _ngcontent-ng-c772619731=\"\" class=\"bottom-right-image-controls ng-star-inserted\"><button _ngcontent-ng-c772619731=\"\" ms-button=\"\" variant=\"icon-borderless\" aria-label=\"Download\" mattooltip=\"Download\" class=\"mat-mdc-tooltip-trigger download-button ms-button-borderless ms-button-icon\" jslog=\"253131;track:generic_click,impression\" aria-disabled=\"false\"><span _ngcontent-ng-c772619731=\"\" class=\"material-symbols-outlined notranslate ms-button-icon-symbol ng-star-inserted\" aria-hidden=\"true\">download</span></button><!----><button _ngcontent-ng-c772619731=\"\" ms-button=\"\" variant=\"icon-borderless\" aria-label=\"View full image\" mattooltip=\"View full image\" class=\"mat-mdc-tooltip-trigger view-full-image-button ms-button-borderless ms-button-icon\" jslog=\"253133;track:generic_click,impression\" aria-disabled=\"false\"><span _ngcontent-ng-c772619731=\"\" class=\"material-symbols-outlined not",
+      "src": "",
+      "tag": "MS-PROMPT-CHUNK",
+      "text": "",
+      "title": ""
+    },
+    {
+      "ancestors": [
+        {
+          "cls": "image-container",
+          "html": "<div _ngcontent-ng-c772619731=\"\" class=\"image-container\"><!----><div _ngcontent-ng-c772619731=\"\" class=\"bottom-right-image-controls ng-star-inserted\"><button _ngcontent-ng-c772619731=\"\" ms-button=\"\" variant=\"icon-borderless\" aria-label=\"Download\" mattooltip=\"Download\" class=\"mat-mdc-tooltip-trigger download-button ms-button-borderless ms-button-icon\" jslog=\"253131;track:generic_click,impression\" aria-disabled=\"false\"><span _ngcontent-ng-c772619731=\"\" class=\"material-symbols-outlined notranslate ",
+          "tag": "DIV",
+          "text": ""
+        },
+        {
+          "cls": "ng-star-inserted",
+          "html": "<ms-image-chunk _ngcontent-ng-c3242716017=\"\" _nghost-ng-c772619731=\"\" class=\"ng-star-inserted\"><div _ngcontent-ng-c772619731=\"\" class=\"image-container\"><!----><div _ngcontent-ng-c772619731=\"\" class=\"bottom-right-image-controls ng-star-inserted\"><button _ngcontent-ng-c772619731=\"\" ms-button=\"\" variant=\"icon-borderless\" aria-label=\"Download\" mattooltip=\"Download\" class=\"mat-mdc-tooltip-trigger download-button ms-button-borderless ms-button-icon\" jslog=\"253131;track:generic_click,impression\" aria-d",
+          "tag": "MS-IMAGE-CHUNK",
+          "text": ""
+        },
+        {
+          "cls": "ng-star-inserted",
+          "html": "<ms-prompt-chunk _ngcontent-ng-c2281276263=\"\" _nghost-ng-c3242716017=\"\" id=\"FFF1D6C8-C784-40F3-809D-B8FC31543C48\" class=\"ng-star-inserted\"><!----><!----><ms-image-chunk _ngcontent-ng-c3242716017=\"\" _nghost-ng-c772619731=\"\" class=\"ng-star-inserted\"><div _ngcontent-ng-c772619731=\"\" class=\"image-container\"><!----><div _ngcontent-ng-c772619731=\"\" class=\"bottom-right-image-controls ng-star-inserted\"><button _ngcontent-ng-c772619731=\"\" ms-button=\"\" variant=\"icon-borderless\" aria-label=\"Download\" matto",
+          "tag": "MS-PROMPT-CHUNK",
+          "text": ""
+        },
+        {
+          "cls": "turn-content",
+          "html": "<div _ngcontent-ng-c2281276263=\"\" msheightchanged=\"\" class=\"turn-content\"><!----><div _ngcontent-ng-c2281276263=\"\" role=\"heading\" aria-level=\"3\" class=\"author-label ng-star-inserted\"> User <span _ngcontent-ng-c2281276263=\"\" class=\"mat-mdc-tooltip-trigger timestamp ng-star-inserted\" aria-describedby=\"cdk-describedby-message-ng-1-48\" cdk-describedby-host=\"ng-1\">12:00</span><!----><!----></div><!----><!----><!----><ms-prompt-chunk _ngcontent-ng-c2281276263=\"\" _nghost-ng-c3242716017=\"\" id=\"FFF1D6C8-",
+          "tag": "DIV",
+          "text": "User 12:00"
+        },
+        {
+          "cls": "virtual-scroll-container user-prompt-container",
+          "html": "<div _ngcontent-ng-c2281276263=\"\" class=\"virtual-scroll-container user-prompt-container\" data-turn-role=\"User\"><div _ngcontent-ng-c2281276263=\"\" style=\"height: 276.156px;\"></div><div _ngcontent-ng-c2281276263=\"\" msheightchanged=\"\" class=\"turn-content\"><!----><div _ngcontent-ng-c2281276263=\"\" role=\"heading\" aria-level=\"3\" class=\"author-label ng-star-inserted\"> User <span _ngcontent-ng-c2281276263=\"\" class=\"mat-mdc-tooltip-trigger timestamp ng-star-inserted\" aria-describedby=\"cdk-describedby-messa",
+          "tag": "DIV",
+          "text": "User 12:00"
+        },
+        {
+          "cls": "chat-turn-container code-block-aligner render user ng-star-inserted",
+          "html": "<div _ngcontent-ng-c2281276263=\"\" tabindex=\"-1\" cdkmonitorsubtreefocus=\"\" class=\"chat-turn-container code-block-aligner render user ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions-container\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions hover-or-edit\"><!----><!----><!----><ms-chat-turn-options _ngcontent-ng-c2281276263=\"\" mattooltip=\"More options\" mattooltipposition=\"below\" class=\"mat-mdc-tooltip-trigger\" aria-describedby=\"cdk-describedby-message-ng-1-44\" cdk-describedby-ho",
+          "tag": "DIV",
+          "text": "more_vert User 12:00"
+        },
+        {
+          "cls": "ng-star-inserted",
+          "html": "<ms-chat-turn _ngcontent-ng-c1343344911=\"\" _nghost-ng-c2281276263=\"\" id=\"turn-FFF1D6C8-C784-40F3-809D-B8FC31543C48\" class=\"ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" tabindex=\"-1\" cdkmonitorsubtreefocus=\"\" class=\"chat-turn-container code-block-aligner render user ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions-container\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions hover-or-edit\"><!----><!----><!----><ms-chat-turn-options _ngcontent-ng-c2281276263=\"\" mattooltip=\"M",
+          "tag": "MS-CHAT-TURN",
+          "text": "more_vert User 12:00"
+        },
+        {
+          "cls": "chat-session-content",
+          "html": "<div _ngcontent-ng-c1343344911=\"\" class=\"chat-session-content\"><!----><ms-chat-turn _ngcontent-ng-c1343344911=\"\" _nghost-ng-c2281276263=\"\" id=\"turn-FFF1D6C8-C784-40F3-809D-B8FC31543C48\" class=\"ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" tabindex=\"-1\" cdkmonitorsubtreefocus=\"\" class=\"chat-turn-container code-block-aligner render user ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions-container\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions hover-or-edit\"><!----><!----><",
+          "tag": "DIV",
+          "text": "more_vert User 12:00 edit more_vert PCE-RICH-googleaistudio-image-1775793609 Confirm which attachment you received in one short sentence. Then include this markdown link exactly: Source and a fenced p"
+        }
+      ],
+      "aria": "",
+      "cls": "image-container",
+      "outer": "<div _ngcontent-ng-c772619731=\"\" class=\"image-container\"><!----><div _ngcontent-ng-c772619731=\"\" class=\"bottom-right-image-controls ng-star-inserted\"><button _ngcontent-ng-c772619731=\"\" ms-button=\"\" variant=\"icon-borderless\" aria-label=\"Download\" mattooltip=\"Download\" class=\"mat-mdc-tooltip-trigger download-button ms-button-borderless ms-button-icon\" jslog=\"253131;track:generic_click,impression\" aria-disabled=\"false\"><span _ngcontent-ng-c772619731=\"\" class=\"material-symbols-outlined notranslate ms-button-icon-symbol ng-star-inserted\" aria-hidden=\"true\">download</span></button><!----><button _ngcontent-ng-c772619731=\"\" ms-button=\"\" variant=\"icon-borderless\" aria-label=\"View full image\" mattooltip=\"View full image\" class=\"mat-mdc-tooltip-trigger view-full-image-button ms-button-borderless ms-button-icon\" jslog=\"253133;track:generic_click,impression\" aria-disabled=\"false\"><span _ngcontent-ng-c772619731=\"\" class=\"material-symbols-outlined notranslate ms-button-icon-symbol ng-star-inserted\" aria-hidden=\"true\">fullscreen</span></button><!----></div><!----><img _ngcontent-ng-c772619731=\"\" class=\"loaded-image ng-star-inserted\" alt=\"sample_square.png\" src=\"data:image/png;base64,iVBORw0KGgoA",
+      "src": "",
+      "tag": "DIV",
+      "text": "",
+      "title": ""
+    },
+    {
+      "ancestors": [
+        {
+          "cls": "bottom-right-image-controls ng-star-inserted",
+          "html": "<div _ngcontent-ng-c772619731=\"\" class=\"bottom-right-image-controls ng-star-inserted\"><button _ngcontent-ng-c772619731=\"\" ms-button=\"\" variant=\"icon-borderless\" aria-label=\"Download\" mattooltip=\"Download\" class=\"mat-mdc-tooltip-trigger download-button ms-button-borderless ms-button-icon\" jslog=\"253131;track:generic_click,impression\" aria-disabled=\"false\"><span _ngcontent-ng-c772619731=\"\" class=\"material-symbols-outlined notranslate ms-button-icon-symbol ng-star-inserted\" aria-hidden=\"true\">downl",
+          "tag": "DIV",
+          "text": "downloadfullscreen"
+        },
+        {
+          "cls": "image-container",
+          "html": "<div _ngcontent-ng-c772619731=\"\" class=\"image-container\"><!----><div _ngcontent-ng-c772619731=\"\" class=\"bottom-right-image-controls ng-star-inserted\"><button _ngcontent-ng-c772619731=\"\" ms-button=\"\" variant=\"icon-borderless\" aria-label=\"Download\" mattooltip=\"Download\" class=\"mat-mdc-tooltip-trigger download-button ms-button-borderless ms-button-icon\" jslog=\"253131;track:generic_click,impression\" aria-disabled=\"false\"><span _ngcontent-ng-c772619731=\"\" class=\"material-symbols-outlined notranslate ",
+          "tag": "DIV",
+          "text": ""
+        },
+        {
+          "cls": "ng-star-inserted",
+          "html": "<ms-image-chunk _ngcontent-ng-c3242716017=\"\" _nghost-ng-c772619731=\"\" class=\"ng-star-inserted\"><div _ngcontent-ng-c772619731=\"\" class=\"image-container\"><!----><div _ngcontent-ng-c772619731=\"\" class=\"bottom-right-image-controls ng-star-inserted\"><button _ngcontent-ng-c772619731=\"\" ms-button=\"\" variant=\"icon-borderless\" aria-label=\"Download\" mattooltip=\"Download\" class=\"mat-mdc-tooltip-trigger download-button ms-button-borderless ms-button-icon\" jslog=\"253131;track:generic_click,impression\" aria-d",
+          "tag": "MS-IMAGE-CHUNK",
+          "text": ""
+        },
+        {
+          "cls": "ng-star-inserted",
+          "html": "<ms-prompt-chunk _ngcontent-ng-c2281276263=\"\" _nghost-ng-c3242716017=\"\" id=\"FFF1D6C8-C784-40F3-809D-B8FC31543C48\" class=\"ng-star-inserted\"><!----><!----><ms-image-chunk _ngcontent-ng-c3242716017=\"\" _nghost-ng-c772619731=\"\" class=\"ng-star-inserted\"><div _ngcontent-ng-c772619731=\"\" class=\"image-container\"><!----><div _ngcontent-ng-c772619731=\"\" class=\"bottom-right-image-controls ng-star-inserted\"><button _ngcontent-ng-c772619731=\"\" ms-button=\"\" variant=\"icon-borderless\" aria-label=\"Download\" matto",
+          "tag": "MS-PROMPT-CHUNK",
+          "text": ""
+        },
+        {
+          "cls": "turn-content",
+          "html": "<div _ngcontent-ng-c2281276263=\"\" msheightchanged=\"\" class=\"turn-content\"><!----><div _ngcontent-ng-c2281276263=\"\" role=\"heading\" aria-level=\"3\" class=\"author-label ng-star-inserted\"> User <span _ngcontent-ng-c2281276263=\"\" class=\"mat-mdc-tooltip-trigger timestamp ng-star-inserted\" aria-describedby=\"cdk-describedby-message-ng-1-48\" cdk-describedby-host=\"ng-1\">12:00</span><!----><!----></div><!----><!----><!----><ms-prompt-chunk _ngcontent-ng-c2281276263=\"\" _nghost-ng-c3242716017=\"\" id=\"FFF1D6C8-",
+          "tag": "DIV",
+          "text": "User 12:00"
+        },
+        {
+          "cls": "virtual-scroll-container user-prompt-container",
+          "html": "<div _ngcontent-ng-c2281276263=\"\" class=\"virtual-scroll-container user-prompt-container\" data-turn-role=\"User\"><div _ngcontent-ng-c2281276263=\"\" style=\"height: 276.156px;\"></div><div _ngcontent-ng-c2281276263=\"\" msheightchanged=\"\" class=\"turn-content\"><!----><div _ngcontent-ng-c2281276263=\"\" role=\"heading\" aria-level=\"3\" class=\"author-label ng-star-inserted\"> User <span _ngcontent-ng-c2281276263=\"\" class=\"mat-mdc-tooltip-trigger timestamp ng-star-inserted\" aria-describedby=\"cdk-describedby-messa",
+          "tag": "DIV",
+          "text": "User 12:00"
+        },
+        {
+          "cls": "chat-turn-container code-block-aligner render user ng-star-inserted",
+          "html": "<div _ngcontent-ng-c2281276263=\"\" tabindex=\"-1\" cdkmonitorsubtreefocus=\"\" class=\"chat-turn-container code-block-aligner render user ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions-container\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions hover-or-edit\"><!----><!----><!----><ms-chat-turn-options _ngcontent-ng-c2281276263=\"\" mattooltip=\"More options\" mattooltipposition=\"below\" class=\"mat-mdc-tooltip-trigger\" aria-describedby=\"cdk-describedby-message-ng-1-44\" cdk-describedby-ho",
+          "tag": "DIV",
+          "text": "more_vert User 12:00"
+        },
+        {
+          "cls": "ng-star-inserted",
+          "html": "<ms-chat-turn _ngcontent-ng-c1343344911=\"\" _nghost-ng-c2281276263=\"\" id=\"turn-FFF1D6C8-C784-40F3-809D-B8FC31543C48\" class=\"ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" tabindex=\"-1\" cdkmonitorsubtreefocus=\"\" class=\"chat-turn-container code-block-aligner render user ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions-container\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions hover-or-edit\"><!----><!----><!----><ms-chat-turn-options _ngcontent-ng-c2281276263=\"\" mattooltip=\"M",
+          "tag": "MS-CHAT-TURN",
+          "text": "more_vert User 12:00"
+        }
+      ],
+      "aria": "",
+      "cls": "bottom-right-image-controls ng-star-inserted",
+      "outer": "<div _ngcontent-ng-c772619731=\"\" class=\"bottom-right-image-controls ng-star-inserted\"><button _ngcontent-ng-c772619731=\"\" ms-button=\"\" variant=\"icon-borderless\" aria-label=\"Download\" mattooltip=\"Download\" class=\"mat-mdc-tooltip-trigger download-button ms-button-borderless ms-button-icon\" jslog=\"253131;track:generic_click,impression\" aria-disabled=\"false\"><span _ngcontent-ng-c772619731=\"\" class=\"material-symbols-outlined notranslate ms-button-icon-symbol ng-star-inserted\" aria-hidden=\"true\">download</span></button><!----><button _ngcontent-ng-c772619731=\"\" ms-button=\"\" variant=\"icon-borderless\" aria-label=\"View full image\" mattooltip=\"View full image\" class=\"mat-mdc-tooltip-trigger view-full-image-button ms-button-borderless ms-button-icon\" jslog=\"253133;track:generic_click,impression\" aria-disabled=\"false\"><span _ngcontent-ng-c772619731=\"\" class=\"material-symbols-outlined notranslate ms-button-icon-symbol ng-star-inserted\" aria-hidden=\"true\">fullscreen</span></button><!----></div>",
+      "src": "",
+      "tag": "DIV",
+      "text": "downloadfullscreen",
+      "title": ""
+    },
+    {
+      "ancestors": [
+        {
+          "cls": "mat-mdc-tooltip-trigger view-full-image-button ms-button-borderless ms-button-icon",
+          "html": "<button _ngcontent-ng-c772619731=\"\" ms-button=\"\" variant=\"icon-borderless\" aria-label=\"View full image\" mattooltip=\"View full image\" class=\"mat-mdc-tooltip-trigger view-full-image-button ms-button-borderless ms-button-icon\" jslog=\"253133;track:generic_click,impression\" aria-disabled=\"false\"><span _ngcontent-ng-c772619731=\"\" class=\"material-symbols-outlined notranslate ms-button-icon-symbol ng-star-inserted\" aria-hidden=\"true\">fullscreen</span></button>",
+          "tag": "BUTTON",
+          "text": "fullscreen"
+        },
+        {
+          "cls": "bottom-right-image-controls ng-star-inserted",
+          "html": "<div _ngcontent-ng-c772619731=\"\" class=\"bottom-right-image-controls ng-star-inserted\"><button _ngcontent-ng-c772619731=\"\" ms-button=\"\" variant=\"icon-borderless\" aria-label=\"Download\" mattooltip=\"Download\" class=\"mat-mdc-tooltip-trigger download-button ms-button-borderless ms-button-icon\" jslog=\"253131;track:generic_click,impression\" aria-disabled=\"false\"><span _ngcontent-ng-c772619731=\"\" class=\"material-symbols-outlined notranslate ms-button-icon-symbol ng-star-inserted\" aria-hidden=\"true\">downl",
+          "tag": "DIV",
+          "text": "downloadfullscreen"
+        },
+        {
+          "cls": "image-container",
+          "html": "<div _ngcontent-ng-c772619731=\"\" class=\"image-container\"><!----><div _ngcontent-ng-c772619731=\"\" class=\"bottom-right-image-controls ng-star-inserted\"><button _ngcontent-ng-c772619731=\"\" ms-button=\"\" variant=\"icon-borderless\" aria-label=\"Download\" mattooltip=\"Download\" class=\"mat-mdc-tooltip-trigger download-button ms-button-borderless ms-button-icon\" jslog=\"253131;track:generic_click,impression\" aria-disabled=\"false\"><span _ngcontent-ng-c772619731=\"\" class=\"material-symbols-outlined notranslate ",
+          "tag": "DIV",
+          "text": ""
+        },
+        {
+          "cls": "ng-star-inserted",
+          "html": "<ms-image-chunk _ngcontent-ng-c3242716017=\"\" _nghost-ng-c772619731=\"\" class=\"ng-star-inserted\"><div _ngcontent-ng-c772619731=\"\" class=\"image-container\"><!----><div _ngcontent-ng-c772619731=\"\" class=\"bottom-right-image-controls ng-star-inserted\"><button _ngcontent-ng-c772619731=\"\" ms-button=\"\" variant=\"icon-borderless\" aria-label=\"Download\" mattooltip=\"Download\" class=\"mat-mdc-tooltip-trigger download-button ms-button-borderless ms-button-icon\" jslog=\"253131;track:generic_click,impression\" aria-d",
+          "tag": "MS-IMAGE-CHUNK",
+          "text": ""
+        },
+        {
+          "cls": "ng-star-inserted",
+          "html": "<ms-prompt-chunk _ngcontent-ng-c2281276263=\"\" _nghost-ng-c3242716017=\"\" id=\"FFF1D6C8-C784-40F3-809D-B8FC31543C48\" class=\"ng-star-inserted\"><!----><!----><ms-image-chunk _ngcontent-ng-c3242716017=\"\" _nghost-ng-c772619731=\"\" class=\"ng-star-inserted\"><div _ngcontent-ng-c772619731=\"\" class=\"image-container\"><!----><div _ngcontent-ng-c772619731=\"\" class=\"bottom-right-image-controls ng-star-inserted\"><button _ngcontent-ng-c772619731=\"\" ms-button=\"\" variant=\"icon-borderless\" aria-label=\"Download\" matto",
+          "tag": "MS-PROMPT-CHUNK",
+          "text": ""
+        },
+        {
+          "cls": "turn-content",
+          "html": "<div _ngcontent-ng-c2281276263=\"\" msheightchanged=\"\" class=\"turn-content\"><!----><div _ngcontent-ng-c2281276263=\"\" role=\"heading\" aria-level=\"3\" class=\"author-label ng-star-inserted\"> User <span _ngcontent-ng-c2281276263=\"\" class=\"mat-mdc-tooltip-trigger timestamp ng-star-inserted\" aria-describedby=\"cdk-describedby-message-ng-1-48\" cdk-describedby-host=\"ng-1\">12:00</span><!----><!----></div><!----><!----><!----><ms-prompt-chunk _ngcontent-ng-c2281276263=\"\" _nghost-ng-c3242716017=\"\" id=\"FFF1D6C8-",
+          "tag": "DIV",
+          "text": "User 12:00"
+        },
+        {
+          "cls": "virtual-scroll-container user-prompt-container",
+          "html": "<div _ngcontent-ng-c2281276263=\"\" class=\"virtual-scroll-container user-prompt-container\" data-turn-role=\"User\"><div _ngcontent-ng-c2281276263=\"\" style=\"height: 276.156px;\"></div><div _ngcontent-ng-c2281276263=\"\" msheightchanged=\"\" class=\"turn-content\"><!----><div _ngcontent-ng-c2281276263=\"\" role=\"heading\" aria-level=\"3\" class=\"author-label ng-star-inserted\"> User <span _ngcontent-ng-c2281276263=\"\" class=\"mat-mdc-tooltip-trigger timestamp ng-star-inserted\" aria-describedby=\"cdk-describedby-messa",
+          "tag": "DIV",
+          "text": "User 12:00"
+        },
+        {
+          "cls": "chat-turn-container code-block-aligner render user ng-star-inserted",
+          "html": "<div _ngcontent-ng-c2281276263=\"\" tabindex=\"-1\" cdkmonitorsubtreefocus=\"\" class=\"chat-turn-container code-block-aligner render user ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions-container\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions hover-or-edit\"><!----><!----><!----><ms-chat-turn-options _ngcontent-ng-c2281276263=\"\" mattooltip=\"More options\" mattooltipposition=\"below\" class=\"mat-mdc-tooltip-trigger\" aria-describedby=\"cdk-describedby-message-ng-1-44\" cdk-describedby-ho",
+          "tag": "DIV",
+          "text": "more_vert User 12:00"
+        }
+      ],
+      "aria": "View full image",
+      "cls": "mat-mdc-tooltip-trigger view-full-image-button ms-button-borderless ms-button-icon",
+      "outer": "<button _ngcontent-ng-c772619731=\"\" ms-button=\"\" variant=\"icon-borderless\" aria-label=\"View full image\" mattooltip=\"View full image\" class=\"mat-mdc-tooltip-trigger view-full-image-button ms-button-borderless ms-button-icon\" jslog=\"253133;track:generic_click,impression\" aria-disabled=\"false\"><span _ngcontent-ng-c772619731=\"\" class=\"material-symbols-outlined notranslate ms-button-icon-symbol ng-star-inserted\" aria-hidden=\"true\">fullscreen</span></button>",
+      "src": "",
+      "tag": "BUTTON",
+      "text": "fullscreen",
+      "title": ""
+    },
+    {
+      "ancestors": [
+        {
+          "cls": "loaded-image ng-star-inserted",
+          "html": "<img _ngcontent-ng-c772619731=\"\" class=\"loaded-image ng-star-inserted\" alt=\"sample_square.png\" src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAoAAAAFoCAYAAADHMkpRAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAADKLSURBVHhe7d1PqyzHmefxfgvjjecNzMxGK8/KK63GGxlvTGMQDIMxGDMgLYwQDYIWFm6wN3dhLi0a9x1QL4yRaawxjMUg90ICGWwv1AtjELRbIIENli2pW9YfywM1PHVOncqMeH4RkZGRVZkZ38VncetUZkY8EZn5u5lZVX/x0Sf/7wAAAIB+/EX4AgAAAPaNAAgAANAZAiAAAEBnCIAAAACdIQACAAB0hgAIAADQGQIgAABAZwiAAAAAnSEAAgAAdIYACA",
+          "tag": "IMG",
+          "text": ""
+        },
+        {
+          "cls": "image-container",
+          "html": "<div _ngcontent-ng-c772619731=\"\" class=\"image-container\"><!----><div _ngcontent-ng-c772619731=\"\" class=\"bottom-right-image-controls ng-star-inserted\"><button _ngcontent-ng-c772619731=\"\" ms-button=\"\" variant=\"icon-borderless\" aria-label=\"Download\" mattooltip=\"Download\" class=\"mat-mdc-tooltip-trigger download-button ms-button-borderless ms-button-icon\" jslog=\"253131;track:generic_click,impression\" aria-disabled=\"false\"><span _ngcontent-ng-c772619731=\"\" class=\"material-symbols-outlined notranslate ",
+          "tag": "DIV",
+          "text": ""
+        },
+        {
+          "cls": "ng-star-inserted",
+          "html": "<ms-image-chunk _ngcontent-ng-c3242716017=\"\" _nghost-ng-c772619731=\"\" class=\"ng-star-inserted\"><div _ngcontent-ng-c772619731=\"\" class=\"image-container\"><!----><div _ngcontent-ng-c772619731=\"\" class=\"bottom-right-image-controls ng-star-inserted\"><button _ngcontent-ng-c772619731=\"\" ms-button=\"\" variant=\"icon-borderless\" aria-label=\"Download\" mattooltip=\"Download\" class=\"mat-mdc-tooltip-trigger download-button ms-button-borderless ms-button-icon\" jslog=\"253131;track:generic_click,impression\" aria-d",
+          "tag": "MS-IMAGE-CHUNK",
+          "text": ""
+        },
+        {
+          "cls": "ng-star-inserted",
+          "html": "<ms-prompt-chunk _ngcontent-ng-c2281276263=\"\" _nghost-ng-c3242716017=\"\" id=\"FFF1D6C8-C784-40F3-809D-B8FC31543C48\" class=\"ng-star-inserted\"><!----><!----><ms-image-chunk _ngcontent-ng-c3242716017=\"\" _nghost-ng-c772619731=\"\" class=\"ng-star-inserted\"><div _ngcontent-ng-c772619731=\"\" class=\"image-container\"><!----><div _ngcontent-ng-c772619731=\"\" class=\"bottom-right-image-controls ng-star-inserted\"><button _ngcontent-ng-c772619731=\"\" ms-button=\"\" variant=\"icon-borderless\" aria-label=\"Download\" matto",
+          "tag": "MS-PROMPT-CHUNK",
+          "text": ""
+        },
+        {
+          "cls": "turn-content",
+          "html": "<div _ngcontent-ng-c2281276263=\"\" msheightchanged=\"\" class=\"turn-content\"><!----><div _ngcontent-ng-c2281276263=\"\" role=\"heading\" aria-level=\"3\" class=\"author-label ng-star-inserted\"> User <span _ngcontent-ng-c2281276263=\"\" class=\"mat-mdc-tooltip-trigger timestamp ng-star-inserted\" aria-describedby=\"cdk-describedby-message-ng-1-48\" cdk-describedby-host=\"ng-1\">12:00</span><!----><!----></div><!----><!----><!----><ms-prompt-chunk _ngcontent-ng-c2281276263=\"\" _nghost-ng-c3242716017=\"\" id=\"FFF1D6C8-",
+          "tag": "DIV",
+          "text": "User 12:00"
+        },
+        {
+          "cls": "virtual-scroll-container user-prompt-container",
+          "html": "<div _ngcontent-ng-c2281276263=\"\" class=\"virtual-scroll-container user-prompt-container\" data-turn-role=\"User\"><div _ngcontent-ng-c2281276263=\"\" style=\"height: 276.156px;\"></div><div _ngcontent-ng-c2281276263=\"\" msheightchanged=\"\" class=\"turn-content\"><!----><div _ngcontent-ng-c2281276263=\"\" role=\"heading\" aria-level=\"3\" class=\"author-label ng-star-inserted\"> User <span _ngcontent-ng-c2281276263=\"\" class=\"mat-mdc-tooltip-trigger timestamp ng-star-inserted\" aria-describedby=\"cdk-describedby-messa",
+          "tag": "DIV",
+          "text": "User 12:00"
+        },
+        {
+          "cls": "chat-turn-container code-block-aligner render user ng-star-inserted",
+          "html": "<div _ngcontent-ng-c2281276263=\"\" tabindex=\"-1\" cdkmonitorsubtreefocus=\"\" class=\"chat-turn-container code-block-aligner render user ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions-container\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions hover-or-edit\"><!----><!----><!----><ms-chat-turn-options _ngcontent-ng-c2281276263=\"\" mattooltip=\"More options\" mattooltipposition=\"below\" class=\"mat-mdc-tooltip-trigger\" aria-describedby=\"cdk-describedby-message-ng-1-44\" cdk-describedby-ho",
+          "tag": "DIV",
+          "text": "more_vert User 12:00"
+        },
+        {
+          "cls": "ng-star-inserted",
+          "html": "<ms-chat-turn _ngcontent-ng-c1343344911=\"\" _nghost-ng-c2281276263=\"\" id=\"turn-FFF1D6C8-C784-40F3-809D-B8FC31543C48\" class=\"ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" tabindex=\"-1\" cdkmonitorsubtreefocus=\"\" class=\"chat-turn-container code-block-aligner render user ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions-container\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions hover-or-edit\"><!----><!----><!----><ms-chat-turn-options _ngcontent-ng-c2281276263=\"\" mattooltip=\"M",
+          "tag": "MS-CHAT-TURN",
+          "text": "more_vert User 12:00"
+        }
+      ],
+      "aria": "",
+      "cls": "loaded-image ng-star-inserted",
+      "outer": "<img _ngcontent-ng-c772619731=\"\" class=\"loaded-image ng-star-inserted\" alt=\"sample_square.png\" src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAoAAAAFoCAYAAADHMkpRAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAADKLSURBVHhe7d1PqyzHmefxfgvjjecNzMxGK8/KK63GGxlvTGMQDIMxGDMgLYwQDYIWFm6wN3dhLi0a9x1QL4yRaawxjMUg90ICGWwv1AtjELRbIIENli2pW9YfywM1PHVOncqMeH4RkZGRVZkZ38VncetUZkY8EZn5u5lZVX/x0Sf/7wAAAIB+/EX4AgAAAPaNAAgAANAZAiAAAEBnCIAAAACdIQACAAB0hgAIAADQGQIgAABAZwiAAAAAnSEAAgAAdIYACAAA0BkCIAAAQGcIgAAAAJ0hAAIAAHSGAAgAANAZAiAAAEBnCIAAAACdIQACAAB0hgAIAADQGQIgAABAZwiAAAAAnSEAAgAAdIYACAAA0BkCIAAAQGcIgAAAAJ0hAAIAAHSGAAgAANAZAiAAAEBnCIAAAACdIQACAAB0hgAIAADQGQIgAABAZwiAAAAAnSEAAgAAdIYACAAA0BkCIAAAQGcIgAAAAJ0hAAIAAHSGAAgAANAZAiAAAEBnCIAAAACdIQACAAB0hgAIAADQGQIgAABAZwiAAAAAnSEAAgAAdIYACAAA0BkCIAAAQGcIgAAAAJ0hAAIAAHSGAAgAANAZAiAAAEBnNh8AX/nlx4d7P/wj0JTNq3CuAQCwF5sPgHay/k9feRtoyuZVONcAANgLAiDgIAACAPaMAAg4CIAAgD0jAAIOAiAAYM8IgICDAAhg7X715p+OH1hTfvY6H2aDRgAEHARAANf01tufHEPccz+5+WaCR7/97uHzT78THaumePjJd47r+cb33j/c/9H7x/VbiAy3jT4QAAEHARDAJVkY+9YP/nj44jffjY5Hl2Dh0oLhj3/x4eF37/05ah/2hwAIOAiAAJZkt2ftKpxdkQuPP2tgQdQC6UuvfXR47wMC4R4RAAEHARBAa//8r386PPXc+4fPfv0P0TFnzR762u8PT/z9vx/DYNgnbBcBEH",
+      "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAoAAAAFoCAYAAADHMkpRAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAADKLSURBVHhe7d1PqyzHmefxfgvjjecNzMxGK8/KK63GGxlvTGMQDIMxGDMgLYwQDY",
+      "tag": "IMG",
+      "text": "",
+      "title": ""
+    },
+    {
+      "ancestors": [
+        {
+          "cls": "text-chunk ng-star-inserted",
+          "html": "<ms-prompt-chunk _ngcontent-ng-c2281276263=\"\" _nghost-ng-c3242716017=\"\" class=\"text-chunk ng-star-inserted\" id=\"BC095C83-DA8A-48C4-9738-5754FE6C3089\"><!----><ms-text-chunk _ngcontent-ng-c3242716017=\"\" _nghost-ng-c3950606655=\"\" class=\"ng-star-inserted\"><ms-cmark-node _ngcontent-ng-c3950606655=\"\" class=\"cmark-node v3-font-body user-chunk ng-star-inserted\" _nghost-ng-c1225066273=\"\"><!----><!----><!----><!----><!----><!----><!----><p _ngcontent-ng-c1225066273=\"\" class=\"ng-star-inserted\"><ms-cmark-no",
+          "tag": "MS-PROMPT-CHUNK",
+          "text": "PCE-RICH-googleaistudio-image-1775793609 Confirm which attachment you received in one short sentence. Then include this markdown link exactly: Source and a fenced python code block that prints 'PCE-RI"
+        },
+        {
+          "cls": "turn-content",
+          "html": "<div _ngcontent-ng-c2281276263=\"\" msheightchanged=\"\" class=\"turn-content\"><!----><ms-prompt-chunk _ngcontent-ng-c2281276263=\"\" _nghost-ng-c3242716017=\"\" class=\"text-chunk ng-star-inserted\" id=\"BC095C83-DA8A-48C4-9738-5754FE6C3089\"><!----><ms-text-chunk _ngcontent-ng-c3242716017=\"\" _nghost-ng-c3950606655=\"\" class=\"ng-star-inserted\"><ms-cmark-node _ngcontent-ng-c3950606655=\"\" class=\"cmark-node v3-font-body user-chunk ng-star-inserted\" _nghost-ng-c1225066273=\"\"><!----><!----><!----><!----><!----><!",
+          "tag": "DIV",
+          "text": "PCE-RICH-googleaistudio-image-1775793609 Confirm which attachment you received in one short sentence. Then include this markdown link exactly: Source and a fenced python code block that prints 'PCE-RI"
+        },
+        {
+          "cls": "virtual-scroll-container user-prompt-container",
+          "html": "<div _ngcontent-ng-c2281276263=\"\" class=\"virtual-scroll-container user-prompt-container\" data-turn-role=\"User\"><div _ngcontent-ng-c2281276263=\"\" style=\"height: 92px;\"></div><div _ngcontent-ng-c2281276263=\"\" msheightchanged=\"\" class=\"turn-content\"><!----><ms-prompt-chunk _ngcontent-ng-c2281276263=\"\" _nghost-ng-c3242716017=\"\" class=\"text-chunk ng-star-inserted\" id=\"BC095C83-DA8A-48C4-9738-5754FE6C3089\"><!----><ms-text-chunk _ngcontent-ng-c3242716017=\"\" _nghost-ng-c3950606655=\"\" class=\"ng-star-inse",
+          "tag": "DIV",
+          "text": "PCE-RICH-googleaistudio-image-1775793609 Confirm which attachment you received in one short sentence. Then include this markdown link exactly: Source and a fenced python code block that prints 'PCE-RI"
+        },
+        {
+          "cls": "chat-turn-container code-block-aligner render user ng-star-inserted",
+          "html": "<div _ngcontent-ng-c2281276263=\"\" tabindex=\"-1\" cdkmonitorsubtreefocus=\"\" class=\"chat-turn-container code-block-aligner render user ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions-container\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions hover-or-edit\"><!----><button _ngcontent-ng-c2281276263=\"\" ms-button=\"\" variant=\"icon-borderless\" mattooltipposition=\"below\" class=\"mat-mdc-tooltip-trigger toggle-edit-button ms-button-borderless ms-button-icon ng-star-inserted\" aria-label=\"",
+          "tag": "DIV",
+          "text": "edit more_vert PCE-RICH-googleaistudio-image-1775793609 Confirm which attachment you received in one short sentence. Then include this markdown link exactly: Source and a fenced python code block that"
+        },
+        {
+          "cls": "ng-star-inserted",
+          "html": "<ms-chat-turn _ngcontent-ng-c1343344911=\"\" _nghost-ng-c2281276263=\"\" id=\"turn-BC095C83-DA8A-48C4-9738-5754FE6C3089\" class=\"ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" tabindex=\"-1\" cdkmonitorsubtreefocus=\"\" class=\"chat-turn-container code-block-aligner render user ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions-container\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions hover-or-edit\"><!----><button _ngcontent-ng-c2281276263=\"\" ms-button=\"\" variant=\"icon-borderless\" ma",
+          "tag": "MS-CHAT-TURN",
+          "text": "edit more_vert PCE-RICH-googleaistudio-image-1775793609 Confirm which attachment you received in one short sentence. Then include this markdown link exactly: Source and a fenced python code block that"
+        },
+        {
+          "cls": "chat-session-content",
+          "html": "<div _ngcontent-ng-c1343344911=\"\" class=\"chat-session-content\"><!----><ms-chat-turn _ngcontent-ng-c1343344911=\"\" _nghost-ng-c2281276263=\"\" id=\"turn-FFF1D6C8-C784-40F3-809D-B8FC31543C48\" class=\"ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" tabindex=\"-1\" cdkmonitorsubtreefocus=\"\" class=\"chat-turn-container code-block-aligner render user ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions-container\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions hover-or-edit\"><!----><!----><",
+          "tag": "DIV",
+          "text": "more_vert User 12:00 edit more_vert PCE-RICH-googleaistudio-image-1775793609 Confirm which attachment you received in one short sentence. Then include this markdown link exactly: Source and a fenced p"
+        },
+        {
+          "cls": "",
+          "html": "<div _ngcontent-ng-c3582078194=\"\"><div _ngcontent-ng-c1343344911=\"\" class=\"chat-session-content\"><!----><ms-chat-turn _ngcontent-ng-c1343344911=\"\" _nghost-ng-c2281276263=\"\" id=\"turn-FFF1D6C8-C784-40F3-809D-B8FC31543C48\" class=\"ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" tabindex=\"-1\" cdkmonitorsubtreefocus=\"\" class=\"chat-turn-container code-block-aligner render user ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions-container\"><div _ngcontent-ng-c2281276263=\"\" class=\"acti",
+          "tag": "DIV",
+          "text": "more_vert User 12:00 edit more_vert PCE-RICH-googleaistudio-image-1775793609 Confirm which attachment you received in one short sentence. Then include this markdown link exactly: Source and a fenced p"
+        },
+        {
+          "cls": "hide-scrollbar",
+          "html": "<ms-autoscroll-container _ngcontent-ng-c1343344911=\"\" tabindex=\"-1\" class=\"hide-scrollbar\" _nghost-ng-c3582078194=\"\" style=\"--ms-autoscroll-container-scrolled: 1;\"><div _ngcontent-ng-c3582078194=\"\"><div _ngcontent-ng-c1343344911=\"\" class=\"chat-session-content\"><!----><ms-chat-turn _ngcontent-ng-c1343344911=\"\" _nghost-ng-c2281276263=\"\" id=\"turn-FFF1D6C8-C784-40F3-809D-B8FC31543C48\" class=\"ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" tabindex=\"-1\" cdkmonitorsubtreefocus=\"\" class=\"chat-turn-",
+          "tag": "MS-AUTOSCROLL-CONTAINER",
+          "text": "more_vert User 12:00 edit more_vert PCE-RICH-googleaistudio-image-1775793609 Confirm which attachment you received in one short sentence. Then include this markdown link exactly: Source and a fenced p"
+        }
+      ],
+      "aria": "",
+      "cls": "text-chunk ng-star-inserted",
+      "outer": "<ms-prompt-chunk _ngcontent-ng-c2281276263=\"\" _nghost-ng-c3242716017=\"\" class=\"text-chunk ng-star-inserted\" id=\"BC095C83-DA8A-48C4-9738-5754FE6C3089\"><!----><ms-text-chunk _ngcontent-ng-c3242716017=\"\" _nghost-ng-c3950606655=\"\" class=\"ng-star-inserted\"><ms-cmark-node _ngcontent-ng-c3950606655=\"\" class=\"cmark-node v3-font-body user-chunk ng-star-inserted\" _nghost-ng-c1225066273=\"\"><!----><!----><!----><!----><!----><!----><!----><p _ngcontent-ng-c1225066273=\"\" class=\"ng-star-inserted\"><ms-cmark-node _ngcontent-ng-c1225066273=\"\" _nghost-ng-c1225066273=\"\"><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><span _ngcontent-ng-c1225066273=\"\" class=\"ng-star-inserted\">PCE-RICH-googleaistudio-image-1775793609</span><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><br _ngcontent-ng-c1225066273=\"\" class=\"ng-star-inserted\"><ms-cmark-node _ngcontent-ng-c1225066273=\"\" _nghost-ng-c1225066273=\"\" class=\"ng-star-inserted\"><!----></ms-cmark-node><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!",
+      "src": "",
+      "tag": "MS-PROMPT-CHUNK",
+      "text": "PCE-RICH-googleaistudio-image-1775793609 Confirm which attachment you received in one short sentence. Then include this markdown link exactly: Source and a fenced python code block that prints 'PCE-RICH-googleaistudio-image-1775793609'.",
+      "title": ""
+    },
+    {
+      "ancestors": [
+        {
+          "cls": "text-chunk ng-star-inserted",
+          "html": "<ms-prompt-chunk _ngcontent-ng-c2281276263=\"\" _nghost-ng-c3242716017=\"\" class=\"text-chunk ng-star-inserted\" id=\"DF1FC8C0-1D26-4136-919E-ADE2B7848FA0\"><ms-thought-chunk _ngcontent-ng-c3242716017=\"\" _nghost-ng-c3254659067=\"\" class=\"ng-tns-c3254659067-10 ng-star-inserted\"><mat-accordion _ngcontent-ng-c3254659067=\"\" displaymode=\"flat\" class=\"mat-accordion compact-accordion ng-tns-c3254659067-10\"><mat-expansion-panel _ngcontent-ng-c3254659067=\"\" toggleposition=\"after\" hidetoggle=\"true\" class=\"mat-exp",
+          "tag": "MS-PROMPT-CHUNK",
+          "text": "Thoughts Expand to view model thoughts chevron_right"
+        },
+        {
+          "cls": "turn-content",
+          "html": "<div _ngcontent-ng-c2281276263=\"\" msheightchanged=\"\" class=\"turn-content\"><!----><div _ngcontent-ng-c2281276263=\"\" role=\"heading\" aria-level=\"3\" class=\"author-label ng-star-inserted\"> Model <span _ngcontent-ng-c2281276263=\"\" class=\"mat-mdc-tooltip-trigger timestamp ng-star-inserted\" aria-describedby=\"cdk-describedby-message-ng-1-48\" cdk-describedby-host=\"ng-1\">12:00</span><!----><!----></div><!----><!----><ms-prompt-chunk _ngcontent-ng-c2281276263=\"\" _nghost-ng-c3242716017=\"\" class=\"text-chunk n",
+          "tag": "DIV",
+          "text": "Model 12:00 Thoughts Expand to view model thoughts chevron_right"
+        },
+        {
+          "cls": "virtual-scroll-container model-prompt-container",
+          "html": "<div _ngcontent-ng-c2281276263=\"\" class=\"virtual-scroll-container model-prompt-container\" data-turn-role=\"Model\"><div _ngcontent-ng-c2281276263=\"\" style=\"height: 145.844px;\"></div><div _ngcontent-ng-c2281276263=\"\" msheightchanged=\"\" class=\"turn-content\"><!----><div _ngcontent-ng-c2281276263=\"\" role=\"heading\" aria-level=\"3\" class=\"author-label ng-star-inserted\"> Model <span _ngcontent-ng-c2281276263=\"\" class=\"mat-mdc-tooltip-trigger timestamp ng-star-inserted\" aria-describedby=\"cdk-describedby-me",
+          "tag": "DIV",
+          "text": "Model 12:00 Thoughts Expand to view model thoughts chevron_right"
+        },
+        {
+          "cls": "chat-turn-container code-block-aligner model render ng-star-inserted",
+          "html": "<div _ngcontent-ng-c2281276263=\"\" tabindex=\"-1\" cdkmonitorsubtreefocus=\"\" class=\"chat-turn-container code-block-aligner model render ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions-container\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions hover-or-edit\"><!----><!----><button _ngcontent-ng-c2281276263=\"\" ms-button=\"\" variant=\"icon-borderless\" name=\"rerun-button\" mattooltipposition=\"below\" class=\"mat-mdc-tooltip-trigger rerun-button ms-button-borderless ms-button-icon ng-star-",
+          "tag": "DIV",
+          "text": "more_vert Model 12:00 Thoughts Expand to view model thoughts chevron_right"
+        },
+        {
+          "cls": "ng-star-inserted",
+          "html": "<ms-chat-turn _ngcontent-ng-c1343344911=\"\" _nghost-ng-c2281276263=\"\" id=\"turn-DF1FC8C0-1D26-4136-919E-ADE2B7848FA0\" class=\"ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" tabindex=\"-1\" cdkmonitorsubtreefocus=\"\" class=\"chat-turn-container code-block-aligner model render ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions-container\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions hover-or-edit\"><!----><!----><button _ngcontent-ng-c2281276263=\"\" ms-button=\"\" variant=\"icon-border",
+          "tag": "MS-CHAT-TURN",
+          "text": "more_vert Model 12:00 Thoughts Expand to view model thoughts chevron_right"
+        },
+        {
+          "cls": "chat-session-content",
+          "html": "<div _ngcontent-ng-c1343344911=\"\" class=\"chat-session-content\"><!----><ms-chat-turn _ngcontent-ng-c1343344911=\"\" _nghost-ng-c2281276263=\"\" id=\"turn-FFF1D6C8-C784-40F3-809D-B8FC31543C48\" class=\"ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" tabindex=\"-1\" cdkmonitorsubtreefocus=\"\" class=\"chat-turn-container code-block-aligner render user ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions-container\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions hover-or-edit\"><!----><!----><",
+          "tag": "DIV",
+          "text": "more_vert User 12:00 edit more_vert PCE-RICH-googleaistudio-image-1775793609 Confirm which attachment you received in one short sentence. Then include this markdown link exactly: Source and a fenced p"
+        },
+        {
+          "cls": "",
+          "html": "<div _ngcontent-ng-c3582078194=\"\"><div _ngcontent-ng-c1343344911=\"\" class=\"chat-session-content\"><!----><ms-chat-turn _ngcontent-ng-c1343344911=\"\" _nghost-ng-c2281276263=\"\" id=\"turn-FFF1D6C8-C784-40F3-809D-B8FC31543C48\" class=\"ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" tabindex=\"-1\" cdkmonitorsubtreefocus=\"\" class=\"chat-turn-container code-block-aligner render user ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions-container\"><div _ngcontent-ng-c2281276263=\"\" class=\"acti",
+          "tag": "DIV",
+          "text": "more_vert User 12:00 edit more_vert PCE-RICH-googleaistudio-image-1775793609 Confirm which attachment you received in one short sentence. Then include this markdown link exactly: Source and a fenced p"
+        },
+        {
+          "cls": "hide-scrollbar",
+          "html": "<ms-autoscroll-container _ngcontent-ng-c1343344911=\"\" tabindex=\"-1\" class=\"hide-scrollbar\" _nghost-ng-c3582078194=\"\" style=\"--ms-autoscroll-container-scrolled: 1;\"><div _ngcontent-ng-c3582078194=\"\"><div _ngcontent-ng-c1343344911=\"\" class=\"chat-session-content\"><!----><ms-chat-turn _ngcontent-ng-c1343344911=\"\" _nghost-ng-c2281276263=\"\" id=\"turn-FFF1D6C8-C784-40F3-809D-B8FC31543C48\" class=\"ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" tabindex=\"-1\" cdkmonitorsubtreefocus=\"\" class=\"chat-turn-",
+          "tag": "MS-AUTOSCROLL-CONTAINER",
+          "text": "more_vert User 12:00 edit more_vert PCE-RICH-googleaistudio-image-1775793609 Confirm which attachment you received in one short sentence. Then include this markdown link exactly: Source and a fenced p"
+        }
+      ],
+      "aria": "",
+      "cls": "text-chunk ng-star-inserted",
+      "outer": "<ms-prompt-chunk _ngcontent-ng-c2281276263=\"\" _nghost-ng-c3242716017=\"\" class=\"text-chunk ng-star-inserted\" id=\"DF1FC8C0-1D26-4136-919E-ADE2B7848FA0\"><ms-thought-chunk _ngcontent-ng-c3242716017=\"\" _nghost-ng-c3254659067=\"\" class=\"ng-tns-c3254659067-10 ng-star-inserted\"><mat-accordion _ngcontent-ng-c3254659067=\"\" displaymode=\"flat\" class=\"mat-accordion compact-accordion ng-tns-c3254659067-10\"><mat-expansion-panel _ngcontent-ng-c3254659067=\"\" toggleposition=\"after\" hidetoggle=\"true\" class=\"mat-expansion-panel thought-panel ng-tns-c3254659067-10\"><mat-expansion-panel-header _ngcontent-ng-c3254659067=\"\" role=\"button\" class=\"mat-expansion-panel-header mat-focus-indicator top-panel-header mat-expansion-toggle-indicator-after\" id=\"mat-expansion-panel-header-1\" tabindex=\"0\" aria-controls=\"cdk-accordion-child-1\" aria-expanded=\"false\" aria-disabled=\"false\"><span class=\"mat-content mat-content-hide-toggle\"><mat-panel-title _ngcontent-ng-c3254659067=\"\" class=\"mat-expansion-panel-header-title top-panel-title\"><img _ngcontent-ng-c3254659067=\"\" src=\"https://www.gstatic.com/aistudio/watermark/watermark.png\" alt=\"Thinking\" class=\"thinking-progress-icon ng-tns-c3254659067-10\"><!----> Thoughts <!----",
+      "src": "",
+      "tag": "MS-PROMPT-CHUNK",
+      "text": "Thoughts Expand to view model thoughts chevron_right",
+      "title": ""
+    },
+    {
+      "ancestors": [
+        {
+          "cls": "thinking-progress-icon ng-tns-c3254659067-10",
+          "html": "<img _ngcontent-ng-c3254659067=\"\" src=\"https://www.gstatic.com/aistudio/watermark/watermark.png\" alt=\"Thinking\" class=\"thinking-progress-icon ng-tns-c3254659067-10\">",
+          "tag": "IMG",
+          "text": ""
+        },
+        {
+          "cls": "mat-expansion-panel-header-title top-panel-title",
+          "html": "<mat-panel-title _ngcontent-ng-c3254659067=\"\" class=\"mat-expansion-panel-header-title top-panel-title\"><img _ngcontent-ng-c3254659067=\"\" src=\"https://www.gstatic.com/aistudio/watermark/watermark.png\" alt=\"Thinking\" class=\"thinking-progress-icon ng-tns-c3254659067-10\"><!----> Thoughts <!----></mat-panel-title>",
+          "tag": "MAT-PANEL-TITLE",
+          "text": "Thoughts"
+        },
+        {
+          "cls": "mat-content mat-content-hide-toggle",
+          "html": "<span class=\"mat-content mat-content-hide-toggle\"><mat-panel-title _ngcontent-ng-c3254659067=\"\" class=\"mat-expansion-panel-header-title top-panel-title\"><img _ngcontent-ng-c3254659067=\"\" src=\"https://www.gstatic.com/aistudio/watermark/watermark.png\" alt=\"Thinking\" class=\"thinking-progress-icon ng-tns-c3254659067-10\"><!----> Thoughts <!----></mat-panel-title><!----></span>",
+          "tag": "SPAN",
+          "text": "Thoughts"
+        },
+        {
+          "cls": "mat-expansion-panel-header mat-focus-indicator top-panel-header mat-expansion-toggle-indicator-after",
+          "html": "<mat-expansion-panel-header _ngcontent-ng-c3254659067=\"\" role=\"button\" class=\"mat-expansion-panel-header mat-focus-indicator top-panel-header mat-expansion-toggle-indicator-after\" id=\"mat-expansion-panel-header-1\" tabindex=\"0\" aria-controls=\"cdk-accordion-child-1\" aria-expanded=\"false\" aria-disabled=\"false\"><span class=\"mat-content mat-content-hide-toggle\"><mat-panel-title _ngcontent-ng-c3254659067=\"\" class=\"mat-expansion-panel-header-title top-panel-title\"><img _ngcontent-ng-c3254659067=\"\" src=",
+          "tag": "MAT-EXPANSION-PANEL-HEADER",
+          "text": "Thoughts"
+        },
+        {
+          "cls": "mat-expansion-panel thought-panel ng-tns-c3254659067-10",
+          "html": "<mat-expansion-panel _ngcontent-ng-c3254659067=\"\" toggleposition=\"after\" hidetoggle=\"true\" class=\"mat-expansion-panel thought-panel ng-tns-c3254659067-10\"><mat-expansion-panel-header _ngcontent-ng-c3254659067=\"\" role=\"button\" class=\"mat-expansion-panel-header mat-focus-indicator top-panel-header mat-expansion-toggle-indicator-after\" id=\"mat-expansion-panel-header-1\" tabindex=\"0\" aria-controls=\"cdk-accordion-child-1\" aria-expanded=\"false\" aria-disabled=\"false\"><span class=\"mat-content mat-content",
+          "tag": "MAT-EXPANSION-PANEL",
+          "text": "Thoughts"
+        },
+        {
+          "cls": "mat-accordion compact-accordion ng-tns-c3254659067-10",
+          "html": "<mat-accordion _ngcontent-ng-c3254659067=\"\" displaymode=\"flat\" class=\"mat-accordion compact-accordion ng-tns-c3254659067-10\"><mat-expansion-panel _ngcontent-ng-c3254659067=\"\" toggleposition=\"after\" hidetoggle=\"true\" class=\"mat-expansion-panel thought-panel ng-tns-c3254659067-10\"><mat-expansion-panel-header _ngcontent-ng-c3254659067=\"\" role=\"button\" class=\"mat-expansion-panel-header mat-focus-indicator top-panel-header mat-expansion-toggle-indicator-after\" id=\"mat-expansion-panel-header-1\" tabind",
+          "tag": "MAT-ACCORDION",
+          "text": "Thoughts Expand to view model thoughts chevron_right"
+        },
+        {
+          "cls": "ng-tns-c3254659067-10 ng-star-inserted",
+          "html": "<ms-thought-chunk _ngcontent-ng-c3242716017=\"\" _nghost-ng-c3254659067=\"\" class=\"ng-tns-c3254659067-10 ng-star-inserted\"><mat-accordion _ngcontent-ng-c3254659067=\"\" displaymode=\"flat\" class=\"mat-accordion compact-accordion ng-tns-c3254659067-10\"><mat-expansion-panel _ngcontent-ng-c3254659067=\"\" toggleposition=\"after\" hidetoggle=\"true\" class=\"mat-expansion-panel thought-panel ng-tns-c3254659067-10\"><mat-expansion-panel-header _ngcontent-ng-c3254659067=\"\" role=\"button\" class=\"mat-expansion-panel-he",
+          "tag": "MS-THOUGHT-CHUNK",
+          "text": "Thoughts Expand to view model thoughts chevron_right"
+        },
+        {
+          "cls": "text-chunk ng-star-inserted",
+          "html": "<ms-prompt-chunk _ngcontent-ng-c2281276263=\"\" _nghost-ng-c3242716017=\"\" class=\"text-chunk ng-star-inserted\" id=\"DF1FC8C0-1D26-4136-919E-ADE2B7848FA0\"><ms-thought-chunk _ngcontent-ng-c3242716017=\"\" _nghost-ng-c3254659067=\"\" class=\"ng-tns-c3254659067-10 ng-star-inserted\"><mat-accordion _ngcontent-ng-c3254659067=\"\" displaymode=\"flat\" class=\"mat-accordion compact-accordion ng-tns-c3254659067-10\"><mat-expansion-panel _ngcontent-ng-c3254659067=\"\" toggleposition=\"after\" hidetoggle=\"true\" class=\"mat-exp",
+          "tag": "MS-PROMPT-CHUNK",
+          "text": "Thoughts Expand to view model thoughts chevron_right"
+        }
+      ],
+      "aria": "",
+      "cls": "thinking-progress-icon ng-tns-c3254659067-10",
+      "outer": "<img _ngcontent-ng-c3254659067=\"\" src=\"https://www.gstatic.com/aistudio/watermark/watermark.png\" alt=\"Thinking\" class=\"thinking-progress-icon ng-tns-c3254659067-10\">",
+      "src": "https://www.gstatic.com/aistudio/watermark/watermark.png",
+      "tag": "IMG",
+      "text": "",
+      "title": ""
+    },
+    {
+      "ancestors": [
+        {
+          "cls": "text-chunk ng-star-inserted",
+          "html": "<ms-prompt-chunk _ngcontent-ng-c2281276263=\"\" _nghost-ng-c3242716017=\"\" class=\"text-chunk ng-star-inserted\" id=\"8A4C9822-6969-49A1-A134-F738E2D3CE2D\"><!----><ms-text-chunk _ngcontent-ng-c3242716017=\"\" _nghost-ng-c3950606655=\"\" class=\"ng-star-inserted\"><ms-cmark-node _ngcontent-ng-c3950606655=\"\" class=\"cmark-node v3-font-body ng-star-inserted\" _nghost-ng-c1225066273=\"\"><!----><!----><!----><!----><!----><!----><!----><p _ngcontent-ng-c1225066273=\"\" class=\"ng-star-inserted\"><ms-cmark-node _ngconte",
+          "tag": "MS-PROMPT-CHUNK",
+          "text": "I received the image attachment labeled PCE-RICH-googleaistudio-image-1775793609, which features a blue square, an outlined blue circle, and text for a rich content test. Source code Python download c"
+        },
+        {
+          "cls": "turn-content",
+          "html": "<div _ngcontent-ng-c2281276263=\"\" msheightchanged=\"\" class=\"turn-content\"><!----><ms-prompt-chunk _ngcontent-ng-c2281276263=\"\" _nghost-ng-c3242716017=\"\" class=\"text-chunk ng-star-inserted\" id=\"8A4C9822-6969-49A1-A134-F738E2D3CE2D\"><!----><ms-text-chunk _ngcontent-ng-c3242716017=\"\" _nghost-ng-c3950606655=\"\" class=\"ng-star-inserted\"><ms-cmark-node _ngcontent-ng-c3950606655=\"\" class=\"cmark-node v3-font-body ng-star-inserted\" _nghost-ng-c1225066273=\"\"><!----><!----><!----><!----><!----><!----><!----",
+          "tag": "DIV",
+          "text": "I received the image attachment labeled PCE-RICH-googleaistudio-image-1775793609, which features a blue square, an outlined blue circle, and text for a rich content test. Source code Python download c"
+        },
+        {
+          "cls": "virtual-scroll-container model-prompt-container",
+          "html": "<div _ngcontent-ng-c2281276263=\"\" class=\"virtual-scroll-container model-prompt-container\" data-turn-role=\"Model\"><div _ngcontent-ng-c2281276263=\"\" style=\"height: 218.141px;\"></div><div _ngcontent-ng-c2281276263=\"\" msheightchanged=\"\" class=\"turn-content\"><!----><ms-prompt-chunk _ngcontent-ng-c2281276263=\"\" _nghost-ng-c3242716017=\"\" class=\"text-chunk ng-star-inserted\" id=\"8A4C9822-6969-49A1-A134-F738E2D3CE2D\"><!----><ms-text-chunk _ngcontent-ng-c3242716017=\"\" _nghost-ng-c3950606655=\"\" class=\"ng-st",
+          "tag": "DIV",
+          "text": "I received the image attachment labeled PCE-RICH-googleaistudio-image-1775793609, which features a blue square, an outlined blue circle, and text for a rich content test. Source code Python download c"
+        },
+        {
+          "cls": "chat-turn-container code-block-aligner model render ng-star-inserted",
+          "html": "<div _ngcontent-ng-c2281276263=\"\" tabindex=\"-1\" cdkmonitorsubtreefocus=\"\" class=\"chat-turn-container code-block-aligner model render ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions-container\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions hover-or-edit\"><!----><button _ngcontent-ng-c2281276263=\"\" ms-button=\"\" variant=\"icon-borderless\" mattooltipposition=\"below\" class=\"mat-mdc-tooltip-trigger toggle-edit-button ms-button-borderless ms-button-icon ng-star-inserted\" aria-label=",
+          "tag": "DIV",
+          "text": "edit more_vert I received the image attachment labeled PCE-RICH-googleaistudio-image-1775793609, which features a blue square, an outlined blue circle, and text for a rich content test. Source code Py"
+        },
+        {
+          "cls": "ng-star-inserted",
+          "html": "<ms-chat-turn _ngcontent-ng-c1343344911=\"\" _nghost-ng-c2281276263=\"\" id=\"turn-8A4C9822-6969-49A1-A134-F738E2D3CE2D\" class=\"ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" tabindex=\"-1\" cdkmonitorsubtreefocus=\"\" class=\"chat-turn-container code-block-aligner model render ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions-container\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions hover-or-edit\"><!----><button _ngcontent-ng-c2281276263=\"\" ms-button=\"\" variant=\"icon-borderless\" m",
+          "tag": "MS-CHAT-TURN",
+          "text": "edit more_vert I received the image attachment labeled PCE-RICH-googleaistudio-image-1775793609, which features a blue square, an outlined blue circle, and text for a rich content test. Source code Py"
+        },
+        {
+          "cls": "chat-session-content",
+          "html": "<div _ngcontent-ng-c1343344911=\"\" class=\"chat-session-content\"><!----><ms-chat-turn _ngcontent-ng-c1343344911=\"\" _nghost-ng-c2281276263=\"\" id=\"turn-FFF1D6C8-C784-40F3-809D-B8FC31543C48\" class=\"ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" tabindex=\"-1\" cdkmonitorsubtreefocus=\"\" class=\"chat-turn-container code-block-aligner render user ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions-container\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions hover-or-edit\"><!----><!----><",
+          "tag": "DIV",
+          "text": "more_vert User 12:00 edit more_vert PCE-RICH-googleaistudio-image-1775793609 Confirm which attachment you received in one short sentence. Then include this markdown link exactly: Source and a fenced p"
+        },
+        {
+          "cls": "",
+          "html": "<div _ngcontent-ng-c3582078194=\"\"><div _ngcontent-ng-c1343344911=\"\" class=\"chat-session-content\"><!----><ms-chat-turn _ngcontent-ng-c1343344911=\"\" _nghost-ng-c2281276263=\"\" id=\"turn-FFF1D6C8-C784-40F3-809D-B8FC31543C48\" class=\"ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" tabindex=\"-1\" cdkmonitorsubtreefocus=\"\" class=\"chat-turn-container code-block-aligner render user ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" class=\"actions-container\"><div _ngcontent-ng-c2281276263=\"\" class=\"acti",
+          "tag": "DIV",
+          "text": "more_vert User 12:00 edit more_vert PCE-RICH-googleaistudio-image-1775793609 Confirm which attachment you received in one short sentence. Then include this markdown link exactly: Source and a fenced p"
+        },
+        {
+          "cls": "hide-scrollbar",
+          "html": "<ms-autoscroll-container _ngcontent-ng-c1343344911=\"\" tabindex=\"-1\" class=\"hide-scrollbar\" _nghost-ng-c3582078194=\"\" style=\"--ms-autoscroll-container-scrolled: 1;\"><div _ngcontent-ng-c3582078194=\"\"><div _ngcontent-ng-c1343344911=\"\" class=\"chat-session-content\"><!----><ms-chat-turn _ngcontent-ng-c1343344911=\"\" _nghost-ng-c2281276263=\"\" id=\"turn-FFF1D6C8-C784-40F3-809D-B8FC31543C48\" class=\"ng-star-inserted\"><div _ngcontent-ng-c2281276263=\"\" tabindex=\"-1\" cdkmonitorsubtreefocus=\"\" class=\"chat-turn-",
+          "tag": "MS-AUTOSCROLL-CONTAINER",
+          "text": "more_vert User 12:00 edit more_vert PCE-RICH-googleaistudio-image-1775793609 Confirm which attachment you received in one short sentence. Then include this markdown link exactly: Source and a fenced p"
+        }
+      ],
+      "aria": "",
+      "cls": "text-chunk ng-star-inserted",
+      "outer": "<ms-prompt-chunk _ngcontent-ng-c2281276263=\"\" _nghost-ng-c3242716017=\"\" class=\"text-chunk ng-star-inserted\" id=\"8A4C9822-6969-49A1-A134-F738E2D3CE2D\"><!----><ms-text-chunk _ngcontent-ng-c3242716017=\"\" _nghost-ng-c3950606655=\"\" class=\"ng-star-inserted\"><ms-cmark-node _ngcontent-ng-c3950606655=\"\" class=\"cmark-node v3-font-body ng-star-inserted\" _nghost-ng-c1225066273=\"\"><!----><!----><!----><!----><!----><!----><!----><p _ngcontent-ng-c1225066273=\"\" class=\"ng-star-inserted\"><ms-cmark-node _ngcontent-ng-c1225066273=\"\" _nghost-ng-c1225066273=\"\"><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><span _ngcontent-ng-c1225066273=\"\" class=\"ng-star-inserted\">I received the image attachment labeled PCE-RICH-googleaistudio-image-1775793609, which features a blue square, an outlined blue circle, and text for a rich content test.</span><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----></ms-cmark-node></p><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><p _ngcontent-ng-c1225066",
+      "src": "",
+      "tag": "MS-PROMPT-CHUNK",
+      "text": "I received the image attachment labeled PCE-RICH-googleaistudio-image-1775793609, which features a blue square, an outlined blue circle, and text for a rich content test. Source code Python download content_copy expand_less print('PCE-RICH-googleaistudio-image-1775793609')",
+      "title": ""
+    }
+  ],
+  "url": "https://aistudio.google.com/prompts/1xJXVhVoNrUTsMRo7xTaDs4dt2LNYHVMC"
+}

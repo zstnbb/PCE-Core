@@ -1,0 +1,392 @@
+{
+  "generated_at": 1775789413.6709738,
+  "root": "F:\\INVENTION\\You.Inc\\PCE Core",
+  "db": {
+    "db_path": "C:\\Users\\ZST\\.pce\\data\\pce.db",
+    "exists": true,
+    "counts": {
+      "raw_captures": 143,
+      "sessions": 27,
+      "messages": 76
+    },
+    "providers": {
+      "google": {
+        "sessions": 19,
+        "messages": 60,
+        "rich_messages": 35,
+        "attachment_types": {
+          "citation": 23,
+          "code_block": 12,
+          "file": 11,
+          "image_generation": 2,
+          "tool_call": 2,
+          "image_url": 2
+        },
+        "block_types": {}
+      },
+      "manus": {
+        "sessions": 1,
+        "messages": 2,
+        "rich_messages": 2,
+        "attachment_types": {
+          "citation": 2,
+          "code_block": 1
+        },
+        "block_types": {}
+      },
+      "openai": {
+        "sessions": 6,
+        "messages": 13,
+        "rich_messages": 7,
+        "attachment_types": {
+          "file": 6,
+          "code_block": 2,
+          "citation": 2
+        },
+        "block_types": {}
+      },
+      "unknown": {
+        "sessions": 1,
+        "messages": 1,
+        "rich_messages": 0,
+        "attachment_types": {},
+        "block_types": {}
+      }
+    },
+    "raw_captures": {
+      "google": {
+        "conversation": 23
+      },
+      "manus": {
+        "conversation": 2
+      },
+      "openai": {
+        "conversation": 7,
+        "network_intercept": 75
+      },
+      "unknown": {
+        "network_intercept": 36
+      }
+    },
+    "recent_rich_samples": [
+      {
+        "provider": "google",
+        "session_id": "c92d93371ebd48cab373ca17c97519ef",
+        "role": "assistant",
+        "ts": 1775787190.5813324,
+        "text_preview": "I'll analyze the data. Here's a summary and code:  import pandas as pd df = pd.read_csv('data.csv') print(df.describe())  The data shows strong correlation betw",
+        "attachment_types": [
+          "code_block",
+          "image_generation"
+        ]
+      },
+      {
+        "provider": "google",
+        "session_id": "c92d93371ebd48cab373ca17c97519ef",
+        "role": "user",
+        "ts": 1775787190.5813324,
+        "text_preview": "Analyze this data and create a chart",
+        "attachment_types": [
+          "file",
+          "file"
+        ]
+      },
+      {
+        "provider": "google",
+        "session_id": "a169787a4cfc405496a96a9bdfeebf36",
+        "role": "assistant",
+        "ts": 1775787190.077929,
+        "text_preview": "Here are the latest AI news stories I found...",
+        "attachment_types": [
+          "tool_call",
+          "citation"
+        ]
+      },
+      {
+        "provider": "google",
+        "session_id": "b65c0b1159794a4286abd740f809a9b6",
+        "role": "user",
+        "ts": 1775787189.0716305,
+        "text_preview": "Please summarize this document",
+        "attachment_types": [
+          "file"
+        ]
+      },
+      {
+        "provider": "google",
+        "session_id": "6d0e264521e84c448b6159709e5d68ef",
+        "role": "user",
+        "ts": 1775787188.339767,
+        "text_preview": "Describe this image",
+        "attachment_types": [
+          "image_url"
+        ]
+      },
+      {
+        "provider": "google",
+        "session_id": "27e892e7e11047fc8b3cf2478cc18596",
+        "role": "assistant",
+        "ts": 1775787187.4912934,
+        "text_preview": "Quantum computing uses quantum mechanics principles...",
+        "attachment_types": [
+          "citation",
+          "citation"
+        ]
+      },
+      {
+        "provider": "google",
+        "session_id": "aba5995535c04fd1912c7db64447722e",
+        "role": "assistant",
+        "ts": 1775787186.8735723,
+        "text_preview": "Here's a simple Python program:  print(\"Hello, World!\")  This will output \"Hello, World!\" to the console.",
+        "attachment_types": [
+          "code_block"
+        ]
+      },
+      {
+        "provider": "google",
+        "session_id": "9c546133cd1d47da9e06d2308bb2f82c",
+        "role": "assistant",
+        "ts": 1775786079.200039,
+        "text_preview": "I'll analyze the data. Here's a summary and code:  import pandas as pd df = pd.read_csv('data.csv') print(df.describe())  The data shows strong correlation betw",
+        "attachment_types": [
+          "code_block",
+          "image_generation"
+        ]
+      },
+      {
+        "provider": "google",
+        "session_id": "9c546133cd1d47da9e06d2308bb2f82c",
+        "role": "user",
+        "ts": 1775786079.200039,
+        "text_preview": "Analyze this data and create a chart",
+        "attachment_types": [
+          "file",
+          "file"
+        ]
+      },
+      {
+        "provider": "google",
+        "session_id": "3fe3bd7071754c29bdad4b56a7fe4435",
+        "role": "assistant",
+        "ts": 1775786078.6377213,
+        "text_preview": "Here are the latest AI news stories I found...",
+        "attachment_types": [
+          "tool_call",
+          "citation"
+        ]
+      },
+      {
+        "provider": "google",
+        "session_id": "50856a199ff9417c9842d3f77cab7d93",
+        "role": "user",
+        "ts": 1775786078.0996678,
+        "text_preview": "Please summarize this document",
+        "attachment_types": [
+          "file"
+        ]
+      },
+      {
+        "provider": "google",
+        "session_id": "6d2bda5260544f77bdf2724dbe0127e0",
+        "role": "user",
+        "ts": 1775786077.5299027,
+        "text_preview": "Describe this image",
+        "attachment_types": [
+          "image_url"
+        ]
+      }
+    ]
+  },
+  "screenshots": {
+    "exists": true,
+    "by_site": {
+      "chatgpt": {
+        "before_send": 29,
+        "after_response": 29,
+        "capture_failed": 2,
+        "session_failed": 3,
+        "send_fail": 0,
+        "no_input": 1
+      },
+      "claude": {
+        "before_send": 0,
+        "after_response": 0,
+        "capture_failed": 0,
+        "session_failed": 0,
+        "send_fail": 0,
+        "no_input": 1
+      },
+      "deepseek": {
+        "before_send": 9,
+        "after_response": 9,
+        "capture_failed": 0,
+        "session_failed": 0,
+        "send_fail": 0,
+        "no_input": 0
+      },
+      "gemini": {
+        "before_send": 13,
+        "after_response": 13,
+        "capture_failed": 0,
+        "session_failed": 1,
+        "send_fail": 0,
+        "no_input": 0
+      },
+      "googleaistudio": {
+        "before_send": 20,
+        "after_response": 17,
+        "capture_failed": 1,
+        "session_failed": 0,
+        "send_fail": 0,
+        "no_input": 1
+      },
+      "grok": {
+        "before_send": 12,
+        "after_response": 12,
+        "capture_failed": 0,
+        "session_failed": 0,
+        "send_fail": 0,
+        "no_input": 0
+      },
+      "kimi": {
+        "before_send": 1,
+        "after_response": 0,
+        "capture_failed": 0,
+        "session_failed": 0,
+        "send_fail": 1,
+        "no_input": 0
+      },
+      "manus": {
+        "before_send": 13,
+        "after_response": 13,
+        "capture_failed": 1,
+        "session_failed": 0,
+        "send_fail": 0,
+        "no_input": 0
+      },
+      "perplexity": {
+        "before_send": 11,
+        "after_response": 11,
+        "capture_failed": 0,
+        "session_failed": 0,
+        "send_fail": 0,
+        "no_input": 1
+      },
+      "poe": {
+        "before_send": 13,
+        "after_response": 13,
+        "capture_failed": 0,
+        "session_failed": 1,
+        "send_fail": 0,
+        "no_input": 0
+      },
+      "zhipu": {
+        "before_send": 15,
+        "after_response": 12,
+        "capture_failed": 0,
+        "session_failed": 1,
+        "send_fail": 3,
+        "no_input": 0
+      }
+    },
+    "latest": {
+      "chatgpt": {
+        "after_response": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\chatgpt_file_after_response_1775785482.png",
+        "before_send": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\chatgpt_file_before_send_1775785468.png",
+        "capture_failed": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\chatgpt_capture_failed_1775737090.png",
+        "no_input": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\chatgpt_no_input_1775742314.png",
+        "session_failed": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\chatgpt_session_failed_1775742653.png"
+      },
+      "claude": {
+        "no_input": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\claude_no_input_1775750642.png"
+      },
+      "deepseek": {
+        "after_response": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\deepseek_after_response_1775751145.png",
+        "before_send": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\deepseek_before_send_1775751128.png"
+      },
+      "gemini": {
+        "after_response": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\gemini_after_response_1775753308.png",
+        "before_send": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\gemini_before_send_1775753301.png",
+        "session_failed": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\gemini_session_failed_1775750798.png"
+      },
+      "googleaistudio": {
+        "after_response": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\googleaistudio_file_after_response_1775784562.png",
+        "before_send": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\googleaistudio_file_before_send_1775784552.png",
+        "capture_failed": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\googleaistudio_capture_failed_1775739032.png",
+        "no_input": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\googleaistudio_no_input_1775752889.png"
+      },
+      "grok": {
+        "after_response": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\grok_after_response_1775753345.png",
+        "before_send": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\grok_before_send_1775753340.png"
+      },
+      "kimi": {
+        "before_send": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\kimi_before_send_1775750854.png",
+        "send_fail": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\kimi_send_fail_1775750855.png"
+      },
+      "manus": {
+        "after_response": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\manus_after_response_1775753898.png",
+        "before_send": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\manus_before_send_1775753886.png",
+        "capture_failed": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\manus_capture_failed_1775740675.png"
+      },
+      "perplexity": {
+        "after_response": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\perplexity_after_response_1775753388.png",
+        "before_send": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\perplexity_before_send_1775753382.png",
+        "no_input": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\perplexity_no_input_1775738075.png"
+      },
+      "poe": {
+        "after_response": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\poe_after_response_1775753403.png",
+        "before_send": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\poe_before_send_1775753398.png",
+        "session_failed": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\poe_session_failed_1775745049.png"
+      },
+      "zhipu": {
+        "after_response": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\zhipu_after_response_1775751172.png",
+        "before_send": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\zhipu_before_send_1775751164.png",
+        "send_fail": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\zhipu_send_fail_1775743096.png",
+        "session_failed": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\zhipu_session_failed_1775743356.png"
+      }
+    }
+  },
+  "probe_artifacts": [
+    {
+      "path": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\chatgpt_attachment_probe.json",
+      "size": 13508,
+      "mtime": 1775783589.5971427
+    },
+    {
+      "path": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\chatgpt_dom_diag.json",
+      "size": 14592,
+      "mtime": 1775784934.069576
+    },
+    {
+      "path": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\chatgpt_user_dom_diag.json",
+      "size": 10295,
+      "mtime": 1775785339.865211
+    },
+    {
+      "path": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\googleaistudio_turn_probe.json",
+      "size": 22809,
+      "mtime": 1775782447.7967267
+    },
+    {
+      "path": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\login_status_results.json",
+      "size": 14201,
+      "mtime": 1775736707.0456252
+    },
+    {
+      "path": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\site_buttons_probe.json",
+      "size": 105000,
+      "mtime": 1775781017.5866733
+    },
+    {
+      "path": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\site_dom_probe.json",
+      "size": 52356,
+      "mtime": 1775780790.2857082
+    },
+    {
+      "path": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\site_special_probe.json",
+      "size": 6514,
+      "mtime": 1775780958.9319725
+    }
+  ]
+}

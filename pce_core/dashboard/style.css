@@ -661,6 +661,65 @@ select:focus { border-color: var(--accent); }
 .btn-export { background: var(--accent-glow); color: var(--accent); border: 1px solid var(--accent); font-size: 11px; cursor: pointer; }
 .btn-export:hover { background: var(--accent); color: var(--bg-primary); }
 
+/* Favorite / Star button */
+.btn-star {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: transform 0.15s var(--ease), background 0.15s var(--ease);
+  flex-shrink: 0;
+}
+.btn-star:hover { background: var(--yellow-dim); transform: scale(1.15); }
+.btn-star:active { transform: scale(0.95); }
+.btn-star .star-icon { color: var(--text-muted); }
+.btn-star .star-icon.starred { color: var(--yellow); }
+
+.tag-protected {
+  background: var(--yellow-dim);
+  color: var(--yellow);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+}
+
+.session-row.favorited {
+  border-left: 3px solid var(--yellow);
+}
+
+.favorites-desc {
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin: 0 0 16px 0;
+  padding: 8px 12px;
+  background: var(--yellow-dim);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--yellow);
+}
+
+/* Session detail favorite button */
+.btn-fav {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  transition: all 0.15s var(--ease);
+}
+.btn-fav:hover { border-color: var(--yellow); color: var(--yellow); background: var(--yellow-dim); }
+.btn-fav.is-favorited { background: var(--yellow-dim); color: var(--yellow); border-color: var(--yellow); }
+
+.header-icon { vertical-align: -3px; margin-right: 4px; color: var(--yellow); }
+
 .capture-time, .session-time {
   font-size: 12px;
   color: var(--text-muted);

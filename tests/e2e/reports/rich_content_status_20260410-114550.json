@@ -1,0 +1,411 @@
+{
+  "generated_at": 1775792750.8402002,
+  "root": "F:\\INVENTION\\You.Inc\\PCE Core",
+  "db": {
+    "db_path": "C:\\Users\\ZST\\.pce\\data\\pce.db",
+    "exists": true,
+    "counts": {
+      "raw_captures": 253,
+      "sessions": 53,
+      "messages": 177
+    },
+    "providers": {
+      "deepseek": {
+        "sessions": 7,
+        "messages": 60,
+        "rich_messages": 30,
+        "attachment_types": {
+          "code_block": 24,
+          "citation": 24,
+          "file": 12
+        },
+        "block_types": {}
+      },
+      "google": {
+        "sessions": 33,
+        "messages": 91,
+        "rich_messages": 52,
+        "attachment_types": {
+          "citation": 31,
+          "file": 19,
+          "code_block": 16,
+          "image_generation": 4,
+          "tool_call": 4,
+          "image_url": 4
+        },
+        "block_types": {}
+      },
+      "manus": {
+        "sessions": 1,
+        "messages": 2,
+        "rich_messages": 2,
+        "attachment_types": {
+          "citation": 2,
+          "code_block": 1
+        },
+        "block_types": {}
+      },
+      "openai": {
+        "sessions": 11,
+        "messages": 23,
+        "rich_messages": 15,
+        "attachment_types": {
+          "file": 10,
+          "code_block": 6,
+          "citation": 6,
+          "image_url": 2
+        },
+        "block_types": {}
+      },
+      "unknown": {
+        "sessions": 1,
+        "messages": 1,
+        "rich_messages": 0,
+        "attachment_types": {},
+        "block_types": {}
+      }
+    },
+    "raw_captures": {
+      "deepseek": {
+        "conversation": 23
+      },
+      "google": {
+        "conversation": 39
+      },
+      "manus": {
+        "conversation": 2
+      },
+      "openai": {
+        "conversation": 12,
+        "network_intercept": 136
+      },
+      "unknown": {
+        "network_intercept": 41
+      }
+    },
+    "recent_rich_samples": [
+      {
+        "provider": "deepseek",
+        "session_id": "c6bdc64b76a847069ed94ed2ad3ba2e5",
+        "role": "assistant",
+        "ts": 1775792721.9893806,
+        "text_preview": "Source",
+        "attachment_types": [
+          "code_block",
+          "citation"
+        ]
+      },
+      {
+        "provider": "deepseek",
+        "session_id": "c6bdc64b76a847069ed94ed2ad3ba2e5",
+        "role": "assistant",
+        "ts": 1775792721.9893806,
+        "text_preview": "I received the image file sample_square.png showing a blue square and outlined circle.",
+        "attachment_types": [
+          "code_block",
+          "citation"
+        ]
+      },
+      {
+        "provider": "deepseek",
+        "session_id": "c6bdc64b76a847069ed94ed2ad3ba2e5",
+        "role": "assistant",
+        "ts": 1775792721.9893806,
+        "text_preview": "I received the image file sample_square.png showing a blue square and outlined circle.  Source  python 复制 下载 print('PCE-RICH-deepseek-image-1775792701')",
+        "attachment_types": [
+          "code_block",
+          "citation"
+        ]
+      },
+      {
+        "provider": "deepseek",
+        "session_id": "c6bdc64b76a847069ed94ed2ad3ba2e5",
+        "role": "user",
+        "ts": 1775792721.9893806,
+        "text_preview": "sample_square.pngPNG 12.74KBPCE-RICH-deepseek-image-1775792701Confirm which attachment you received in one short sentence. Then include this markdown link exact",
+        "attachment_types": [
+          "code_block",
+          "file",
+          "citation"
+        ]
+      },
+      {
+        "provider": "openai",
+        "session_id": "3aab5bbbcad84919a76e9086f8e397ce",
+        "role": "assistant",
+        "ts": 1775792696.4173212,
+        "text_preview": "I received the image attachment PCE-RICH-chatgpt-image-1775792675.  Source  Python 运行 print('PCE-RICH-chatgpt-image-1775792675')",
+        "attachment_types": [
+          "code_block",
+          "citation"
+        ]
+      },
+      {
+        "provider": "openai",
+        "session_id": "3aab5bbbcad84919a76e9086f8e397ce",
+        "role": "user",
+        "ts": 1775792695.7011511,
+        "text_preview": "PCE-RICH-chatgpt-image-1775792675Confirm which attachment you received in one short sentence. Then include this markdown link exactly: [Source](https://example.",
+        "attachment_types": [
+          "image_url"
+        ]
+      },
+      {
+        "provider": "deepseek",
+        "session_id": "f31fc7c617534b179c4a0a19fd75d0e3",
+        "role": "assistant",
+        "ts": 1775792670.751126,
+        "text_preview": "Source",
+        "attachment_types": [
+          "code_block",
+          "citation"
+        ]
+      },
+      {
+        "provider": "deepseek",
+        "session_id": "f31fc7c617534b179c4a0a19fd75d0e3",
+        "role": "assistant",
+        "ts": 1775792670.751126,
+        "text_preview": "I received the text attachment named sample_note.txt as shown in your message.",
+        "attachment_types": [
+          "code_block",
+          "citation"
+        ]
+      },
+      {
+        "provider": "deepseek",
+        "session_id": "f31fc7c617534b179c4a0a19fd75d0e3",
+        "role": "assistant",
+        "ts": 1775792670.751126,
+        "text_preview": "I received the text attachment named sample_note.txt as shown in your message.  Source  python 复制 下载 print('PCE-RICH-deepseek-file-1775792648')",
+        "attachment_types": [
+          "code_block",
+          "citation"
+        ]
+      },
+      {
+        "provider": "deepseek",
+        "session_id": "f31fc7c617534b179c4a0a19fd75d0e3",
+        "role": "assistant",
+        "ts": 1775792670.751126,
+        "text_preview": "If you need me to process, summarize, or extract anything specific from this file, just let me know!",
+        "attachment_types": [
+          "file"
+        ]
+      },
+      {
+        "provider": "deepseek",
+        "session_id": "f31fc7c617534b179c4a0a19fd75d0e3",
+        "role": "assistant",
+        "ts": 1775792670.751126,
+        "text_preview": "Thanks for sharing the file. I can confirm that I received the text attachment named sample_note.txt with the content you provided. The file appears to be a tes",
+        "attachment_types": [
+          "file"
+        ]
+      },
+      {
+        "provider": "deepseek",
+        "session_id": "f31fc7c617534b179c4a0a19fd75d0e3",
+        "role": "user",
+        "ts": 1775792670.751126,
+        "text_preview": "sample_note.txtTXT 190BPCE-RICH-deepseek-file-1775792648",
+        "attachment_types": [
+          "code_block",
+          "file",
+          "citation"
+        ]
+      }
+    ]
+  },
+  "screenshots": {
+    "exists": true,
+    "by_site": {
+      "chatgpt": {
+        "before_send": 35,
+        "after_response": 34,
+        "capture_failed": 2,
+        "session_failed": 3,
+        "send_fail": 0,
+        "no_input": 1
+      },
+      "claude": {
+        "before_send": 0,
+        "after_response": 0,
+        "capture_failed": 0,
+        "session_failed": 0,
+        "send_fail": 0,
+        "no_input": 1
+      },
+      "deepseek": {
+        "before_send": 19,
+        "after_response": 18,
+        "capture_failed": 0,
+        "session_failed": 0,
+        "send_fail": 0,
+        "no_input": 0
+      },
+      "gemini": {
+        "before_send": 13,
+        "after_response": 13,
+        "capture_failed": 0,
+        "session_failed": 1,
+        "send_fail": 0,
+        "no_input": 0
+      },
+      "googleaistudio": {
+        "before_send": 22,
+        "after_response": 19,
+        "capture_failed": 1,
+        "session_failed": 0,
+        "send_fail": 0,
+        "no_input": 1
+      },
+      "grok": {
+        "before_send": 12,
+        "after_response": 12,
+        "capture_failed": 0,
+        "session_failed": 0,
+        "send_fail": 0,
+        "no_input": 0
+      },
+      "kimi": {
+        "before_send": 1,
+        "after_response": 0,
+        "capture_failed": 0,
+        "session_failed": 0,
+        "send_fail": 1,
+        "no_input": 0
+      },
+      "manus": {
+        "before_send": 13,
+        "after_response": 13,
+        "capture_failed": 1,
+        "session_failed": 0,
+        "send_fail": 0,
+        "no_input": 0
+      },
+      "perplexity": {
+        "before_send": 11,
+        "after_response": 11,
+        "capture_failed": 0,
+        "session_failed": 0,
+        "send_fail": 0,
+        "no_input": 1
+      },
+      "poe": {
+        "before_send": 13,
+        "after_response": 13,
+        "capture_failed": 0,
+        "session_failed": 1,
+        "send_fail": 0,
+        "no_input": 0
+      },
+      "zhipu": {
+        "before_send": 15,
+        "after_response": 12,
+        "capture_failed": 0,
+        "session_failed": 1,
+        "send_fail": 3,
+        "no_input": 0
+      }
+    },
+    "latest": {
+      "chatgpt": {
+        "after_response": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\chatgpt_image_after_response_1775792696.png",
+        "before_send": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\chatgpt_image_before_send_1775792680.png",
+        "capture_failed": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\chatgpt_capture_failed_1775737090.png",
+        "no_input": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\chatgpt_no_input_1775742314.png",
+        "session_failed": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\chatgpt_session_failed_1775742653.png"
+      },
+      "claude": {
+        "no_input": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\claude_no_input_1775750642.png"
+      },
+      "deepseek": {
+        "after_response": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\deepseek_image_after_response_1775792721.png",
+        "before_send": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\deepseek_image_before_send_1775792712.png"
+      },
+      "gemini": {
+        "after_response": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\gemini_after_response_1775753308.png",
+        "before_send": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\gemini_before_send_1775753301.png",
+        "session_failed": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\gemini_session_failed_1775750798.png"
+      },
+      "googleaistudio": {
+        "after_response": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\googleaistudio_image_after_response_1775792543.png",
+        "before_send": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\googleaistudio_image_before_send_1775792534.png",
+        "capture_failed": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\googleaistudio_capture_failed_1775739032.png",
+        "no_input": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\googleaistudio_no_input_1775752889.png"
+      },
+      "grok": {
+        "after_response": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\grok_after_response_1775753345.png",
+        "before_send": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\grok_before_send_1775753340.png"
+      },
+      "kimi": {
+        "before_send": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\kimi_before_send_1775750854.png",
+        "send_fail": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\kimi_send_fail_1775750855.png"
+      },
+      "manus": {
+        "after_response": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\manus_after_response_1775753898.png",
+        "before_send": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\manus_before_send_1775753886.png",
+        "capture_failed": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\manus_capture_failed_1775740675.png"
+      },
+      "perplexity": {
+        "after_response": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\perplexity_after_response_1775753388.png",
+        "before_send": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\perplexity_before_send_1775753382.png",
+        "no_input": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\perplexity_no_input_1775738075.png"
+      },
+      "poe": {
+        "after_response": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\poe_after_response_1775753403.png",
+        "before_send": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\poe_before_send_1775753398.png",
+        "session_failed": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\poe_session_failed_1775745049.png"
+      },
+      "zhipu": {
+        "after_response": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\zhipu_after_response_1775751172.png",
+        "before_send": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\zhipu_before_send_1775751164.png",
+        "send_fail": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\zhipu_send_fail_1775743096.png",
+        "session_failed": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\screenshots\\zhipu_session_failed_1775743356.png"
+      }
+    }
+  },
+  "probe_artifacts": [
+    {
+      "path": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\chatgpt_attachment_probe.json",
+      "size": 13508,
+      "mtime": 1775783589.5971427
+    },
+    {
+      "path": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\chatgpt_dom_diag.json",
+      "size": 14592,
+      "mtime": 1775784934.069576
+    },
+    {
+      "path": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\chatgpt_user_dom_diag.json",
+      "size": 10295,
+      "mtime": 1775785339.865211
+    },
+    {
+      "path": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\googleaistudio_turn_probe.json",
+      "size": 22809,
+      "mtime": 1775782447.7967267
+    },
+    {
+      "path": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\login_status_results.json",
+      "size": 14201,
+      "mtime": 1775736707.0456252
+    },
+    {
+      "path": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\site_buttons_probe.json",
+      "size": 105000,
+      "mtime": 1775781017.5866733
+    },
+    {
+      "path": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\site_dom_probe.json",
+      "size": 52356,
+      "mtime": 1775780790.2857082
+    },
+    {
+      "path": "F:\\INVENTION\\You.Inc\\PCE Core\\tests\\e2e\\site_special_probe.json",
+      "size": 6514,
+      "mtime": 1775780958.9319725
+    }
+  ]
+}

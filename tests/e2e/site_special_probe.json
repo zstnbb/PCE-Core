@@ -1,0 +1,111 @@
+{
+  "gemini": {
+    "allFileInputs": [],
+    "buttons": [],
+    "input": {
+      "aria": "为 Gemini 输入提示",
+      "cls": "ql-editor ql-blank textarea new-input-ui",
+      "html": "<div class=\"ql-editor ql-blank textarea new-input-ui\" data-gramm=\"false\" contenteditable=\"true\" role=\"textbox\" aria-multiline=\"true\" aria-label=\"为 Gemini 输入提示\" data-placeholder=\"问问 Gemini\"><p><br></p></div>",
+      "placeholder": "",
+      "role": "textbox",
+      "tag": "div",
+      "text": "",
+      "title": ""
+    },
+    "nearby": {
+      "aria": "为 Gemini 输入提示",
+      "cls": "ql-editor ql-blank textarea new-input-ui",
+      "html": "<div class=\"ql-editor ql-blank textarea new-input-ui\" data-gramm=\"false\" contenteditable=\"true\" role=\"textbox\" aria-multiline=\"true\" aria-label=\"为 Gemini 输入提示\" data-placeholder=\"问问 Gemini\"><p><br></p></div>",
+      "placeholder": "",
+      "role": "textbox",
+      "tag": "div",
+      "text": "",
+      "title": ""
+    },
+    "title": "Google Gemini",
+    "url": "https://gemini.google.com/app"
+  },
+  "googleaistudio": {
+    "allFileInputs": [],
+    "buttons": [
+      {
+        "aria": "New chat",
+        "cls": "mat-mdc-tooltip-trigger ng-tns-c235590005-6 ng-trigger ng-trigger-slidingInOut ms-button-borderless ms-button-icon ng-star-inserted",
+        "html": "<button _ngcontent-ng-c235590005=\"\" ms-button=\"\" variant=\"icon-borderless\" data-test-clear=\"outside\" class=\"mat-mdc-tooltip-trigger ng-tns-c235590005-6 ng-trigger ng-trigger-slidingInOut ms-button-borderless ms-button-icon ng-star-inserted\" aria-label=\"New chat\" aria-disabled=\"true\" aria-describedby=\"cdk-describedby-message-ng-1-29\" cdk-describedby-host=\"ng-1\"><span _ngcontent-ng-c235590005=\"\" class=\"material-symbols-outlined notranslate ms-button-icon-symbol ng-tns-c235590005-6 ng-star-inserted\" aria-hidden=\"true\" style=\"\">add</span></button>",
+        "placeholder": "",
+        "role": "",
+        "tag": "button",
+        "text": "add",
+        "title": ""
+      },
+      {
+        "aria": "",
+        "cls": "category-card ng-star-inserted",
+        "html": "<button _ngcontent-ng-c3380456911=\"\" data-test-category-card=\"\" class=\"category-card ng-star-inserted\" data-test-category-id=\"15\" jslog=\"274388;track:generic_click,impression;MakerSuiteVeMetadataKey:EggaBkltYWdlcw==;mutable:true\"><div _ngcontent-ng-c3380456911=\"\" class=\"card-header\"><div _ngcontent-ng-c3380456911=\"\" class=\"card-icon-container icon-image\"><span _ngcontent-ng-c3380456911=\"\" aria-hidden=\"true\" class=\"card-icon material-symbols-outlined notranslate\"> image </span></div><h3 _ngcontent-ng-c3380456911=\"\" class=\"card-title\">Image Generation</h3></div><p _ngcontent-ng-c3380456911=\"\" class=\"card-description\">Create and edit images with Nano Banana and Imagen.</p></button>",
+        "placeholder": "",
+        "role": "",
+        "tag": "button",
+        "text": "image Image Generation Create and edit images with Nano Banana and Imagen.",
+        "title": ""
+      },
+      {
+        "aria": "Insert images, videos, audio, or files",
+        "cls": "mat-mdc-menu-trigger mat-mdc-tooltip-trigger ms-button-filter-chip",
+        "html": "<button _ngcontent-ng-c3999466533=\"\" ms-button=\"\" data-test-id=\"add-media-button\" mattooltipposition=\"below\" data-test=\"selectMediaMenu\" class=\"mat-mdc-menu-trigger mat-mdc-tooltip-trigger ms-button-filter-chip\" aria-label=\"Insert images, videos, audio, or files\" aria-disabled=\"false\" aria-haspopup=\"menu\" aria-expanded=\"false\"><span _ngcontent-ng-c3999466533=\"\" class=\"material-symbols-outlined notranslate ms-button-icon-symbol ng-star-inserted\" aria-hidden=\"true\">add_circle</span></button>",
+        "placeholder": "",
+        "role": "",
+        "tag": "button",
+        "text": "add_circle",
+        "title": ""
+      }
+    ],
+    "input": {
+      "aria": "Enter a prompt",
+      "cls": "cdk-textarea-autosize textarea ng-untouched ng-pristine ng-valid",
+      "html": "<textarea _ngcontent-ng-c2880043888=\"\" rows=\"1\" cdktextareaautosize=\"\" formcontrolname=\"promptText\" msfilecopypaste=\"\" class=\"cdk-textarea-autosize textarea ng-untouched ng-pristine ng-valid\" placeholder=\"Start typing a prompt to see what our models can do\" aria-label=\"Enter a prompt\" style=\"min-height: 21px; max-height: 210px; height: 32px;\"></textarea>",
+      "placeholder": "Start typing a prompt to see what our models can do",
+      "role": "",
+      "tag": "textarea",
+      "text": "",
+      "title": ""
+    },
+    "nearby": {
+      "aria": "",
+      "cls": "text-wrapper ng-untouched ng-pristine ng-valid",
+      "html": "<div _ngcontent-ng-c2880043888=\"\" class=\"text-wrapper ng-untouched ng-pristine ng-valid\"><textarea _ngcontent-ng-c2880043888=\"\" rows=\"1\" cdktextareaautosize=\"\" formcontrolname=\"promptText\" msfilecopypaste=\"\" class=\"cdk-textarea-autosize textarea ng-untouched ng-pristine ng-valid\" placeholder=\"Start typing a prompt to see what our models can do\" aria-label=\"Enter a prompt\" style=\"min-height: 21px; max-height: 210px; height: 32px;\"></textarea></div>",
+      "placeholder": "",
+      "role": "",
+      "tag": "div",
+      "text": "",
+      "title": ""
+    },
+    "title": "Google AI Studio",
+    "url": "https://aistudio.google.com/prompts/new_chat"
+  },
+  "manus": {
+    "allFileInputs": [],
+    "buttons": [],
+    "input": {
+      "aria": "",
+      "cls": "tiptap ProseMirror",
+      "html": "<div contenteditable=\"true\" enterkeyhint=\"enter\" translate=\"no\" class=\"tiptap ProseMirror\" tabindex=\"0\"><p data-placeholder=\"分配一个任务或提问任何问题\" class=\"is-empty is-editor-empty\"><br class=\"ProseMirror-trailingBreak\"></p></div>",
+      "placeholder": "",
+      "role": "",
+      "tag": "div",
+      "text": "",
+      "title": ""
+    },
+    "nearby": {
+      "aria": "",
+      "cls": "tiptap ProseMirror",
+      "html": "<div contenteditable=\"true\" enterkeyhint=\"enter\" translate=\"no\" class=\"tiptap ProseMirror\" tabindex=\"0\"><p data-placeholder=\"分配一个任务或提问任何问题\" class=\"is-empty is-editor-empty\"><br class=\"ProseMirror-trailingBreak\"></p></div>",
+      "placeholder": "",
+      "role": "",
+      "tag": "div",
+      "text": "",
+      "title": ""
+    },
+    "title": "Manus",
+    "url": "https://manus.im/app"
+  }
+}

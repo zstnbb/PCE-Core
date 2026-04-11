@@ -219,6 +219,10 @@ def init_db(db_path: Optional[Path] = None) -> None:
             if col not in sess_cols:
                 conn.execute(f"ALTER TABLE sessions ADD COLUMN {col} {coltype}")
                 logger.info("Migrated sessions: added %s column", col)
+        # Migrate: add favorited column to sessions if missing
+        if "favorited" not in sess_cols:
+            conn.execute("ALTER TABLE sessions ADD COLUMN favorited INTEGER NOT NULL DEFAULT 0")
+            logger.info("Migrated sessions: added favorited column")
         # Migrate: rebuild FTS index if empty but messages exist
         try:
             fts_count = conn.execute(
@@ -721,6 +725,7 @@ def query_sessions(
     until: Optional[float] = None,
     min_messages: Optional[int] = None,
     title_search: Optional[str] = None,
+    favorited_only: bool = False,
     db_path: Optional[Path] = None,
 ) -> list[dict]:
     """Return recent sessions with optional filters."""
@@ -729,6 +734,8 @@ def query_sessions(
     try:
         clauses: list[str] = []
         params: list = []
+        if favorited_only:
+            clauses.append("favorited = 1")
         if provider:
             clauses.append("provider = ?")
             params.append(provider)
@@ -1002,28 +1009,104 @@ def remove_custom_domain(domain: str, db_path: Optional[Path] = None) -> bool:
         conn.close()
 
 
+def set_session_favorite(
+    session_id: str,
+    favorited: bool = True,
+    db_path: Optional[Path] = None,
+) -> bool:
+    """Set or clear the favorite flag on a session. Returns True on success."""
+    try:
+        conn = get_connection(db_path)
+        try:
+            conn.execute(
+                "UPDATE sessions SET favorited = ? WHERE id = ?",
+                (1 if favorited else 0, session_id),
+            )
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+    except Exception:
+        logger.exception("Failed to set favorite on session %s", session_id)
+        return False
+
+
+def count_favorited_sessions(db_path: Optional[Path] = None) -> int:
+    """Return the number of favorited sessions."""
+    conn = get_connection(db_path)
+    try:
+        return conn.execute(
+            "SELECT COUNT(*) FROM sessions WHERE favorited = 1"
+        ).fetchone()[0]
+    finally:
+        conn.close()
+
+
 def reset_all_data(db_path: Optional[Path] = None) -> dict:
-    """Delete all captures, sessions, and messages. Returns counts of deleted rows.
+    """Delete all non-favorited captures, sessions, and messages.
+
+    Favorited sessions and their messages and linked raw_captures are
+    preserved.  Returns counts of deleted and protected rows.
 
     WARNING: This is a destructive operation intended for dev/test use only.
-    Sources and custom_domains are preserved.
+    Sources and custom_domains are always preserved.
     """
     conn = get_connection(db_path)
     try:
-        msg_count = conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
-        sess_count = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
-        cap_count = conn.execute("SELECT COUNT(*) FROM raw_captures").fetchone()[0]
+        # Count protected (favorited) items
+        fav_sess = conn.execute(
+            "SELECT COUNT(*) FROM sessions WHERE favorited = 1"
+        ).fetchone()[0]
+        fav_msgs = conn.execute(
+            "SELECT COUNT(*) FROM messages WHERE session_id IN "
+            "(SELECT id FROM sessions WHERE favorited = 1)"
+        ).fetchone()[0]
 
-        conn.execute("DELETE FROM messages")
-        conn.execute("DELETE FROM sessions")
-        conn.execute("DELETE FROM raw_captures")
+        # Collect pair_ids linked to favorited messages so their raw_captures survive
+        fav_pair_rows = conn.execute(
+            "SELECT DISTINCT capture_pair_id FROM messages "
+            "WHERE session_id IN (SELECT id FROM sessions WHERE favorited = 1) "
+            "AND capture_pair_id IS NOT NULL"
+        ).fetchall()
+        fav_pair_ids = {r[0] for r in fav_pair_rows}
+
+        # Count totals before delete
+        msg_total = conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
+        sess_total = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
+        cap_total = conn.execute("SELECT COUNT(*) FROM raw_captures").fetchone()[0]
+
+        # Delete non-favorited messages
+        conn.execute(
+            "DELETE FROM messages WHERE session_id NOT IN "
+            "(SELECT id FROM sessions WHERE favorited = 1)"
+        )
+        # Delete non-favorited sessions
+        conn.execute("DELETE FROM sessions WHERE favorited != 1")
+        # Delete raw_captures not linked to favorited messages
+        if fav_pair_ids:
+            placeholders = ",".join("?" for _ in fav_pair_ids)
+            conn.execute(
+                f"DELETE FROM raw_captures WHERE pair_id NOT IN ({placeholders})",
+                list(fav_pair_ids),
+            )
+        else:
+            conn.execute("DELETE FROM raw_captures")
         conn.commit()
 
-        logger.warning("RESET: deleted %d captures, %d sessions, %d messages", cap_count, sess_count, msg_count)
+        deleted_sess = sess_total - fav_sess
+        deleted_msgs = msg_total - fav_msgs
+        cap_remaining = conn.execute("SELECT COUNT(*) FROM raw_captures").fetchone()[0]
+        deleted_caps = cap_total - cap_remaining
+
+        logger.warning(
+            "RESET: deleted %d captures, %d sessions, %d messages (protected %d fav sessions)",
+            deleted_caps, deleted_sess, deleted_msgs, fav_sess,
+        )
         return {
-            "captures_deleted": cap_count,
-            "sessions_deleted": sess_count,
-            "messages_deleted": msg_count,
+            "captures_deleted": deleted_caps,
+            "sessions_deleted": deleted_sess,
+            "messages_deleted": deleted_msgs,
+            "favorites_protected": fav_sess,
         }
     finally:
         conn.close()

@@ -34,6 +34,7 @@ function switchView(name) {
 
   if (name === "stats") loadStats();
   if (name === "sessions") loadSessions();
+  if (name === "favorites") loadFavorites();
   if (name === "search") initSearchView();
   if (name === "captures") loadCaptures();
   if (name === "domains") loadDomains();
@@ -482,6 +483,20 @@ async function loadSessions() {
   }
 }
 
+const STAR_SVG_ON  = '<svg class="star-icon starred" width="16" height="16" viewBox="0 0 24 24" fill="var(--yellow)" stroke="var(--yellow)" stroke-width="1.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
+const STAR_SVG_OFF = '<svg class="star-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
+
+async function toggleFavorite(sessionId, currentlyFavorited, onDone) {
+  const newState = !currentlyFavorited;
+  try {
+    const resp = await fetch(`${API}/sessions/${sessionId}/favorite?favorited=${newState}`, { method: "PUT" });
+    if (!resp.ok) throw new Error(resp.statusText);
+    if (onDone) onDone(newState);
+  } catch (e) {
+    console.error("Failed to toggle favorite:", e);
+  }
+}
+
 function renderSessionList(sessions) {
   const el = document.getElementById("sessions-list");
   if (!sessions || sessions.length === 0) {
@@ -492,7 +507,8 @@ function renderSessionList(sessions) {
   el.innerHTML = sessions
     .map(
       (s) => `
-      <div class="session-row" data-session-id="${escapeHtml(s.id)}">
+      <div class="session-row" data-session-id="${escapeHtml(s.id)}" data-favorited="${s.favorited ? 1 : 0}">
+        <button class="btn-star" title="${s.favorited ? 'Unfavorite' : 'Favorite'}">${s.favorited ? STAR_SVG_ON : STAR_SVG_OFF}</button>
         <span class="session-time">${formatTime(s.started_at)}</span>
         <span class="tag tag-provider">${escapeHtml(s.provider)}</span>
         ${s.language ? `<span class="tag tag-lang">${escapeHtml(s.language)}</span>` : ""}
@@ -507,6 +523,17 @@ function renderSessionList(sessions) {
     .join("");
 
   el.querySelectorAll(".session-row").forEach((row) => {
+    // Star button click
+    row.querySelector(".btn-star").addEventListener("click", (e) => {
+      e.stopPropagation();
+      const isFav = row.dataset.favorited === "1";
+      toggleFavorite(row.dataset.sessionId, isFav, (newState) => {
+        row.dataset.favorited = newState ? "1" : "0";
+        row.querySelector(".btn-star").innerHTML = newState ? STAR_SVG_ON : STAR_SVG_OFF;
+        row.querySelector(".btn-star").title = newState ? "Unfavorite" : "Favorite";
+      });
+    });
+    // Row click -> detail
     row.addEventListener("click", () => {
       loadSessionMessages(row.dataset.sessionId);
     });
@@ -516,6 +543,11 @@ function renderSessionList(sessions) {
 async function loadSessionMessages(sessionId) {
   _currentSessionId = sessionId;
   try {
+    // Fetch session metadata to get favorite state
+    const allSessions = await api(`/sessions?last=500`);
+    const sessionMeta = allSessions.find((s) => s.id === sessionId);
+    _currentSessionFavorited = sessionMeta ? !!sessionMeta.favorited : false;
+
     const messages = await api(`/sessions/${sessionId}/messages`);
     const container = document.getElementById("session-messages");
 
@@ -529,6 +561,9 @@ async function loadSessionMessages(sessionId) {
     const attLabel = attCount > 0 ? ` · ${attCount} attachments` : "";
     document.getElementById("session-title").textContent =
       `Session ${sessionId.slice(0, 8)} – ${messages.length} messages${attLabel}`;
+
+    // Update favorite button in session detail header
+    updateDetailFavoriteBtn("session-fav-btn", _currentSessionFavorited);
 
     container.innerHTML = messages
       .map((m) => {
@@ -769,10 +804,142 @@ function renderGenericAttachment(att, icon, typeLabel) {
     </div>`;
 }
 
+// ── Favorites View ──────────────────────────────────────
+async function loadFavorites() {
+  try {
+    const sessions = await api("/sessions?last=500&favorited=true");
+    const el = document.getElementById("favorites-list");
+    if (!sessions || sessions.length === 0) {
+      el.innerHTML = '<div class="empty-state">No favorited sessions yet. Click the star on any session to protect it.</div>';
+      document.getElementById("favorite-detail").classList.add("hidden");
+      return;
+    }
+    // Reuse session list renderer but into favorites container
+    el.innerHTML = sessions
+      .map(
+        (s) => `
+        <div class="session-row favorited" data-session-id="${escapeHtml(s.id)}" data-favorited="1">
+          <button class="btn-star" title="Unfavorite">${STAR_SVG_ON}</button>
+          <span class="session-time">${formatTime(s.started_at)}</span>
+          <span class="tag tag-provider">${escapeHtml(s.provider)}</span>
+          ${s.language ? `<span class="tag tag-lang">${escapeHtml(s.language)}</span>` : ""}
+          <span class="session-title">${escapeHtml(s.title_hint || "Untitled session")}</span>
+          <span class="session-meta">${s.message_count} msgs</span>
+          ${s.total_tokens ? `<span class="session-meta">${s.total_tokens} tokens</span>` : ""}
+          ${s.topic_tags ? formatTopicTags(s.topic_tags) : ""}
+          ${s.model_names ? `<span class="session-meta session-models">${formatModelNames(s.model_names)}</span>` : ""}
+          <span class="tag tag-protected">Protected</span>
+        </div>
+      `
+      )
+      .join("");
+
+    el.querySelectorAll(".session-row").forEach((row) => {
+      row.querySelector(".btn-star").addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (!confirm("Unfavoriting will remove protection.\nThis session may be deleted on the next reset.\n\nAre you sure?")) return;
+        toggleFavorite(row.dataset.sessionId, true, () => {
+          loadFavorites();
+        });
+      });
+      row.addEventListener("click", () => {
+        loadFavoriteMessages(row.dataset.sessionId);
+      });
+    });
+
+    document.getElementById("favorites-list").classList.remove("hidden");
+    document.getElementById("favorite-detail").classList.add("hidden");
+  } catch (e) {
+    console.error("Failed to load favorites:", e);
+  }
+}
+
+async function loadFavoriteMessages(sessionId) {
+  _currentSessionId = sessionId;
+  _currentSessionFavorited = true;
+  try {
+    const messages = await api(`/sessions/${sessionId}/messages`);
+    const container = document.getElementById("favorite-messages");
+
+    let attCount = 0;
+    messages.forEach((m) => {
+      if (m.content_json) {
+        try { attCount += getRenderableAttachments(JSON.parse(m.content_json)).length; } catch {}
+      }
+    });
+    const attLabel = attCount > 0 ? ` · ${attCount} attachments` : "";
+    document.getElementById("favorite-title").textContent =
+      `Session ${sessionId.slice(0, 8)} – ${messages.length} messages${attLabel}`;
+
+    container.innerHTML = messages
+      .map((m) => {
+        const roleClass = m.role === "user" ? "user" : m.role === "system" ? "system" : "assistant";
+        const contentHtml = roleClass === "user"
+          ? escapeHtml(m.content_text || "")
+          : renderMarkdown(m.content_text || "");
+        const attachmentsHtml = m.content_json ? renderAttachments(m.content_json) : "";
+        return `
+          <div class="message-bubble ${roleClass}">
+            <div class="message-role">${escapeHtml(m.role)}</div>
+            <div class="message-content">${contentHtml}</div>
+            ${attachmentsHtml}
+            <div class="message-meta">
+              ${m.model_name ? `<span>${escapeHtml(m.model_name)}</span>` : ""}
+              ${m.token_estimate ? `<span>${m.token_estimate} tokens</span>` : ""}
+              <span>${formatShortTime(m.ts)}</span>
+            </div>
+          </div>
+        `;
+      })
+      .join("");
+
+    document.getElementById("favorites-list").classList.add("hidden");
+    document.getElementById("favorite-detail").classList.remove("hidden");
+  } catch (e) {
+    console.error("Failed to load favorite messages:", e);
+  }
+}
+
+function updateDetailFavoriteBtn(btnId, isFav) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  btn.innerHTML = (isFav ? STAR_SVG_ON : STAR_SVG_OFF) + (isFav ? " Favorited" : " Favorite");
+  btn.title = isFav ? "Unfavorite this session" : "Favorite this session";
+  btn.className = "btn-sm btn-fav" + (isFav ? " is-favorited" : "");
+}
+
 // ── Event Listeners ─────────────────────────────────────
 document.getElementById("session-back").addEventListener("click", () => {
   document.getElementById("session-detail").classList.add("hidden");
   document.getElementById("sessions-list").classList.remove("hidden");
+});
+
+document.getElementById("favorite-back").addEventListener("click", () => {
+  document.getElementById("favorite-detail").classList.add("hidden");
+  document.getElementById("favorites-list").classList.remove("hidden");
+});
+
+document.getElementById("favorites-refresh").addEventListener("click", loadFavorites);
+
+document.getElementById("favorite-export-md").addEventListener("click", () => {
+  if (!_currentSessionId) return;
+  window.open(`${API}/export/session/${_currentSessionId}?format=markdown`, "_blank");
+});
+
+document.getElementById("favorite-export-json").addEventListener("click", async () => {
+  if (!_currentSessionId) return;
+  try {
+    const data = await api(`/export/session/${_currentSessionId}?format=json`);
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `session-${_currentSessionId.slice(0, 8)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    console.error("Export failed:", e);
+  }
 });
 
 document.getElementById("capture-back").addEventListener("click", () => {
@@ -784,6 +951,7 @@ document.getElementById("capture-refresh").addEventListener("click", loadCapture
 
 // ── Export ──────────────────────────────────────────────
 let _currentSessionId = null;
+let _currentSessionFavorited = false;
 
 document.getElementById("export-md").addEventListener("click", () => {
   if (!_currentSessionId) return;
@@ -804,6 +972,17 @@ document.getElementById("export-json").addEventListener("click", async () => {
   } catch (e) {
     console.error("Export failed:", e);
   }
+});
+
+// Session detail favorite toggle button
+document.getElementById("session-fav-btn")?.addEventListener("click", () => {
+  if (!_currentSessionId) return;
+  const wantUnfav = _currentSessionFavorited;
+  if (wantUnfav && !confirm("Unfavoriting will remove protection.\nThis session may be deleted on the next reset.\n\nAre you sure?")) return;
+  toggleFavorite(_currentSessionId, _currentSessionFavorited, (newState) => {
+    _currentSessionFavorited = newState;
+    updateDetailFavoriteBtn("session-fav-btn", newState);
+  });
 });
 
 document.getElementById("session-provider-filter").addEventListener("change", loadSessions);
@@ -1066,7 +1245,16 @@ document.getElementById("btn-reset-baseline")?.addEventListener("click", async (
   const btn = document.getElementById("btn-reset-baseline");
   const status = document.getElementById("reset-status");
 
-  if (!confirm("This will DELETE all captures, sessions, and messages.\n\nAre you sure?")) {
+  // Check for protected favorites
+  let favWarning = "";
+  try {
+    const favSessions = await api("/sessions?last=500&favorited=true");
+    if (favSessions && favSessions.length > 0) {
+      favWarning = `\n\n${favSessions.length} favorited session(s) will be PROTECTED and kept safe.`;
+    }
+  } catch {}
+
+  if (!confirm(`This will DELETE all non-favorited captures, sessions, and messages.${favWarning}\n\nAre you sure?`)) {
     return;
   }
 
@@ -1078,7 +1266,8 @@ document.getElementById("btn-reset-baseline")?.addEventListener("click", async (
     const resp = await fetch(`${API}/dev/reset`, { method: "POST" });
     if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
     const data = await resp.json();
-    status.textContent = `Cleared ${data.captures_deleted} captures, ${data.sessions_deleted} sessions, ${data.messages_deleted} messages`;
+    const protectedNote = data.favorites_protected ? ` (${data.favorites_protected} favorites protected)` : "";
+    status.textContent = `Cleared ${data.captures_deleted} captures, ${data.sessions_deleted} sessions, ${data.messages_deleted} messages${protectedNote}`;
     status.style.color = "var(--green)";
     loadStats();
   } catch (e) {
