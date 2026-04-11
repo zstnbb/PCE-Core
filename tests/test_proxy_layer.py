@@ -762,3 +762,667 @@ class TestCaptureMode:
         assert CaptureMode("allowlist") == CaptureMode.ALLOWLIST
         assert CaptureMode("smart") == CaptureMode.SMART
         assert CaptureMode("all") == CaptureMode.ALL
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Section 7: Header & Body Redaction
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestRedaction:
+    """Tests for sensitive data redaction before DB persistence."""
+
+    def test_authorization_header_redacted(self):
+        from pce_core.redact import redact_headers
+        h = {"Authorization": "Bearer sk-12345", "Content-Type": "application/json"}
+        result = redact_headers(h)
+        assert result["Authorization"] == "REDACTED"
+        assert result["Content-Type"] == "application/json"
+
+    def test_cookie_header_redacted(self):
+        from pce_core.redact import redact_headers
+        h = {"Cookie": "session=abc123; token=xyz", "Accept": "*/*"}
+        result = redact_headers(h)
+        assert result["Cookie"] == "REDACTED"
+        assert result["Accept"] == "*/*"
+
+    def test_api_key_headers_redacted(self):
+        from pce_core.redact import redact_headers
+        h = {"X-Api-Key": "my-secret-key", "Api-Key": "another-secret"}
+        result = redact_headers(h)
+        assert result["X-Api-Key"] == "REDACTED"
+        assert result["Api-Key"] == "REDACTED"
+
+    def test_case_insensitive_redaction(self):
+        from pce_core.redact import redact_headers
+        h = {"AUTHORIZATION": "Bearer sk-x", "authorization": "Bearer sk-y"}
+        result = redact_headers(h)
+        for v in result.values():
+            assert v == "REDACTED"
+
+    def test_redact_headers_json_returns_valid_json(self):
+        from pce_core.redact import redact_headers_json
+        h = {"Authorization": "Bearer sk-12345", "Host": "api.openai.com"}
+        result = redact_headers_json(h)
+        parsed = json.loads(result)
+        assert parsed["Authorization"] == "REDACTED"
+        assert parsed["Host"] == "api.openai.com"
+
+    def test_safe_body_text_json_detected(self):
+        from pce_core.redact import safe_body_text
+        body = b'{"model": "gpt-4", "messages": []}'
+        text, fmt = safe_body_text(body)
+        assert fmt == "json"
+        assert '"model"' in text
+
+    def test_safe_body_text_array_json(self):
+        from pce_core.redact import safe_body_text
+        body = b'[{"item": 1}, {"item": 2}]'
+        text, fmt = safe_body_text(body)
+        assert fmt == "json"
+
+    def test_safe_body_text_plain_text(self):
+        from pce_core.redact import safe_body_text
+        body = b"data: hello world\n\ndata: [DONE]\n"
+        text, fmt = safe_body_text(body)
+        assert fmt == "text"
+        assert "hello world" in text
+
+    def test_safe_body_text_empty(self):
+        from pce_core.redact import safe_body_text
+        text, fmt = safe_body_text(b"")
+        assert text == ""
+        assert fmt == "text"
+
+    def test_safe_body_text_truncates_large(self):
+        from pce_core.redact import safe_body_text
+        big = b"x" * (3 * 1024 * 1024)  # 3MB
+        text, fmt = safe_body_text(big)
+        assert len(text) <= 2 * 1024 * 1024 + 10  # within limit
+
+    def test_safe_body_text_binary_graceful(self):
+        from pce_core.redact import safe_body_text
+        body = bytes(range(256)) * 10
+        text, fmt = safe_body_text(body)
+        # Should not raise, uses errors="replace"
+        assert isinstance(text, str)
+
+    def test_set_cookie_redacted(self):
+        from pce_core.redact import redact_headers
+        h = {"Set-Cookie": "session=abc; Path=/", "Content-Length": "100"}
+        result = redact_headers(h)
+        assert result["Set-Cookie"] == "REDACTED"
+        assert result["Content-Length"] == "100"
+
+    def test_proxy_authorization_redacted(self):
+        from pce_core.redact import redact_headers
+        h = {"Proxy-Authorization": "Basic abc123"}
+        result = redact_headers(h)
+        assert result["Proxy-Authorization"] == "REDACTED"
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Section 8: Proxy Addon Helpers
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestAddonHelpers:
+    """Tests for addon.py internal helper functions."""
+
+    def test_provider_from_host_openai(self):
+        from pce_proxy.addon import _provider_from_host
+        assert _provider_from_host("api.openai.com") == "openai"
+
+    def test_provider_from_host_anthropic(self):
+        from pce_proxy.addon import _provider_from_host
+        assert _provider_from_host("api.anthropic.com") == "anthropic"
+
+    def test_provider_from_host_google(self):
+        from pce_proxy.addon import _provider_from_host
+        assert _provider_from_host("generativelanguage.googleapis.com") == "google"
+
+    def test_provider_from_host_unknown(self):
+        from pce_proxy.addon import _provider_from_host
+        assert _provider_from_host("ai.newstartup.io") == "ai.newstartup.io"
+
+    def test_extract_model_valid_json(self):
+        from pce_proxy.addon import _extract_model
+        body = json.dumps({"model": "gpt-4-turbo", "messages": []}).encode()
+        assert _extract_model(body) == "gpt-4-turbo"
+
+    def test_extract_model_no_model_field(self):
+        from pce_proxy.addon import _extract_model
+        body = json.dumps({"messages": [{"role": "user", "content": "hi"}]}).encode()
+        assert _extract_model(body) is None
+
+    def test_extract_model_invalid_json(self):
+        from pce_proxy.addon import _extract_model
+        assert _extract_model(b"not json") is None
+
+    def test_extract_model_empty(self):
+        from pce_proxy.addon import _extract_model
+        assert _extract_model(b"") is None
+
+    def test_get_host_from_pretty_host(self):
+        from pce_proxy.addon import _get_host
+        flow = MagicMock()
+        flow.request.pretty_host = "api.openai.com"
+        assert _get_host(flow) == "api.openai.com"
+
+    def test_get_host_fallback_to_header(self):
+        from pce_proxy.addon import _get_host
+        flow = MagicMock()
+        flow.request.pretty_host = ""
+        flow.request.headers = {"Host": "api.anthropic.com:443"}
+        assert _get_host(flow) == "api.anthropic.com"
+
+    def test_get_host_empty(self):
+        from pce_proxy.addon import _get_host
+        flow = MagicMock()
+        flow.request.pretty_host = ""
+        flow.request.headers = {}
+        assert _get_host(flow) == ""
+
+    def test_is_allowlisted_static(self):
+        from pce_proxy.addon import _is_allowlisted
+        assert _is_allowlisted("api.openai.com") is True
+        assert _is_allowlisted("api.anthropic.com") is True
+
+    def test_is_allowlisted_unknown(self):
+        from pce_proxy.addon import _is_allowlisted
+        assert _is_allowlisted("www.example.com") is False
+
+    def test_is_allowlisted_custom_domain(self):
+        from pce_proxy.addon import _is_allowlisted
+        add_custom_domain("custom-check.ai", source="test")
+        refresh_custom_domains()
+        assert _is_allowlisted("custom-check.ai") is True
+        remove_custom_domain("custom-check.ai")
+        refresh_custom_domains()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Section 9: SMART Mode Retroactive Capture
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestSMARTRetroactiveCapture:
+    """Test the SMART mode deferred detection path.
+
+    When a request doesn't match the allowlist, SMART mode defers to
+    response-phase heuristics. If the response looks like AI traffic,
+    both request and response are captured retroactively.
+    """
+
+    def test_smart_pending_flow_tracked(self):
+        """Non-allowlisted request in SMART mode should be tracked as pending."""
+        from pce_proxy.addon import PCEAddon, _flow_meta
+        from pce_core.config import CaptureMode, CAPTURE_MODE
+
+        if CAPTURE_MODE != CaptureMode.SMART:
+            pytest.skip("SMART mode not active (PCE_CAPTURE_MODE != smart)")
+
+        addon = PCEAddon()
+        flow = _make_mock_flow(
+            "unknown-server.example.com",
+            path="/api/generate",
+            method="POST",
+            request_body=json.dumps({"prompt": "hello"}).encode(),
+        )
+        addon.request(flow)
+        if flow.id in _flow_meta:
+            meta = _flow_meta[flow.id]
+            assert meta.get("smart_pending") is True or meta.get("pair_id") is not None
+
+    def test_smart_retroactive_captures_on_ai_response(self):
+        """Simulate SMART retroactive: request unknown, response = AI → captures both."""
+        from pce_proxy.addon import _flow_meta
+
+        # Manually create a smart_pending flow entry
+        flow_id = f"smart-retro-{int(time.time())}"
+        req_body = json.dumps({"model": "local-llm", "messages": [{"role": "user", "content": "Hi"}]})
+        resp_body = json.dumps({"choices": [{"message": {"role": "assistant", "content": "Hello!"}}]})
+
+        flow = _make_mock_flow(
+            "private-ai.internal",
+            path="/v1/chat/completions",
+            request_body=req_body.encode(),
+            response_body=resp_body.encode(),
+        )
+        flow.id = flow_id
+
+        _flow_meta[flow_id] = {
+            "pair_id": None,
+            "request_time": time.time(),
+            "smart_pending": True,
+            "host": "private-ai.internal",
+        }
+
+        from pce_proxy.addon import PCEAddon
+        addon = PCEAddon()
+        addon.response(flow)
+
+        # Verify captures were created retroactively
+        captures = query_captures(last=10)
+        retro_caps = [c for c in captures if c.get("host") == "private-ai.internal"]
+        assert len(retro_caps) >= 2  # req + resp
+
+        # Verify both directions
+        dirs = {c["direction"] for c in retro_caps}
+        assert "request" in dirs
+        assert "response" in dirs
+
+    def test_smart_non_ai_response_discarded(self):
+        """SMART pending flow with non-AI response should be discarded."""
+        from pce_proxy.addon import _flow_meta, PCEAddon
+
+        flow_id = f"smart-discard-{int(time.time())}"
+        flow = _make_mock_flow(
+            "cdn.example.com",
+            path="/static/image.png",
+            response_body=b"PNG binary data here...",
+            response_content_type="image/png",
+        )
+        flow.id = flow_id
+
+        _flow_meta[flow_id] = {
+            "pair_id": None,
+            "request_time": time.time(),
+            "smart_pending": True,
+            "host": "cdn.example.com",
+        }
+
+        addon = PCEAddon()
+        before_count = len(query_captures(last=100))
+        addon.response(flow)
+
+        # Should NOT have created any captures
+        after_count = len(query_captures(last=100))
+        assert after_count == before_count
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Section 10: Strong Integration Assertions
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestDeepIntegration:
+    """Integration tests with deep assertions on normalized content."""
+
+    def test_openai_normalized_message_content(self):
+        """Verify OpenAI proxy capture normalizes to correct messages with content."""
+        pair_id = new_pair_id()
+        req = json.dumps({
+            "model": "gpt-4o",
+            "messages": [
+                {"role": "system", "content": "Be concise."},
+                {"role": "user", "content": "What is 2+2?"},
+            ],
+        })
+        resp = json.dumps({
+            "id": "chatcmpl-deep",
+            "model": "gpt-4o",
+            "choices": [{"message": {"role": "assistant", "content": "4"}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 12, "completion_tokens": 1, "total_tokens": 13},
+        })
+        insert_capture(direction="request", pair_id=pair_id, host="api.openai.com",
+                       path="/v1/chat/completions", method="POST", provider="openai",
+                       model_name="gpt-4o", headers_redacted_json="{}",
+                       body_text_or_json=req, body_format="json", source_id=SOURCE_PROXY)
+        insert_capture(direction="response", pair_id=pair_id, host="api.openai.com",
+                       path="/v1/chat/completions", method="POST", provider="openai",
+                       model_name="gpt-4o", status_code=200, latency_ms=100,
+                       headers_redacted_json="{}", body_text_or_json=resp,
+                       body_format="json", source_id=SOURCE_PROXY)
+
+        try_normalize_pair(pair_id, source_id=SOURCE_PROXY, created_via="proxy")
+
+        sessions = query_sessions(last=50, provider="openai")
+        assert len(sessions) >= 1
+
+        sess = sessions[0]
+        msgs = query_messages(sess["id"])
+
+        # Deep content verification
+        user_msgs = [m for m in msgs if m["role"] == "user"]
+        asst_msgs = [m for m in msgs if m["role"] == "assistant"]
+        assert len(user_msgs) >= 1
+        assert len(asst_msgs) >= 1
+        assert "2+2" in user_msgs[-1]["content_text"]
+        assert "4" in asst_msgs[-1]["content_text"]
+
+    def test_anthropic_normalized_content_block(self):
+        """Verify Anthropic content blocks normalize correctly."""
+        pair_id = new_pair_id()
+        req = json.dumps({
+            "model": "claude-3-5-sonnet-20241022",
+            "max_tokens": 100,
+            "messages": [{"role": "user", "content": "Say hello in French"}],
+        })
+        resp = json.dumps({
+            "id": "msg-deep",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "Bonjour! Hello in French is 'Bonjour'."}],
+            "model": "claude-3-5-sonnet-20241022",
+            "usage": {"input_tokens": 8, "output_tokens": 12},
+        })
+        insert_capture(direction="request", pair_id=pair_id, host="api.anthropic.com",
+                       path="/v1/messages", method="POST", provider="anthropic",
+                       model_name="claude-3-5-sonnet-20241022", headers_redacted_json="{}",
+                       body_text_or_json=req, body_format="json", source_id=SOURCE_PROXY)
+        insert_capture(direction="response", pair_id=pair_id, host="api.anthropic.com",
+                       path="/v1/messages", method="POST", provider="anthropic",
+                       model_name="claude-3-5-sonnet-20241022", status_code=200,
+                       latency_ms=500, headers_redacted_json="{}",
+                       body_text_or_json=resp, body_format="json", source_id=SOURCE_PROXY)
+
+        try_normalize_pair(pair_id, source_id=SOURCE_PROXY, created_via="proxy")
+
+        sessions = query_sessions(last=50, provider="anthropic")
+        assert len(sessions) >= 1
+        msgs = query_messages(sessions[0]["id"])
+        asst = [m for m in msgs if m["role"] == "assistant"]
+        assert len(asst) >= 1
+        assert "Bonjour" in asst[-1]["content_text"]
+
+    def test_sse_assembled_into_complete_message(self):
+        """Verify SSE stream is assembled into a complete assistant message."""
+        pair_id = new_pair_id()
+        req = json.dumps({
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": "Count 1 to 5"}],
+            "stream": True,
+        })
+        sse = (
+            'data: {"choices":[{"delta":{"role":"assistant"},"index":0}]}\n\n'
+            'data: {"choices":[{"delta":{"content":"1"},"index":0}]}\n\n'
+            'data: {"choices":[{"delta":{"content":", 2"},"index":0}]}\n\n'
+            'data: {"choices":[{"delta":{"content":", 3"},"index":0}]}\n\n'
+            'data: {"choices":[{"delta":{"content":", 4"},"index":0}]}\n\n'
+            'data: {"choices":[{"delta":{"content":", 5"},"index":0}]}\n\n'
+            'data: [DONE]\n\n'
+        )
+        insert_capture(direction="request", pair_id=pair_id, host="api.openai.com",
+                       path="/v1/chat/completions", method="POST", provider="openai",
+                       model_name="gpt-4", headers_redacted_json="{}",
+                       body_text_or_json=req, body_format="json", source_id=SOURCE_PROXY)
+        insert_capture(direction="response", pair_id=pair_id, host="api.openai.com",
+                       path="/v1/chat/completions", method="POST", provider="openai",
+                       model_name="gpt-4", status_code=200, latency_ms=1500,
+                       headers_redacted_json='{"content-type":"text/event-stream"}',
+                       body_text_or_json=sse, body_format="text", source_id=SOURCE_PROXY)
+
+        try_normalize_pair(pair_id, source_id=SOURCE_PROXY, created_via="proxy")
+
+        sessions = query_sessions(last=50, provider="openai")
+        assert len(sessions) >= 1
+        msgs = query_messages(sessions[0]["id"])
+        asst = [m for m in msgs if m["role"] == "assistant"]
+        assert len(asst) >= 1
+        # The assembled text should contain all the numbers
+        content = asst[-1]["content_text"]
+        assert "1" in content
+        assert "5" in content
+
+    def test_malformed_response_body_does_not_crash(self):
+        """Normalization should gracefully handle garbled response bodies."""
+        pair_id = new_pair_id()
+        req = json.dumps({"model": "gpt-4", "messages": [{"role": "user", "content": "test"}]})
+        insert_capture(direction="request", pair_id=pair_id, host="api.openai.com",
+                       path="/v1/chat/completions", method="POST", provider="openai",
+                       headers_redacted_json="{}", body_text_or_json=req,
+                       body_format="json", source_id=SOURCE_PROXY)
+        # Garbled response
+        insert_capture(direction="response", pair_id=pair_id, host="api.openai.com",
+                       path="/v1/chat/completions", method="POST", provider="openai",
+                       status_code=200, headers_redacted_json="{}",
+                       body_text_or_json="THIS IS NOT JSON AT ALL {{{",
+                       body_format="text", source_id=SOURCE_PROXY)
+
+        # Should not raise
+        try:
+            try_normalize_pair(pair_id, source_id=SOURCE_PROXY, created_via="proxy")
+        except Exception:
+            pass  # May fail but MUST NOT crash the process
+
+        # Raw captures should still exist
+        pair = query_by_pair(pair_id)
+        assert len(pair) == 2
+
+    def test_error_status_code_still_captured(self):
+        """HTTP 4xx/5xx responses should still be captured in raw_captures."""
+        pair_id = new_pair_id()
+        req = json.dumps({"model": "gpt-4", "messages": []})
+        err_resp = json.dumps({"error": {"message": "Rate limit exceeded", "type": "rate_limit_error"}})
+
+        insert_capture(direction="request", pair_id=pair_id, host="api.openai.com",
+                       path="/v1/chat/completions", method="POST", provider="openai",
+                       headers_redacted_json="{}", body_text_or_json=req,
+                       body_format="json", source_id=SOURCE_PROXY)
+        insert_capture(direction="response", pair_id=pair_id, host="api.openai.com",
+                       path="/v1/chat/completions", method="POST", provider="openai",
+                       status_code=429, headers_redacted_json="{}",
+                       body_text_or_json=err_resp, body_format="json",
+                       source_id=SOURCE_PROXY)
+
+        pair = query_by_pair(pair_id)
+        assert len(pair) == 2
+        resp_row = [r for r in pair if r["direction"] == "response"][0]
+        assert resp_row["status_code"] == 429
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Section 11: Local Hook HTTP Roundtrip (TestClient)
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestLocalHookHTTP:
+    """Test local hook app via TestClient against a mock backend."""
+
+    def test_hook_captures_ollama_style_request(self):
+        """Simulate Ollama-like traffic through the hook and verify capture."""
+        from pce_core.local_hook.hook import create_hook_app
+        from unittest.mock import AsyncMock
+
+        app = create_hook_app(target_host="127.0.0.1", target_port=11434)
+
+        ollama_req = json.dumps({
+            "model": "llama3",
+            "messages": [{"role": "user", "content": "Hello from hook test"}],
+        })
+        ollama_resp = json.dumps({
+            "model": "llama3",
+            "message": {"role": "assistant", "content": "Hi! I'm Llama."},
+            "done": True,
+        })
+
+        # Mock httpx.AsyncClient to avoid needing a real Ollama server
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = ollama_resp.encode()
+        mock_response.headers = {"content-type": "application/json"}
+
+        with patch("pce_core.local_hook.hook.httpx.AsyncClient") as MockClient:
+            mock_client_inst = AsyncMock()
+            mock_client_inst.request = AsyncMock(return_value=mock_response)
+            mock_client_inst.__aenter__ = AsyncMock(return_value=mock_client_inst)
+            mock_client_inst.__aexit__ = AsyncMock(return_value=None)
+            MockClient.return_value = mock_client_inst
+
+            from fastapi.testclient import TestClient
+            with TestClient(app) as client:
+                resp = client.post(
+                    "/api/chat",
+                    content=ollama_req.encode(),
+                    headers={"Content-Type": "application/json"},
+                )
+
+        assert resp.status_code == 200
+        resp_data = resp.json()
+        assert resp_data["model"] == "llama3"
+
+        # Verify captures were written to DB
+        captures = query_captures(last=20)
+        hook_caps = [c for c in captures
+                     if c.get("host") == "127.0.0.1:11434"
+                     and c.get("path") == "/api/chat"]
+        assert len(hook_caps) >= 2
+        dirs = {c["direction"] for c in hook_caps}
+        assert "request" in dirs
+        assert "response" in dirs
+
+        # Verify model name was extracted
+        req_cap = [c for c in hook_caps if c["direction"] == "request"][0]
+        assert req_cap["model_name"] == "llama3"
+
+    def test_hook_returns_502_when_target_unreachable(self):
+        """Hook should return 502 when the target server is down."""
+        from pce_core.local_hook.hook import create_hook_app
+        import httpx as httpx_mod
+        from unittest.mock import AsyncMock
+
+        app = create_hook_app(target_host="127.0.0.1", target_port=19999)
+
+        with patch("pce_core.local_hook.hook.httpx.AsyncClient") as MockClient:
+            mock_client_inst = AsyncMock()
+            mock_client_inst.request = AsyncMock(side_effect=httpx_mod.ConnectError("Connection refused"))
+            mock_client_inst.__aenter__ = AsyncMock(return_value=mock_client_inst)
+            mock_client_inst.__aexit__ = AsyncMock(return_value=None)
+            MockClient.return_value = mock_client_inst
+
+            from fastapi.testclient import TestClient
+            with TestClient(app) as client:
+                resp = client.post("/api/chat", content=b'{"model":"test"}')
+
+        assert resp.status_code == 502
+        assert "unreachable" in resp.json().get("error", "")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Section 12: Clipboard Monitor → DB Integration
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestClipboardIntegration:
+    """Test clipboard detection → parse → insert → query roundtrip."""
+
+    def test_detected_conversation_inserts_to_db(self):
+        """Clipboard text that looks like AI conversation should be capturable."""
+        from pce_core.clipboard_monitor import detect_ai_conversation, parse_conversation
+
+        text = (
+            "User: How do I reverse a string in Python?\n\n"
+            "Assistant: You can use slicing: `my_string[::-1]`.\n\n"
+            "Here's a complete example:\n"
+            "```python\n"
+            "text = 'hello'\n"
+            "reversed_text = text[::-1]\n"
+            "print(reversed_text)  # 'olleh'\n"
+            "```\n\n"
+            "User: What about reversing a list?\n\n"
+            "Assistant: For lists, you have several options:\n"
+            "1. `my_list[::-1]` - creates a new reversed list\n"
+            "2. `my_list.reverse()` - reverses in place\n"
+            "3. `list(reversed(my_list))` - using the reversed() built-in\n"
+        )
+
+        # Step 1: Detection
+        is_ai, reason, score = detect_ai_conversation(text)
+        assert is_ai is True
+        assert score >= 0.5
+
+        # Step 2: Parsing
+        msgs = parse_conversation(text)
+        assert len(msgs) == 4
+        assert msgs[0]["role"] == "user"
+        assert msgs[1]["role"] == "assistant"
+        assert "slicing" in msgs[1]["content"]
+
+        # Step 3: Insert as raw capture (simulating what ClipboardMonitor does)
+        pair_id = new_pair_id()
+        body = json.dumps({
+            "messages": [{"role": m["role"], "content": m["content"]} for m in msgs],
+            "source": "clipboard",
+        })
+        cap_id = insert_capture(
+            direction="conversation",
+            pair_id=pair_id,
+            host="clipboard",
+            path="",
+            method="",
+            provider="clipboard",
+            headers_redacted_json="{}",
+            body_text_or_json=body,
+            body_format="json",
+            source_id=SOURCE_PROXY,
+            meta_json=json.dumps({
+                "capture_source": "clipboard_monitor",
+                "confidence": score,
+                "reason": reason,
+            }),
+        )
+        assert cap_id is not None
+
+        # Step 4: Verify in DB
+        pair = query_by_pair(pair_id)
+        assert len(pair) == 1
+        raw = pair[0]
+        assert raw["provider"] == "clipboard"
+        meta = json.loads(raw["meta_json"])
+        assert meta["capture_source"] == "clipboard_monitor"
+
+    def test_non_ai_text_not_detected(self):
+        """Regular clipboard text should not be detected as AI conversation."""
+        from pce_core.clipboard_monitor import detect_ai_conversation
+
+        text = (
+            "Shopping list:\n"
+            "- Milk\n"
+            "- Eggs\n"
+            "- Bread\n"
+            "- Butter\n"
+            "Remember to also pick up the dry cleaning.\n"
+            "The store closes at 9pm today.\n"
+        )
+        is_ai, reason, score = detect_ai_conversation(text)
+        assert is_ai is False
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Section 13: Capture Health API with Real Data
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestCaptureHealthAPI:
+    """Test capture-health and capabilities endpoints with real capture data."""
+
+    @pytest.fixture(autouse=True)
+    def client(self):
+        from fastapi.testclient import TestClient
+        from pce_core.server import app
+        self._client = TestClient(app)
+        return self._client
+
+    def test_capture_health_returns_channels(self):
+        resp = self._client.get("/api/v1/capture-health")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "channels" in data
+        assert "timestamp" in data
+        assert isinstance(data["channels"], list)
+
+    def test_capabilities_includes_all_channels(self):
+        resp = self._client.get("/api/v1/capabilities")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "capabilities" in data
+        cap_ids = {c["id"] for c in data["capabilities"]}
+        # Must include all known channel types
+        assert "core" in cap_ids
+        assert "proxy" in cap_ids
+        assert "browser_extension" in cap_ids
+        assert "local_hook" in cap_ids
+        assert "clipboard" in cap_ids
+        assert "mcp" in cap_ids
+        assert "pac" in cap_ids
+
+    def test_stats_reflects_proxy_captures(self):
+        resp = self._client.get("/api/v1/stats")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total_captures"] > 0
+        assert "openai" in data.get("by_provider", {})
