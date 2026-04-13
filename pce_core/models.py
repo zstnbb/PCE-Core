@@ -148,6 +148,31 @@ class MessageRecord(BaseModel):
     token_estimate: Optional[int] = None
 
 
+class SnippetIn(BaseModel):
+    """Payload accepted by POST /api/v1/snippets."""
+
+    content_text: str = Field(..., min_length=1, description="Selected text content")
+    source_url: Optional[str] = Field(default=None, description="URL where text was selected")
+    source_domain: Optional[str] = Field(default=None, description="Domain of the source page")
+    provider: Optional[str] = Field(default=None, description="AI provider if applicable")
+    category: str = Field(default="general", description="Category: general | code | prompt | output | reference")
+    note: Optional[str] = Field(default=None, description="Optional user note")
+
+
+class SnippetRecord(BaseModel):
+    """A single snippets row."""
+
+    id: str
+    created_at: float
+    source_url: Optional[str] = None
+    source_domain: Optional[str] = None
+    provider: Optional[str] = None
+    category: str = "general"
+    content_text: str
+    note: Optional[str] = None
+    favorited: int = 0
+
+
 class HealthOut(BaseModel):
     """Health check response."""
 

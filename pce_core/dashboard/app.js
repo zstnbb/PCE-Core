@@ -35,6 +35,7 @@ function switchView(name) {
   if (name === "stats") loadStats();
   if (name === "sessions") loadSessions();
   if (name === "favorites") loadFavorites();
+  if (name === "snippets") loadSnippets();
   if (name === "search") initSearchView();
   if (name === "captures") loadCaptures();
   if (name === "domains") loadDomains();
@@ -988,6 +989,188 @@ document.getElementById("session-fav-btn")?.addEventListener("click", () => {
 document.getElementById("session-provider-filter").addEventListener("change", loadSessions);
 document.getElementById("capture-provider-filter").addEventListener("change", loadCaptures);
 document.getElementById("capture-direction-filter").addEventListener("change", loadCaptures);
+
+// ── Snippets View ──────────────────────────────────────
+let _currentSnippetId = null;
+let _currentSnippetFavorited = false;
+
+const CATEGORY_ICONS = {
+  general: "\u{1F4DD}",
+  code: "\u{1F4BB}",
+  prompt: "\u{1F4AC}",
+  output: "\u{1F916}",
+  reference: "\u{1F4CE}",
+};
+
+async function loadSnippets() {
+  const category = document.getElementById("snippet-category-filter").value;
+  const domain = document.getElementById("snippet-domain-filter").value;
+  const q = document.getElementById("snippet-search").value.trim();
+
+  let url = "/snippets?last=100";
+  if (category) url += `&category=${encodeURIComponent(category)}`;
+  if (domain) url += `&domain=${encodeURIComponent(domain)}`;
+  if (q) url += `&q=${encodeURIComponent(q)}`;
+
+  try {
+    const snippets = await api(url);
+    renderSnippetList(snippets);
+    document.getElementById("snippets-list").classList.remove("hidden");
+    document.getElementById("snippet-detail").classList.add("hidden");
+
+    // Populate domain filter from data
+    populateSnippetDomainFilter(snippets);
+  } catch (e) {
+    console.error("Failed to load snippets:", e);
+  }
+}
+
+function populateSnippetDomainFilter(snippets) {
+  const sel = document.getElementById("snippet-domain-filter");
+  const current = sel.value;
+  const domains = [...new Set(snippets.map((s) => s.source_domain).filter(Boolean))].sort();
+  // Keep "All Domains" + add unique domains
+  const existing = new Set([...sel.options].map((o) => o.value));
+  domains.forEach((d) => {
+    if (!existing.has(d)) {
+      const opt = document.createElement("option");
+      opt.value = d;
+      opt.textContent = d;
+      sel.appendChild(opt);
+    }
+  });
+  sel.value = current;
+}
+
+function renderSnippetList(snippets) {
+  const el = document.getElementById("snippets-list");
+  if (!snippets || snippets.length === 0) {
+    el.innerHTML = '<div class="empty-state">No snippets yet. Select text on any covered AI site and click the Save button to collect snippets.</div>';
+    return;
+  }
+
+  el.innerHTML = snippets
+    .map(
+      (s) => `
+      <div class="snippet-row${s.favorited ? ' favorited' : ''}" data-snippet-id="${escapeHtml(s.id)}">
+        <div class="snippet-row-header">
+          <span class="snippet-category-icon" title="${escapeHtml(s.category)}">${CATEGORY_ICONS[s.category] || CATEGORY_ICONS.general}</span>
+          <span class="tag tag-category tag-cat-${escapeHtml(s.category)}">${escapeHtml(s.category)}</span>
+          ${s.provider ? `<span class="tag tag-provider">${escapeHtml(s.provider)}</span>` : ""}
+          ${s.source_domain ? `<span class="snippet-domain">${escapeHtml(s.source_domain)}</span>` : ""}
+          <span class="snippet-time">${formatTime(s.created_at)}</span>
+          ${s.favorited ? '<span class="tag tag-protected">Protected</span>' : ""}
+        </div>
+        <div class="snippet-preview">${escapeHtml(s.content_text.slice(0, 200))}${s.content_text.length > 200 ? "..." : ""}</div>
+        ${s.note ? `<div class="snippet-note">${escapeHtml(s.note)}</div>` : ""}
+      </div>
+    `
+    )
+    .join("");
+
+  el.querySelectorAll(".snippet-row").forEach((row) => {
+    row.addEventListener("click", () => {
+      loadSnippetDetail(row.dataset.snippetId);
+    });
+  });
+}
+
+async function loadSnippetDetail(snippetId) {
+  _currentSnippetId = snippetId;
+  try {
+    const s = await api(`/snippets/${snippetId}`);
+    _currentSnippetFavorited = !!s.favorited;
+
+    document.getElementById("snippet-detail-title").textContent =
+      `${CATEGORY_ICONS[s.category] || ""} Snippet – ${s.category}`;
+
+    updateDetailFavoriteBtn("snippet-fav-btn", _currentSnippetFavorited);
+
+    const contentHtml = s.category === "code"
+      ? `<pre class="snippet-code-block">${escapeHtml(s.content_text)}</pre>`
+      : `<div class="snippet-text-block">${escapeHtml(s.content_text)}</div>`;
+
+    document.getElementById("snippet-detail-content").innerHTML = `
+      <div class="snippet-detail-meta">
+        <div class="snippet-meta-row"><span class="meta-key">Category</span><span class="tag tag-category tag-cat-${escapeHtml(s.category)}">${escapeHtml(s.category)}</span></div>
+        ${s.provider ? `<div class="snippet-meta-row"><span class="meta-key">Provider</span><span class="tag tag-provider">${escapeHtml(s.provider)}</span></div>` : ""}
+        ${s.source_domain ? `<div class="snippet-meta-row"><span class="meta-key">Domain</span><span>${escapeHtml(s.source_domain)}</span></div>` : ""}
+        ${s.source_url ? `<div class="snippet-meta-row"><span class="meta-key">URL</span><a href="${escapeHtml(s.source_url)}" target="_blank" class="snippet-url">${escapeHtml(s.source_url.slice(0, 80))}${s.source_url.length > 80 ? "..." : ""}</a></div>` : ""}
+        <div class="snippet-meta-row"><span class="meta-key">Created</span><span>${formatTime(s.created_at)}</span></div>
+        <div class="snippet-meta-row"><span class="meta-key">Length</span><span>${s.content_text.length} chars</span></div>
+      </div>
+      <div class="snippet-detail-text">
+        <h4>Content</h4>
+        ${contentHtml}
+      </div>
+      ${s.note ? `<div class="snippet-detail-note"><h4>Note</h4><p>${escapeHtml(s.note)}</p></div>` : ""}
+    `;
+
+    document.getElementById("snippets-list").classList.add("hidden");
+    document.getElementById("snippet-detail").classList.remove("hidden");
+  } catch (e) {
+    console.error("Failed to load snippet detail:", e);
+  }
+}
+
+async function deleteSnippet(snippetId) {
+  try {
+    await fetch(`${API}/snippets/${snippetId}`, { method: "DELETE" });
+    document.getElementById("snippet-detail").classList.add("hidden");
+    document.getElementById("snippets-list").classList.remove("hidden");
+    loadSnippets();
+  } catch (e) {
+    console.error("Failed to delete snippet:", e);
+  }
+}
+
+async function toggleSnippetFavorite(snippetId, currentState, callback) {
+  const newState = !currentState;
+  try {
+    await fetch(`${API}/snippets/${snippetId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ favorited: newState }),
+    });
+    if (callback) callback(newState);
+  } catch (e) {
+    console.error("Failed to toggle snippet favorite:", e);
+  }
+}
+
+// Snippet event listeners
+document.getElementById("snippet-back").addEventListener("click", () => {
+  document.getElementById("snippet-detail").classList.add("hidden");
+  document.getElementById("snippets-list").classList.remove("hidden");
+});
+
+document.getElementById("snippet-refresh").addEventListener("click", loadSnippets);
+document.getElementById("snippet-category-filter").addEventListener("change", loadSnippets);
+document.getElementById("snippet-domain-filter").addEventListener("change", loadSnippets);
+
+document.getElementById("snippet-search").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") loadSnippets();
+});
+
+document.getElementById("snippet-fav-btn")?.addEventListener("click", () => {
+  if (!_currentSnippetId) return;
+  const wantUnfav = _currentSnippetFavorited;
+  if (wantUnfav && !confirm("Unfavoriting will remove protection.\nThis snippet may be deleted.\n\nAre you sure?")) return;
+  toggleSnippetFavorite(_currentSnippetId, _currentSnippetFavorited, (newState) => {
+    _currentSnippetFavorited = newState;
+    updateDetailFavoriteBtn("snippet-fav-btn", newState);
+  });
+});
+
+document.getElementById("snippet-delete-btn")?.addEventListener("click", () => {
+  if (!_currentSnippetId) return;
+  if (_currentSnippetFavorited) {
+    alert("Cannot delete a favorited snippet. Unfavorite it first.");
+    return;
+  }
+  if (!confirm("Delete this snippet?\nThis action cannot be undone.")) return;
+  deleteSnippet(_currentSnippetId);
+});
 
 // ── Domains View ───────────────────────────────────────
 

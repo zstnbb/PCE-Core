@@ -28,62 +28,62 @@
   "content_scripts": [
     {
       "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
-      "js": ["content_scripts/pce_dom_utils.js", "content_scripts/detector.js", "content_scripts/behavior_tracker.js", "content_scripts/bridge.js", "content_scripts/chatgpt.js"],
+      "js": ["content_scripts/pce_dom_utils.js", "content_scripts/detector.js", "content_scripts/behavior_tracker.js", "content_scripts/bridge.js", "content_scripts/text_collector.js", "content_scripts/chatgpt.js"],
       "run_at": "document_start"
     },
     {
       "matches": ["https://claude.ai/*"],
-      "js": ["content_scripts/pce_dom_utils.js", "content_scripts/detector.js", "content_scripts/behavior_tracker.js", "content_scripts/bridge.js", "content_scripts/claude.js"],
+      "js": ["content_scripts/pce_dom_utils.js", "content_scripts/detector.js", "content_scripts/behavior_tracker.js", "content_scripts/bridge.js", "content_scripts/text_collector.js", "content_scripts/claude.js"],
       "run_at": "document_start"
     },
     {
       "matches": ["https://gemini.google.com/*"],
-      "js": ["content_scripts/pce_dom_utils.js", "content_scripts/detector.js", "content_scripts/behavior_tracker.js", "content_scripts/bridge.js", "content_scripts/gemini.js"],
+      "js": ["content_scripts/pce_dom_utils.js", "content_scripts/detector.js", "content_scripts/behavior_tracker.js", "content_scripts/bridge.js", "content_scripts/text_collector.js", "content_scripts/gemini.js"],
       "run_at": "document_start"
     },
     {
       "matches": ["https://aistudio.google.com/*"],
-      "js": ["content_scripts/pce_dom_utils.js", "content_scripts/detector.js", "content_scripts/behavior_tracker.js", "content_scripts/bridge.js", "content_scripts/google_ai_studio.js"],
+      "js": ["content_scripts/pce_dom_utils.js", "content_scripts/detector.js", "content_scripts/behavior_tracker.js", "content_scripts/bridge.js", "content_scripts/text_collector.js", "content_scripts/google_ai_studio.js"],
       "run_at": "document_start"
     },
     {
       "matches": ["https://manus.im/*"],
-      "js": ["content_scripts/pce_dom_utils.js", "content_scripts/detector.js", "content_scripts/behavior_tracker.js", "content_scripts/bridge.js", "content_scripts/manus.js"],
+      "js": ["content_scripts/pce_dom_utils.js", "content_scripts/detector.js", "content_scripts/behavior_tracker.js", "content_scripts/bridge.js", "content_scripts/text_collector.js", "content_scripts/manus.js"],
       "run_at": "document_start"
     },
     {
       "matches": ["https://chat.deepseek.com/*"],
-      "js": ["content_scripts/pce_dom_utils.js", "content_scripts/detector.js", "content_scripts/behavior_tracker.js", "content_scripts/bridge.js", "content_scripts/deepseek.js"],
+      "js": ["content_scripts/pce_dom_utils.js", "content_scripts/detector.js", "content_scripts/behavior_tracker.js", "content_scripts/bridge.js", "content_scripts/text_collector.js", "content_scripts/deepseek.js"],
       "run_at": "document_start"
     },
     {
       "matches": ["https://chat.z.ai/*"],
-      "js": ["content_scripts/pce_dom_utils.js", "content_scripts/detector.js", "content_scripts/behavior_tracker.js", "content_scripts/bridge.js", "content_scripts/zhipu.js"],
+      "js": ["content_scripts/pce_dom_utils.js", "content_scripts/detector.js", "content_scripts/behavior_tracker.js", "content_scripts/bridge.js", "content_scripts/text_collector.js", "content_scripts/zhipu.js"],
       "run_at": "document_start"
     },
     {
       "matches": ["https://www.perplexity.ai/*"],
-      "js": ["content_scripts/pce_dom_utils.js", "content_scripts/detector.js", "content_scripts/behavior_tracker.js", "content_scripts/bridge.js", "content_scripts/perplexity.js"],
+      "js": ["content_scripts/pce_dom_utils.js", "content_scripts/detector.js", "content_scripts/behavior_tracker.js", "content_scripts/bridge.js", "content_scripts/text_collector.js", "content_scripts/perplexity.js"],
       "run_at": "document_start"
     },
     {
       "matches": ["https://copilot.microsoft.com/*"],
-      "js": ["content_scripts/pce_dom_utils.js", "content_scripts/detector.js", "content_scripts/behavior_tracker.js", "content_scripts/bridge.js", "content_scripts/copilot.js"],
+      "js": ["content_scripts/pce_dom_utils.js", "content_scripts/detector.js", "content_scripts/behavior_tracker.js", "content_scripts/bridge.js", "content_scripts/text_collector.js", "content_scripts/copilot.js"],
       "run_at": "document_start"
     },
     {
       "matches": ["https://poe.com/*"],
-      "js": ["content_scripts/pce_dom_utils.js", "content_scripts/detector.js", "content_scripts/behavior_tracker.js", "content_scripts/bridge.js", "content_scripts/poe.js"],
+      "js": ["content_scripts/pce_dom_utils.js", "content_scripts/detector.js", "content_scripts/behavior_tracker.js", "content_scripts/bridge.js", "content_scripts/text_collector.js", "content_scripts/poe.js"],
       "run_at": "document_start"
     },
     {
       "matches": ["https://huggingface.co/chat/*"],
-      "js": ["content_scripts/pce_dom_utils.js", "content_scripts/detector.js", "content_scripts/behavior_tracker.js", "content_scripts/bridge.js", "content_scripts/huggingface.js"],
+      "js": ["content_scripts/pce_dom_utils.js", "content_scripts/detector.js", "content_scripts/behavior_tracker.js", "content_scripts/bridge.js", "content_scripts/text_collector.js", "content_scripts/huggingface.js"],
       "run_at": "document_start"
     },
     {
       "matches": ["https://grok.com/*"],
-      "js": ["content_scripts/pce_dom_utils.js", "content_scripts/detector.js", "content_scripts/behavior_tracker.js", "content_scripts/bridge.js", "content_scripts/grok.js"],
+      "js": ["content_scripts/pce_dom_utils.js", "content_scripts/detector.js", "content_scripts/behavior_tracker.js", "content_scripts/bridge.js", "content_scripts/text_collector.js", "content_scripts/grok.js"],
       "run_at": "document_start"
     },
     {
@@ -93,7 +93,7 @@
         "https://www.kimi.com/*",
         "https://kimi.com/*"
       ],
-      "js": ["content_scripts/pce_dom_utils.js", "content_scripts/detector.js", "content_scripts/behavior_tracker.js", "content_scripts/bridge.js", "content_scripts/generic.js"],
+      "js": ["content_scripts/pce_dom_utils.js", "content_scripts/detector.js", "content_scripts/behavior_tracker.js", "content_scripts/bridge.js", "content_scripts/text_collector.js", "content_scripts/generic.js"],
       "run_at": "document_start"
     },
     {

@@ -221,6 +221,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // Text snippet collected by text_collector.js
+  if (message.type === "PCE_SNIPPET") {
+    handleSnippet(message.payload)
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
   if (message.type === "PCE_GET_STATUS") {
     // Do a fresh health check before responding so popup always shows current state
     checkHealth().then(() => {
@@ -660,6 +668,47 @@ async function handleDynamicInjection(tabId, payload) {
     injectedTabs.delete(tabId);
     console.error(`[PCE] Injection failed for tab ${tabId}:`, err.message);
     return { injected: false, error: err.message };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Core: send text snippet to PCE Snippets API
+// ---------------------------------------------------------------------------
+const PCE_SNIPPETS_URL = "http://127.0.0.1:9800/api/v1/snippets";
+
+async function handleSnippet(payload) {
+  if (!isEnabled) {
+    return { skipped: true, reason: "capture disabled" };
+  }
+
+  const body = {
+    content_text: payload.content_text,
+    source_url: payload.source_url || null,
+    source_domain: payload.source_domain || null,
+    provider: payload.provider || null,
+    category: payload.category || "general",
+    note: payload.note || null,
+  };
+
+  try {
+    const resp = await fetch(PCE_SNIPPETS_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(5000),
+    });
+
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`Snippets API returned ${resp.status}: ${text}`);
+    }
+
+    const result = await resp.json();
+    console.log(`[PCE] Snippet saved: ${result.id?.slice(0, 8)} (${body.category}) from ${body.source_domain}`);
+    return { id: result.id };
+  } catch (err) {
+    console.error("[PCE] Snippet save failed:", err.message);
+    throw err;
   }
 }
 

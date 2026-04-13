@@ -771,3 +771,156 @@ class TestFavorites:
         # Clean up
         c.put(f"/api/v1/sessions/{sid}/favorite?favorited=false")
         c.post("/api/v1/dev/reset")
+
+
+# =========================================================================
+# Snippets – text selection capture CRUD
+# =========================================================================
+
+class TestSnippets:
+    """Tests for the snippets (text selection capture) feature."""
+
+    def test_create_and_get_snippet(self, live_server):
+        """Create a snippet and retrieve it by id."""
+        c = live_server
+        r = c.post("/api/v1/snippets", json={
+            "content_text": "Hello world from AI",
+            "source_url": "https://chatgpt.com/c/test-123",
+            "source_domain": "chatgpt.com",
+            "provider": "openai",
+            "category": "general",
+        })
+        assert r.status_code == 201
+        data = r.json()
+        assert data["ok"] is True
+        snippet_id = data["id"]
+
+        # Get by id
+        r2 = c.get(f"/api/v1/snippets/{snippet_id}")
+        assert r2.status_code == 200
+        s = r2.json()
+        assert s["content_text"] == "Hello world from AI"
+        assert s["source_domain"] == "chatgpt.com"
+        assert s["provider"] == "openai"
+        assert s["category"] == "general"
+        assert s["favorited"] == 0
+
+        # Cleanup
+        c.delete(f"/api/v1/snippets/{snippet_id}")
+
+    def test_list_snippets_with_filters(self, live_server):
+        """Create snippets with different categories and filter them."""
+        c = live_server
+        ids = []
+
+        for cat in ["code", "prompt", "output"]:
+            r = c.post("/api/v1/snippets", json={
+                "content_text": f"Snippet content for {cat}",
+                "source_domain": "claude.ai",
+                "provider": "anthropic",
+                "category": cat,
+            })
+            assert r.status_code == 201
+            ids.append(r.json()["id"])
+
+        # List all
+        all_snippets = c.get("/api/v1/snippets?last=100").json()
+        found_ids = {s["id"] for s in all_snippets}
+        for sid in ids:
+            assert sid in found_ids
+
+        # Filter by category
+        code_only = c.get("/api/v1/snippets?category=code").json()
+        assert any(s["id"] == ids[0] for s in code_only)
+
+        # Filter by domain
+        claude_only = c.get("/api/v1/snippets?domain=claude.ai").json()
+        assert len(claude_only) >= 3
+
+        # Cleanup
+        for sid in ids:
+            c.delete(f"/api/v1/snippets/{sid}")
+
+    def test_update_snippet(self, live_server):
+        """Update snippet category, note, and favorited status."""
+        c = live_server
+        r = c.post("/api/v1/snippets", json={
+            "content_text": "Update test snippet",
+            "category": "general",
+        })
+        sid = r.json()["id"]
+
+        # Update category and note
+        r2 = c.put(f"/api/v1/snippets/{sid}", json={
+            "category": "code",
+            "note": "Important code snippet",
+        })
+        assert r2.status_code == 200
+
+        s = c.get(f"/api/v1/snippets/{sid}").json()
+        assert s["category"] == "code"
+        assert s["note"] == "Important code snippet"
+
+        # Update favorited
+        c.put(f"/api/v1/snippets/{sid}", json={"favorited": True})
+        s2 = c.get(f"/api/v1/snippets/{sid}").json()
+        assert s2["favorited"] == 1
+
+        # Cleanup
+        c.put(f"/api/v1/snippets/{sid}", json={"favorited": False})
+        c.delete(f"/api/v1/snippets/{sid}")
+
+    def test_delete_snippet(self, live_server):
+        """Create and delete a snippet."""
+        c = live_server
+        r = c.post("/api/v1/snippets", json={
+            "content_text": "Snippet to delete",
+        })
+        sid = r.json()["id"]
+
+        r2 = c.delete(f"/api/v1/snippets/{sid}")
+        assert r2.status_code == 200
+
+        r3 = c.get(f"/api/v1/snippets/{sid}")
+        assert r3.status_code == 404
+
+    def test_snippet_categories_endpoint(self, live_server):
+        """Verify the categories endpoint returns counts."""
+        c = live_server
+        ids = []
+        for cat in ["reference", "reference", "prompt"]:
+            r = c.post("/api/v1/snippets", json={
+                "content_text": f"Cat test {cat}",
+                "category": cat,
+            })
+            ids.append(r.json()["id"])
+
+        cats = c.get("/api/v1/snippets/categories").json()
+        cat_map = {cat["category"]: cat["count"] for cat in cats}
+        assert cat_map.get("reference", 0) >= 2
+        assert cat_map.get("prompt", 0) >= 1
+
+        for sid in ids:
+            c.delete(f"/api/v1/snippets/{sid}")
+
+    def test_snippet_favorited_filter(self, live_server):
+        """Filter snippets by favorited status."""
+        c = live_server
+        r1 = c.post("/api/v1/snippets", json={"content_text": "Fav snippet"})
+        r2 = c.post("/api/v1/snippets", json={"content_text": "Normal snippet"})
+        sid1 = r1.json()["id"]
+        sid2 = r2.json()["id"]
+
+        # Favorite one
+        c.put(f"/api/v1/snippets/{sid1}", json={"favorited": True})
+
+        # Filter favorited
+        favs = c.get("/api/v1/snippets?favorited=true").json()
+        fav_ids = {s["id"] for s in favs}
+        assert sid1 in fav_ids
+        assert sid2 not in fav_ids
+
+        # Cleanup
+        c.put(f"/api/v1/snippets/{sid1}", json={"favorited": False})
+        c.delete(f"/api/v1/snippets/{sid1}")
+        c.delete(f"/api/v1/snippets/{sid2}")

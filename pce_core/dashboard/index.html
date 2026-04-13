@@ -29,6 +29,10 @@
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
           <span>Favorites</span>
         </a></li>
+        <li><a href="#" data-view="snippets">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
+          <span>Snippets</span>
+        </a></li>
         <li><a href="#" data-view="search">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           <span>Search</span>
@@ -205,6 +209,49 @@
             </div>
           </div>
           <div id="favorite-messages" class="messages-list"></div>
+        </div>
+      </section>
+
+      <!-- Snippets View -->
+      <section id="view-snippets" class="view">
+        <div class="view-header">
+          <h2>
+            <svg class="header-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
+            Snippets
+          </h2>
+          <div class="filters-bar" style="margin-bottom:0">
+            <select id="snippet-category-filter">
+              <option value="">All Categories</option>
+              <option value="general">General</option>
+              <option value="code">Code</option>
+              <option value="prompt">Prompt</option>
+              <option value="output">Output</option>
+              <option value="reference">Reference</option>
+            </select>
+            <select id="snippet-domain-filter">
+              <option value="">All Domains</option>
+            </select>
+            <input type="text" id="snippet-search" placeholder="Search snippets..." class="snippet-search-input" />
+            <button id="snippet-refresh" class="btn-sm">Refresh</button>
+          </div>
+        </div>
+        <p class="snippets-desc">Text snippets collected from AI sites. Select text on any covered site and click the Save button to collect.</p>
+        <div id="snippets-list" class="snippets-list"></div>
+
+        <!-- Snippet Detail (inline) -->
+        <div id="snippet-detail" class="snippet-detail hidden">
+          <div class="detail-header">
+            <button id="snippet-back" class="btn-sm">&larr; Back</button>
+            <h3 id="snippet-detail-title">Snippet</h3>
+            <div class="detail-actions">
+              <button id="snippet-fav-btn" class="btn-sm btn-fav" title="Favorite this snippet">
+                <svg class="star-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                Favorite
+              </button>
+              <button id="snippet-delete-btn" class="btn-sm btn-danger">Delete</button>
+            </div>
+          </div>
+          <div id="snippet-detail-content" class="snippet-detail-body"></div>
         </div>
       </section>
 

@@ -25,12 +25,16 @@ from .db import (
     SOURCE_PROXY,
     add_custom_domain,
     count_favorited_sessions,
+    delete_snippet,
     get_custom_domains,
     get_capture_health,
+    get_snippet,
+    get_snippet_categories,
     get_source_activity,
     get_stats,
     init_db,
     insert_capture,
+    insert_snippet,
     list_custom_domains,
     new_pair_id,
     query_by_pair,
@@ -38,10 +42,12 @@ from .db import (
     query_messages,
     query_recent,
     query_sessions,
+    query_snippets,
     refresh_custom_domains,
     remove_custom_domain,
     reset_all_data,
     set_session_favorite,
+    update_snippet,
 )
 from .models import (
     CaptureIn,
@@ -50,6 +56,8 @@ from .models import (
     HealthOut,
     MessageRecord,
     SessionRecord,
+    SnippetIn,
+    SnippetRecord,
     StatsOut,
 )
 from .normalizer.pipeline import normalize_conversation, try_normalize_pair
@@ -487,6 +495,81 @@ def export_sessions_bulk(
         yield from export_sessions_jsonl(provider=provider, since=since)
 
     return StreamingResponse(generate(), media_type="application/x-ndjson")
+
+
+# ---------------------------------------------------------------------------
+# Snippets API (text selection capture)
+# ---------------------------------------------------------------------------
+
+@app.post("/api/v1/snippets", status_code=201)
+def create_snippet(payload: SnippetIn):
+    """Save a text snippet collected from a covered site."""
+    snippet_id = insert_snippet(
+        content_text=payload.content_text,
+        source_url=payload.source_url,
+        source_domain=payload.source_domain,
+        provider=payload.provider,
+        category=payload.category,
+        note=payload.note,
+    )
+    if not snippet_id:
+        raise HTTPException(500, "Failed to save snippet")
+    logger.info("snippet saved: %s (%s, %s)", snippet_id[:8], payload.category, payload.source_domain or "unknown")
+    return {"ok": True, "id": snippet_id}
+
+
+@app.get("/api/v1/snippets", response_model=list[SnippetRecord])
+def list_snippets(
+    last: int = Query(50, ge=1, le=500),
+    category: Optional[str] = None,
+    domain: Optional[str] = None,
+    favorited: Optional[bool] = None,
+    q: Optional[str] = None,
+):
+    """List snippets with optional filters."""
+    return query_snippets(
+        last=last, category=category, domain=domain,
+        favorited_only=bool(favorited) if favorited is not None else False,
+        q=q,
+    )
+
+
+@app.get("/api/v1/snippets/categories")
+def list_snippet_categories():
+    """Return all snippet categories with counts."""
+    return get_snippet_categories()
+
+
+@app.get("/api/v1/snippets/{snippet_id}", response_model=SnippetRecord)
+def get_snippet_by_id(snippet_id: str):
+    """Get a single snippet."""
+    s = get_snippet(snippet_id)
+    if not s:
+        raise HTTPException(404, "Snippet not found")
+    return s
+
+
+@app.put("/api/v1/snippets/{snippet_id}")
+def update_snippet_endpoint(snippet_id: str, payload: dict):
+    """Update snippet category, note, or favorited status."""
+    ok = update_snippet(
+        snippet_id,
+        category=payload.get("category"),
+        note=payload.get("note"),
+        favorited=payload.get("favorited"),
+    )
+    if not ok:
+        raise HTTPException(500, "Failed to update snippet")
+    return {"ok": True, "id": snippet_id}
+
+
+@app.delete("/api/v1/snippets/{snippet_id}")
+def delete_snippet_endpoint(snippet_id: str):
+    """Delete a snippet."""
+    ok = delete_snippet(snippet_id)
+    if not ok:
+        raise HTTPException(500, "Failed to delete snippet")
+    return {"ok": True, "id": snippet_id}
 
 
 # ---------------------------------------------------------------------------

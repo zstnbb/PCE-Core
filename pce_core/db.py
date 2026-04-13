@@ -125,6 +125,49 @@ CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE ON messages BEGIN
     VALUES (new.rowid, new.content_text);
 END;
 
+-- Snippets (user-collected text selections) -----------------------------------
+
+CREATE TABLE IF NOT EXISTS snippets (
+    id              TEXT PRIMARY KEY,
+    created_at      REAL NOT NULL,
+    source_url      TEXT,
+    source_domain   TEXT,
+    provider        TEXT,
+    category        TEXT NOT NULL DEFAULT 'general',
+    content_text    TEXT NOT NULL,
+    note            TEXT,
+    favorited       INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_snippets_created   ON snippets(created_at);
+CREATE INDEX IF NOT EXISTS idx_snippets_category  ON snippets(category);
+CREATE INDEX IF NOT EXISTS idx_snippets_domain    ON snippets(source_domain);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS snippets_fts USING fts5(
+    content_text,
+    note,
+    content='snippets',
+    content_rowid='rowid',
+    tokenize='unicode61'
+);
+
+CREATE TRIGGER IF NOT EXISTS snippets_fts_ai AFTER INSERT ON snippets BEGIN
+    INSERT INTO snippets_fts(rowid, content_text, note)
+    VALUES (new.rowid, new.content_text, new.note);
+END;
+
+CREATE TRIGGER IF NOT EXISTS snippets_fts_ad AFTER DELETE ON snippets BEGIN
+    INSERT INTO snippets_fts(snippets_fts, rowid, content_text, note)
+    VALUES ('delete', old.rowid, old.content_text, old.note);
+END;
+
+CREATE TRIGGER IF NOT EXISTS snippets_fts_au AFTER UPDATE ON snippets BEGIN
+    INSERT INTO snippets_fts(snippets_fts, rowid, content_text, note)
+    VALUES ('delete', old.rowid, old.content_text, old.note);
+    INSERT INTO snippets_fts(rowid, content_text, note)
+    VALUES (new.rowid, new.content_text, new.note);
+END;
+
 -- Custom domains (dynamic allowlist) -----------------------------------------
 
 CREATE TABLE IF NOT EXISTS custom_domains (
@@ -1108,6 +1151,162 @@ def reset_all_data(db_path: Optional[Path] = None) -> dict:
             "messages_deleted": deleted_msgs,
             "favorites_protected": fav_sess,
         }
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Snippets CRUD
+# ---------------------------------------------------------------------------
+
+def insert_snippet(
+    *,
+    content_text: str,
+    source_url: Optional[str] = None,
+    source_domain: Optional[str] = None,
+    provider: Optional[str] = None,
+    category: str = "general",
+    note: Optional[str] = None,
+    db_path: Optional[Path] = None,
+) -> Optional[str]:
+    """Insert a text snippet. Returns snippet id or None on failure."""
+    snippet_id = new_id()
+    try:
+        conn = get_connection(db_path)
+        try:
+            conn.execute(
+                """
+                INSERT INTO snippets
+                    (id, created_at, source_url, source_domain, provider,
+                     category, content_text, note)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (snippet_id, time.time(), source_url, source_domain,
+                 provider, category, content_text, note),
+            )
+            conn.commit()
+            return snippet_id
+        finally:
+            conn.close()
+    except Exception:
+        logger.exception("Failed to insert snippet")
+        return None
+
+
+def query_snippets(
+    *,
+    last: int = 50,
+    category: Optional[str] = None,
+    domain: Optional[str] = None,
+    favorited_only: bool = False,
+    q: Optional[str] = None,
+    db_path: Optional[Path] = None,
+) -> list[dict]:
+    """Query snippets with optional filters."""
+    conn = get_connection(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        clauses = []
+        params: list = []
+
+        if category:
+            clauses.append("s.category = ?")
+            params.append(category)
+        if domain:
+            clauses.append("s.source_domain = ?")
+            params.append(domain)
+        if favorited_only:
+            clauses.append("s.favorited = 1")
+        if q:
+            clauses.append("s.rowid IN (SELECT rowid FROM snippets_fts WHERE snippets_fts MATCH ?)")
+            params.append(q)
+
+        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        params.append(last)
+
+        rows = conn.execute(
+            f"SELECT s.* FROM snippets s {where} ORDER BY s.created_at DESC LIMIT ?",
+            params,
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_snippet(snippet_id: str, db_path: Optional[Path] = None) -> Optional[dict]:
+    """Return a single snippet by id."""
+    conn = get_connection(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute("SELECT * FROM snippets WHERE id = ?", (snippet_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def update_snippet(
+    snippet_id: str,
+    *,
+    category: Optional[str] = None,
+    note: Optional[str] = None,
+    favorited: Optional[bool] = None,
+    db_path: Optional[Path] = None,
+) -> bool:
+    """Update snippet fields. Returns True on success."""
+    sets = []
+    params: list = []
+    if category is not None:
+        sets.append("category = ?")
+        params.append(category)
+    if note is not None:
+        sets.append("note = ?")
+        params.append(note)
+    if favorited is not None:
+        sets.append("favorited = ?")
+        params.append(1 if favorited else 0)
+    if not sets:
+        return True
+    params.append(snippet_id)
+    try:
+        conn = get_connection(db_path)
+        try:
+            conn.execute(
+                f"UPDATE snippets SET {', '.join(sets)} WHERE id = ?",
+                params,
+            )
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+    except Exception:
+        logger.exception("Failed to update snippet %s", snippet_id)
+        return False
+
+
+def delete_snippet(snippet_id: str, db_path: Optional[Path] = None) -> bool:
+    """Delete a snippet by id. Returns True on success."""
+    try:
+        conn = get_connection(db_path)
+        try:
+            conn.execute("DELETE FROM snippets WHERE id = ?", (snippet_id,))
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+    except Exception:
+        logger.exception("Failed to delete snippet %s", snippet_id)
+        return False
+
+
+def get_snippet_categories(db_path: Optional[Path] = None) -> list[dict]:
+    """Return all distinct categories with counts."""
+    conn = get_connection(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            "SELECT category, COUNT(*) as count FROM snippets GROUP BY category ORDER BY count DESC"
+        ).fetchall()
+        return [dict(r) for r in rows]
     finally:
         conn.close()
 
