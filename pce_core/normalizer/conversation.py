@@ -275,6 +275,14 @@ class ConversationNormalizer(BaseNormalizer):
 
         tool_family = f"{provider}-web" if provider else "web"
 
+        # Confidence scoring
+        confidence = _compute_conversation_confidence(
+            data=data,
+            messages=messages,
+            provider=provider,
+            host=host,
+        )
+
         return NormalizedResult(
             provider=provider or "unknown",
             tool_family=tool_family,
@@ -282,7 +290,65 @@ class ConversationNormalizer(BaseNormalizer):
             session_key=session_key,
             title_hint=title_hint,
             messages=messages,
+            confidence=confidence,
         )
+
+
+def _compute_conversation_confidence(
+    data: dict,
+    messages: list,
+    provider: str,
+    host: str,
+) -> float:
+    """Score how confidently this normalizer parsed conversation data.
+
+    Signals:
+    - Has a ``messages`` array with role/content                → +0.25
+    - Both user and assistant messages present                   → +0.20
+    - Known conversation provider                               → +0.10
+    - Known conversation host                                   → +0.10
+    - Has conversation_id / session_id                          → +0.10
+    - Has title                                                 → +0.05
+    - Multiple messages (>= 4, real conversation)               → +0.10
+    - Messages have substantial content (avg > 20 chars)        → +0.10
+    """
+    score = 0.0
+
+    msgs_raw = data.get("messages", [])
+    if isinstance(msgs_raw, list) and len(msgs_raw) > 0:
+        well_formed = sum(
+            1 for m in msgs_raw
+            if isinstance(m, dict) and "role" in m and m.get("content")
+        )
+        score += 0.25 * min(well_formed / max(len(msgs_raw), 1), 1.0)
+
+    roles = {m.role for m in messages} if messages else set()
+    if "user" in roles and "assistant" in roles:
+        score += 0.20
+    elif messages:
+        score += 0.05
+
+    if provider in _CONVERSATION_PROVIDERS:
+        score += 0.10
+    if host in _CONVERSATION_HOSTS:
+        score += 0.10
+
+    if data.get("conversation_id") or data.get("session_id"):
+        score += 0.10
+    if data.get("title"):
+        score += 0.05
+
+    if len(messages) >= 4:
+        score += 0.10
+    elif len(messages) >= 2:
+        score += 0.05
+
+    if messages:
+        avg_len = sum(len(m.content_text or "") for m in messages) / len(messages)
+        if avg_len > 20:
+            score += 0.10
+
+    return min(score, 1.0)
 
 
 def _safe_json(text: str) -> Optional[dict]:

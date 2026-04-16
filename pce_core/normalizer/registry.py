@@ -28,6 +28,15 @@ def get_normalizer(provider: str, host: str, path: str) -> Optional[BaseNormaliz
     return None
 
 
+def get_all_normalizers(provider: str, host: str, path: str) -> list[BaseNormalizer]:
+    """Return all normalizers that can handle the given provider/host/path.
+
+    Used by the try-fallback chain in normalize_pair() to attempt multiple
+    normalizers and pick the highest-confidence result.
+    """
+    return [n for n in _normalizers if n.can_handle(provider, host, path)]
+
+
 def _auto_register():
     """Import and register all built-in normalizers."""
     from .openai import OpenAIChatNormalizer

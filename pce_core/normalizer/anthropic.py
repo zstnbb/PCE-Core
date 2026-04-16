@@ -150,6 +150,15 @@ class AnthropicMessagesNormalizer(BaseNormalizer):
                 title_hint = m.content_text[:100]
                 break
 
+        # Confidence scoring
+        confidence = _compute_confidence(
+            req_data=req_data,
+            resp_data=resp_data,
+            messages=messages,
+            host=host,
+            path=path,
+        )
+
         return NormalizedResult(
             provider=provider or "anthropic",
             tool_family="api-direct",
@@ -157,7 +166,61 @@ class AnthropicMessagesNormalizer(BaseNormalizer):
             session_key=session_key,
             title_hint=title_hint,
             messages=messages,
+            confidence=confidence,
         )
+
+
+def _compute_confidence(
+    req_data: Optional[dict],
+    resp_data: Optional[dict],
+    messages: list,
+    host: str,
+    path: str,
+) -> float:
+    """Score how confidently this normalizer parsed the data.
+
+    Signals:
+    - Request has ``messages`` array with content blocks     → +0.25
+    - Response has ``content`` blocks array                  → +0.20
+    - ``model`` field starts with 'claude'                   → +0.15
+    - ``usage`` with input/output tokens                     → +0.10
+    - Both user and assistant messages extracted              → +0.15
+    - Host is anthropic/claude                               → +0.10
+    - Path matches /v1/messages                              → +0.05
+    """
+    score = 0.0
+
+    if isinstance(req_data, dict):
+        req_msgs = req_data.get("messages")
+        if isinstance(req_msgs, list) and len(req_msgs) > 0:
+            score += 0.25
+
+        model = req_data.get("model", "")
+        if isinstance(model, str) and "claude" in model.lower():
+            score += 0.15
+        elif model:
+            score += 0.05
+
+    if isinstance(resp_data, dict):
+        content = resp_data.get("content")
+        if isinstance(content, list) and len(content) > 0:
+            score += 0.20
+        usage = resp_data.get("usage")
+        if isinstance(usage, dict) and (usage.get("input_tokens") or usage.get("output_tokens")):
+            score += 0.10
+
+    roles = {m.role for m in messages} if messages else set()
+    if "user" in roles and "assistant" in roles:
+        score += 0.15
+    elif messages:
+        score += 0.05
+
+    if "anthropic" in host or host == "claude.ai":
+        score += 0.10
+    if path in _MESSAGES_PATHS:
+        score += 0.05
+
+    return min(score, 1.0)
 
 
 def _safe_json(text: str) -> Optional[dict]:

@@ -55,6 +55,10 @@ class CaptureIn(BaseModel):
         default=None,
         description="Source-specific metadata (e.g. page URL for browser ext, tool name for MCP)",
     )
+    schema_version: Optional[int] = Field(
+        default=None,
+        description="Capture payload format version. Defaults to current server version if omitted.",
+    )
 
 
 class CaptureOut(BaseModel):
@@ -90,6 +94,7 @@ class CaptureRecord(BaseModel):
     error: Optional[str] = None
     session_hint: Optional[str] = None
     meta_json: Optional[str] = None
+    schema_version: int = 1
 
 
 class StorageInfo(BaseModel):

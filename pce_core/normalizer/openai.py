@@ -182,6 +182,15 @@ class OpenAIChatNormalizer(BaseNormalizer):
                     title_hint = m.content_text[:100]
                     break
 
+        # Confidence scoring based on structural signals
+        confidence = _compute_confidence(
+            req_data=req_data,
+            resp_data=resp_data,
+            messages=messages,
+            host=host,
+            path=path,
+        )
+
         return NormalizedResult(
             provider=provider or "openai",
             tool_family=tool_family,
@@ -189,7 +198,63 @@ class OpenAIChatNormalizer(BaseNormalizer):
             session_key=session_key,
             title_hint=title_hint,
             messages=messages,
+            confidence=confidence,
         )
+
+
+def _compute_confidence(
+    req_data: Optional[dict],
+    resp_data: Optional[dict],
+    messages: list,
+    host: str,
+    path: str,
+) -> float:
+    """Score how confidently this normalizer parsed the data.
+
+    Signals (each adds to score):
+    - Request has a ``messages`` array with role/content dicts  → +0.25
+    - Response has a ``choices`` array                          → +0.20
+    - A ``model`` field is present                              → +0.10
+    - A ``usage`` dict with token counts is present             → +0.10
+    - Both user and assistant messages were extracted            → +0.15
+    - Host is a known OpenAI-compatible host                    → +0.10
+    - Path is an exact chat completions path                    → +0.10
+    """
+    score = 0.0
+
+    if isinstance(req_data, dict):
+        req_msgs = req_data.get("messages")
+        if isinstance(req_msgs, list) and len(req_msgs) > 0:
+            # Check structural quality of messages
+            well_formed = sum(
+                1 for m in req_msgs
+                if isinstance(m, dict) and "role" in m and "content" in m
+            )
+            score += 0.25 * min(well_formed / max(len(req_msgs), 1), 1.0)
+
+        if req_data.get("model"):
+            score += 0.10
+
+    if isinstance(resp_data, dict):
+        choices = resp_data.get("choices")
+        if isinstance(choices, list) and len(choices) > 0:
+            score += 0.20
+        usage = resp_data.get("usage")
+        if isinstance(usage, dict) and usage.get("total_tokens"):
+            score += 0.10
+
+    roles = {m.role for m in messages} if messages else set()
+    if "user" in roles and "assistant" in roles:
+        score += 0.15
+    elif messages:
+        score += 0.05  # at least some messages extracted
+
+    if host in _COMPATIBLE_HOSTS:
+        score += 0.10
+    if path in _CHAT_PATHS:
+        score += 0.10
+
+    return min(score, 1.0)
 
 
 def _safe_json(text: str) -> Optional[dict]:

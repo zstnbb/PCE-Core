@@ -19,6 +19,11 @@ from .config import DB_PATH, DATA_DIR
 
 logger = logging.getLogger("pce.db")
 
+# Current capture schema version — bump when the capture payload format changes.
+# v1: Original format (proxy-era)
+# v2: Added meta_json, session_hint, schema_version, network_intercept direction
+CAPTURE_SCHEMA_VERSION = 2
+
 # ---------------------------------------------------------------------------
 # Schema
 # ---------------------------------------------------------------------------
@@ -54,6 +59,7 @@ CREATE TABLE IF NOT EXISTS raw_captures (
     error                   TEXT,
     session_hint            TEXT,
     meta_json               TEXT,
+    schema_version          INTEGER NOT NULL DEFAULT 1,
     FOREIGN KEY (source_id) REFERENCES sources(id)
 );
 
@@ -246,8 +252,12 @@ def init_db(db_path: Optional[Path] = None) -> None:
                 logger.info("Migrated raw_captures: rebuilt table with updated CHECK constraint")
         except Exception:
             logger.exception("Migration check failed (non-fatal)")
-        # Migrate: add meta_json column if missing
+        # Migrate: add schema_version column if missing
         cols = {row[1] for row in conn.execute("PRAGMA table_info(raw_captures)").fetchall()}
+        if "schema_version" not in cols:
+            conn.execute("ALTER TABLE raw_captures ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1")
+            logger.info("Migrated raw_captures: added schema_version column")
+        # Migrate: add meta_json column if missing
         if "meta_json" not in cols:
             conn.execute("ALTER TABLE raw_captures ADD COLUMN meta_json TEXT")
             logger.info("Migrated raw_captures: added meta_json column")
@@ -325,11 +335,13 @@ def insert_capture(
     error: Optional[str] = None,
     session_hint: Optional[str] = None,
     meta_json: Optional[str] = None,
+    schema_version: Optional[int] = None,
     source_id: str = SOURCE_PROXY,
     db_path: Optional[Path] = None,
 ) -> Optional[str]:
     """Insert a raw capture row. Returns the capture id, or None on failure."""
     capture_id = new_id()
+    sv = schema_version if schema_version is not None else CAPTURE_SCHEMA_VERSION
     try:
         conn = get_connection(db_path)
         try:
@@ -339,8 +351,8 @@ def insert_capture(
                     (id, created_at, source_id, direction, pair_id, host, path,
                      method, provider, model_name, status_code, latency_ms,
                      headers_redacted_json, body_text_or_json, body_format,
-                     error, session_hint, meta_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     error, session_hint, meta_json, schema_version)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     capture_id,
@@ -361,6 +373,7 @@ def insert_capture(
                     error,
                     session_hint,
                     meta_json,
+                    sv,
                 ),
             )
             conn.commit()
@@ -728,11 +741,16 @@ def update_message_enrichment(
     *,
     content_text: Optional[str] = None,
     content_json: Optional[str] = None,
+    model_name: Optional[str] = None,
+    token_estimate: Optional[int] = None,
     db_path: Optional[Path] = None,
 ) -> bool:
     """Update an existing message with richer content (e.g. newly-extracted attachments).
 
     Only updates fields that are provided (not None). Returns True on success.
+    Used by the reconciler to enrich messages when a higher-quality capture
+    arrives from a different channel (e.g. network adds model_name/tokens
+    to a DOM-extracted message).
     """
     sets = []
     params: list = []
@@ -742,6 +760,12 @@ def update_message_enrichment(
     if content_json is not None:
         sets.append("content_json = ?")
         params.append(content_json)
+    if model_name is not None:
+        sets.append("model_name = ?")
+        params.append(model_name)
+    if token_estimate is not None:
+        sets.append("token_estimate = ?")
+        params.append(token_estimate)
     if not sets:
         return False
     params.append(msg_id)

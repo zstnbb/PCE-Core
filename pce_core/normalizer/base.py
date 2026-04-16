@@ -34,6 +34,8 @@ class NormalizedResult:
     session_key: Optional[str] = None  # for grouping into sessions
     title_hint: Optional[str] = None
     messages: list[NormalizedMessage] = field(default_factory=list)
+    confidence: float = 0.5  # 0.0–1.0, higher = more confident parse
+    normalizer_name: Optional[str] = None  # which normalizer produced this
 
 
 class BaseNormalizer(ABC):
@@ -68,34 +70,67 @@ def normalize_pair(
     request_row: dict,
     response_row: dict,
 ) -> Optional[NormalizedResult]:
-    """Convenience: run the appropriate normalizer on a capture pair.
+    """Try all matching normalizers and return the highest-confidence result.
 
-    Looks up the normalizer from the registry based on provider/host/path.
+    Falls back through the normalizer chain: if the primary normalizer
+    returns None or a low-confidence result, subsequent normalizers get
+    a chance.  The result with the highest confidence wins.
     """
-    from .registry import get_normalizer
+    from .registry import get_all_normalizers
 
     provider = request_row.get("provider", "")
     host = request_row.get("host", "")
     path = request_row.get("path", "")
-
-    normalizer = get_normalizer(provider, host, path)
-    if normalizer is None:
-        logger.debug("No normalizer found for %s %s %s", provider, host, path)
-        return None
-
     request_body = request_row.get("body_text_or_json", "")
     response_body = response_row.get("body_text_or_json", "")
 
-    try:
-        return normalizer.normalize(
-            request_body,
-            response_body,
-            provider=provider,
-            host=host,
-            path=path,
-            model_name=request_row.get("model_name"),
-            created_at=request_row.get("created_at"),
-        )
-    except Exception:
-        logger.exception("Normalizer failed for %s %s %s", provider, host, path)
+    candidates = get_all_normalizers(provider, host, path)
+    if not candidates:
+        logger.debug("No normalizer found for %s %s %s", provider, host, path)
         return None
+
+    best: Optional[NormalizedResult] = None
+
+    for normalizer in candidates:
+        try:
+            result = normalizer.normalize(
+                request_body,
+                response_body,
+                provider=provider,
+                host=host,
+                path=path,
+                model_name=request_row.get("model_name"),
+                created_at=request_row.get("created_at"),
+            )
+        except Exception:
+            logger.debug(
+                "Normalizer %s failed for %s %s %s",
+                type(normalizer).__name__, provider, host, path,
+            )
+            continue
+
+        if result is None:
+            continue
+
+        # Tag which normalizer produced this
+        if not result.normalizer_name:
+            result.normalizer_name = type(normalizer).__name__
+
+        # High confidence — use immediately without trying others
+        if result.confidence >= 0.9:
+            logger.debug(
+                "Normalizer %s matched with high confidence %.2f",
+                type(normalizer).__name__, result.confidence,
+            )
+            return result
+
+        # Track the best result so far
+        if best is None or result.confidence > best.confidence:
+            best = result
+
+    if best:
+        logger.debug(
+            "Best normalizer: %s (confidence=%.2f, msgs=%d)",
+            best.normalizer_name, best.confidence, len(best.messages),
+        )
+    return best

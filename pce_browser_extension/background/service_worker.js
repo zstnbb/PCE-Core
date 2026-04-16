@@ -11,7 +11,12 @@
  *
  * Includes a 5-second short-time dedup window to avoid storing near-identical
  * captures from both DOM extraction and network interception simultaneously.
+ *
+ * Captures that fail to send (server offline) are buffered in IndexedDB via
+ * CaptureQueue and retried with exponential backoff.
  */
+
+import { CaptureQueue } from "./capture_queue.js";
 
 const PCE_INGEST_URL = "http://127.0.0.1:9800/api/v1/captures";
 
@@ -201,6 +206,9 @@ async function checkHealth() {
 checkHealth();
 setInterval(checkHealth, 30000);
 
+// Start the offline capture queue retry loop
+CaptureQueue.startRetryLoop();
+
 // ---------------------------------------------------------------------------
 // Message handler – receives captures from content scripts
 // ---------------------------------------------------------------------------
@@ -208,7 +216,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // DOM-extracted conversation capture (existing path)
   if (message.type === "PCE_CAPTURE") {
     handleCapture(message.payload, sender.tab)
-      .then((result) => sendResponse({ ok: true, ...result }))
+      .then((result) => sendResponse({ ok: !result.error, ...result }))
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true; // async response
   }
@@ -216,7 +224,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // Network-intercepted capture (new path from bridge.js)
   if (message.type === "PCE_NETWORK_CAPTURE") {
     handleNetworkCapture(message.payload, sender.tab)
-      .then((result) => sendResponse({ ok: true, ...result }))
+      .then((result) => sendResponse({ ok: !result.error, ...result }))
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
   }
@@ -231,13 +239,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "PCE_GET_STATUS") {
     // Do a fresh health check before responding so popup always shows current state
-    checkHealth().then(() => {
+    Promise.all([checkHealth(), CaptureQueue.count()]).then(([, queuedCount]) => {
       sendResponse({
         enabled: isEnabled,
         captureCount,
         serverOnline: pceServerOnline,
         lastError,
         silentDomains: getSilentDomains(),
+        queuedCaptures: queuedCount,
       });
     });
     return true; // async response
@@ -306,25 +315,25 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 // Proactive injection fallback — mirrors manifest.json content_scripts
 // ---------------------------------------------------------------------------
 const _DOMAIN_CONTENT_SCRIPTS = {
-  "chatgpt.com":          ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "chatgpt.js"],
-  "chat.openai.com":      ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "chatgpt.js"],
-  "claude.ai":            ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "claude.js"],
-  "gemini.google.com":    ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "gemini.js"],
-  "aistudio.google.com":  ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "google_ai_studio.js"],
-  "manus.im":             ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "manus.js"],
-  "chat.deepseek.com":    ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "deepseek.js"],
-  "chat.z.ai":            ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "zhipu.js"],
-  "www.perplexity.ai":    ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "perplexity.js"],
-  "copilot.microsoft.com":["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "copilot.js"],
-  "poe.com":              ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "poe.js"],
-  "huggingface.co":       ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "huggingface.js"],
-  "grok.com":             ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "grok.js"],
-  "chat.mistral.ai":      ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "generic.js"],
-  "kimi.moonshot.cn":     ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "generic.js"],
-  "www.kimi.com":          ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "generic.js"],
-  "kimi.com":              ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "generic.js"],
-  "chatglm.cn":           ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "generic.js"],
-  "chat.zhipuai.cn":      ["pce_dom_utils.js", "detector.js", "behavior_tracker.js", "bridge.js", "generic.js"],
+  "chatgpt.com":          ["pce_dom_utils.js", "site_configs.js", "selector_engine.js", "detector.js", "behavior_tracker.js", "bridge.js", "chatgpt.js"],
+  "chat.openai.com":      ["pce_dom_utils.js", "site_configs.js", "selector_engine.js", "detector.js", "behavior_tracker.js", "bridge.js", "chatgpt.js"],
+  "claude.ai":            ["pce_dom_utils.js", "site_configs.js", "selector_engine.js", "detector.js", "behavior_tracker.js", "bridge.js", "claude.js"],
+  "gemini.google.com":    ["pce_dom_utils.js", "site_configs.js", "selector_engine.js", "detector.js", "behavior_tracker.js", "bridge.js", "gemini.js"],
+  "aistudio.google.com":  ["pce_dom_utils.js", "site_configs.js", "selector_engine.js", "detector.js", "behavior_tracker.js", "bridge.js", "google_ai_studio.js"],
+  "manus.im":             ["pce_dom_utils.js", "site_configs.js", "selector_engine.js", "detector.js", "behavior_tracker.js", "bridge.js", "manus.js"],
+  "chat.deepseek.com":    ["pce_dom_utils.js", "site_configs.js", "selector_engine.js", "detector.js", "behavior_tracker.js", "bridge.js", "deepseek.js"],
+  "chat.z.ai":            ["pce_dom_utils.js", "site_configs.js", "selector_engine.js", "detector.js", "behavior_tracker.js", "bridge.js", "zhipu.js"],
+  "www.perplexity.ai":    ["pce_dom_utils.js", "site_configs.js", "selector_engine.js", "detector.js", "behavior_tracker.js", "bridge.js", "perplexity.js"],
+  "copilot.microsoft.com":["pce_dom_utils.js", "site_configs.js", "selector_engine.js", "detector.js", "behavior_tracker.js", "bridge.js", "copilot.js"],
+  "poe.com":              ["pce_dom_utils.js", "site_configs.js", "selector_engine.js", "detector.js", "behavior_tracker.js", "bridge.js", "poe.js"],
+  "huggingface.co":       ["pce_dom_utils.js", "site_configs.js", "selector_engine.js", "detector.js", "behavior_tracker.js", "bridge.js", "huggingface.js"],
+  "grok.com":             ["pce_dom_utils.js", "site_configs.js", "selector_engine.js", "detector.js", "behavior_tracker.js", "bridge.js", "grok.js"],
+  "chat.mistral.ai":      ["pce_dom_utils.js", "site_configs.js", "selector_engine.js", "detector.js", "behavior_tracker.js", "bridge.js", "generic.js"],
+  "kimi.moonshot.cn":     ["pce_dom_utils.js", "site_configs.js", "selector_engine.js", "detector.js", "behavior_tracker.js", "bridge.js", "generic.js"],
+  "www.kimi.com":          ["pce_dom_utils.js", "site_configs.js", "selector_engine.js", "detector.js", "behavior_tracker.js", "bridge.js", "generic.js"],
+  "kimi.com":              ["pce_dom_utils.js", "site_configs.js", "selector_engine.js", "detector.js", "behavior_tracker.js", "bridge.js", "generic.js"],
+  "chatglm.cn":           ["pce_dom_utils.js", "site_configs.js", "selector_engine.js", "detector.js", "behavior_tracker.js", "bridge.js", "generic.js"],
+  "chat.zhipuai.cn":      ["pce_dom_utils.js", "site_configs.js", "selector_engine.js", "detector.js", "behavior_tracker.js", "bridge.js", "generic.js"],
 };
 
 const _DOMAIN_EXTRACTOR_FLAGS = {
@@ -351,6 +360,8 @@ const _DOMAIN_EXTRACTOR_FLAGS = {
 
 const _UNIVERSAL_FALLBACK_SCRIPTS = [
   "pce_dom_utils.js",
+  "site_configs.js",
+  "selector_engine.js",
   "behavior_tracker.js",
   "bridge.js",
   "universal_extractor.js",
@@ -533,6 +544,7 @@ async function handleCapture(payload, tab) {
     body_json: JSON.stringify(convObj),
     body_format: "json",
     session_hint: sessionHint,
+    schema_version: 2,
     meta: {
       page_url: tab ? tab.url : null,
       page_title: tab ? tab.title : null,
@@ -602,6 +614,7 @@ async function handleNetworkCapture(payload, tab) {
     }),
     body_format: "json",
     session_hint: sessionHint,
+    schema_version: 2,
     meta: {
       page_url: tab ? tab.url : null,
       page_title: tab ? tab.title : null,
@@ -744,16 +757,23 @@ async function reportDiscoveredDomain(domain, confidence, signals) {
 }
 
 async function postToIngestAPI(body, provider) {
+  const bodyStr = JSON.stringify(body);
   try {
     const resp = await fetch(PCE_INGEST_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: bodyStr,
       signal: AbortSignal.timeout(5000),
     });
 
     if (!resp.ok) {
       const text = await resp.text();
+      // 4xx = client error, won't help to retry
+      if (resp.status >= 400 && resp.status < 500) {
+        console.error(`[PCE] Capture rejected (${resp.status}): ${text}`);
+        return { error: text };
+      }
+      // 5xx = server error, queue for retry
       throw new Error(`Ingest API returned ${resp.status}: ${text}`);
     }
 
@@ -768,7 +788,10 @@ async function postToIngestAPI(body, provider) {
     return { id: result.id, pair_id: result.pair_id };
   } catch (err) {
     lastError = err.message;
-    console.error("[PCE] Capture failed:", err.message);
-    throw err;
+    pceServerOnline = false;
+    console.warn("[PCE] Capture failed, queuing for retry:", err.message);
+    // Queue in IndexedDB for later retry
+    await CaptureQueue.enqueue(PCE_INGEST_URL, bodyStr);
+    return { queued: true };
   }
 }

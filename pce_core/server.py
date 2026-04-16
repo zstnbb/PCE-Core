@@ -161,6 +161,7 @@ def ingest_capture(payload: CaptureIn):
         error=payload.error,
         session_hint=payload.session_hint,
         meta_json=meta_json,
+        schema_version=payload.schema_version,
         source_id=source_id,
     )
 
