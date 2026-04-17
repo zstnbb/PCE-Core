@@ -14,7 +14,7 @@
     "allowJs": true,
     "checkJs": false,
     "noEmit": true,
-    "types": ["chrome"]
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
   },
   "include": [
     "entrypoints/**/*",
