@@ -17,3 +17,15 @@ pytest>=8.0.0
 opentelemetry-api>=1.27.0
 opentelemetry-sdk>=1.27.0
 opentelemetry-exporter-otlp-proto-http>=1.27.0
+
+# P2 (TASK-004) — Optional LiteLLM SDK capture channel.
+# PCE works without this; /api/v1/sdk/litellm/start will return
+# {"ok": false, "error": "litellm_not_installed"} until the extra is
+# installed. Install with `pip install litellm[proxy]` to enable the
+# fourth capture channel (see TASK-004 §5.4).
+litellm[proxy]>=1.50.0
+
+# P2 — Optional, for stronger CA subject parsing on the cert wizard.
+# Without it, we fall back to a regex-based CN extractor (sufficient for
+# the mitmproxy CA subject we manage).
+cryptography>=43.0.0

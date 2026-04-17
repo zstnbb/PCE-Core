@@ -1,11 +1,42 @@
 # ARCHITECTURE
 
 - Project: PCE
-- Version: v0.3 Storage-Standardization Architecture
+- Version: v0.4 Capture-UX Architecture
 - Updated: 2026-04-17
 - Scope: 覆盖“记录 -> 看见”阶段的完整实现，同时明确"抓 / 存 / 渲染"三大能力的工业级与用户友好目标，为“理解 -> 干预”阶段预留扩展点
 
 ## 0. 版本说明
+
+v0.4 相对 v0.3 的主要变化（P2 阶段落地）：
+
+- **抓层统一 UX 化**：四条抓取入口（浏览器扩展 / mitmproxy / MCP / SDK
+  桥接）的"接管系统 / 装证书 / 起代理 / 起 SDK 桥接"现在全部走同一份
+  HTTP API，前端桌面壳（P3）可以零知识调度
+- 新增 `pce_core/cert_wizard/` — 跨平台 CA 证书管理（Windows certutil /
+  macOS security / Linux update-ca-certificates），严格遵守 "not silent
+  elevation" 契约（返回 `needs_elevation=True` + 待执行命令，不隐式
+  UAC/sudo），全程支持 `dry_run` 预览
+- 新增 `pce_core/proxy_toggle/` — 跨平台系统代理开关（Windows 注册表 /
+  macOS networksetup / Linux gsettings），带回退的 `get_proxy_state`
+  报告当前系统状态
+- 新增 `pce_core/supervisor/` — 基于 asyncio 的子进程健康守护，带指数退避
+  + 健康窗口重置 + 三种 restart policy (ALWAYS/ON_FAILURE/NEVER)，可
+  嵌入 FastAPI lifespan 也可独立运行
+- 新增 `pce_core/sdk_capture_litellm/` — 第四条抓取通道，基于 LiteLLM
+  Proxy 子进程 + 自定义 callback 回灌 PCE Ingest，`source=sdk-litellm`，
+  LiteLLM 未装时 `/api/v1/sdk/litellm/start` 返回结构化 error 而不是炸
+- 新增 `pce_browser_extension_wxt/` — WXT 构建链骨架（ADR-006）：
+  background 已移到 TypeScript，manifest 通过 `wxt.config.ts` 声明式生成，
+  sideload / webstore 两种权限集通过 WXT `mode` 切换；13 个站点提取器的
+  JS→TS 改写拆成 P2.5 follow-up，框架骨架与业务逻辑改写严格分离
+- 新增 11 个 API 端点：
+  `/api/v1/cert` / `/cert/install` / `/cert/uninstall` / `/cert/export`
+  / `/cert/regenerate` / `/proxy` / `/proxy/enable` / `/proxy/disable`
+  / `/supervisor` / `/supervisor/{name}/restart` / `/sdk/litellm`
+  / `/sdk/litellm/start` / `/sdk/litellm/stop`
+- 测试矩阵从 P1 的 89 扩到 196（92 新单元 + 15 新冒烟 = 107 新测试），
+  全部不碰主机真 trust store / 真代理设置，平台后端全部 runner / adapter
+  injectable
 
 v0.3 相对 v0.2 的主要变化（P1 阶段落地）：
 

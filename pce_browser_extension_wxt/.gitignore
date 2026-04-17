@@ -1,0 +1,12 @@
+node_modules/
+.output/
+.wxt/
+*.log
+.DS_Store
+stats-*.html
+web-ext.config.ts
+# Synced from ../pce_browser_extension/ at build time; never commit
+public/content_scripts/
+public/interceptor/
+public/icons/
+public/popup/

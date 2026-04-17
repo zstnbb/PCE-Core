@@ -71,6 +71,11 @@ from .logging_config import configure_logging, log_event
 from .migrations import EXPECTED_SCHEMA_VERSION, get_current_version, get_migration_history
 from .otel_exporter import configure_otlp_exporter, is_enabled as _otel_is_enabled, shutdown_otlp_exporter
 from .retention import run_retention_loop, sweep_once
+# P2 — capture UX + process supervision
+from . import cert_wizard as _cert_wizard
+from . import proxy_toggle as _proxy_toggle
+from .sdk_capture_litellm import LITELLM_AVAILABLE, LiteLLMBridge
+from .supervisor import Supervisor
 from .models import (
     CaptureIn,
     CaptureOut,
@@ -148,12 +153,19 @@ async def lifespan(app: FastAPI):
         name="pce.retention.loop",
     )
 
+    # P2 — slots for lazily-started process managers; populated on demand via
+    # /api/v1/supervisor and /api/v1/sdk/litellm. Holding the slot here
+    # guarantees clean teardown even if the user never hits the stop endpoint.
+    app.state.supervisor = None
+    app.state.litellm_bridge = None
+
     log_event(
         logger, "server.ready",
         host=INGEST_HOST, port=INGEST_PORT, version=__version__,
         otel_enabled=_otel_is_enabled(),
         retention_days=RETENTION_DAYS,
         retention_max_rows=RETENTION_MAX_ROWS,
+        litellm_available=LITELLM_AVAILABLE,
     )
     yield
 
@@ -171,6 +183,21 @@ async def lifespan(app: FastAPI):
             pass
     except Exception:
         pass
+
+    # P2 — tear down the LiteLLM bridge & any managed supervisor before
+    # the event loop closes, otherwise lingering subprocesses become zombies.
+    bridge = getattr(app.state, "litellm_bridge", None)
+    if bridge is not None:
+        try:
+            await bridge.stop()
+        except Exception:
+            logger.exception("litellm_bridge.stop failed (non-fatal)")
+    sup = getattr(app.state, "supervisor", None)
+    if sup is not None:
+        try:
+            await sup.stop_all()
+        except Exception:
+            logger.exception("supervisor.stop_all failed (non-fatal)")
 
     try:
         shutdown_otlp_exporter()
@@ -376,6 +403,231 @@ def retention_sweep_endpoint(
     """Run a retention sweep right now. Returns the summary."""
     summary = sweep_once(days=days, max_raw_rows=max_raw_rows)
     return summary
+
+
+# ---------------------------------------------------------------------------
+# Cert wizard (P2 — TASK-004 §5.2)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/cert")
+def cert_list():
+    """List PCE-owned CA certificates currently installed in the host trust store."""
+    platform = _cert_wizard.detect_platform()
+    certs = _cert_wizard.list_ca()
+    return {
+        "platform": platform.value,
+        "default_ca_path": str(_cert_wizard.default_ca_path()),
+        "installed": [
+            {
+                "subject": c.subject,
+                "thumbprint_sha1": c.thumbprint_sha1,
+                "store_id": c.store_id,
+                "source_path": c.source_path,
+                "not_after_iso": c.not_after_iso,
+            }
+            for c in certs
+        ],
+    }
+
+
+@app.post("/api/v1/cert/install")
+def cert_install(payload: Optional[dict] = None):
+    """Install the mitmproxy CA into the host trust store.
+
+    Body (optional)::
+
+        {"cert_path": "/abs/path/to/ca.pem", "dry_run": false}
+    """
+    payload = payload or {}
+    cert_path = payload.get("cert_path")
+    dry_run = bool(payload.get("dry_run", False))
+    res = _cert_wizard.install_ca(
+        Path(cert_path) if cert_path else None,
+        dry_run=dry_run,
+    )
+    log_event(
+        logger, "cert.install.result",
+        ok=res.ok, needs_elevation=res.needs_elevation,
+        platform=res.platform.value, dry_run=res.dry_run,
+    )
+    return res.as_dict()
+
+
+@app.post("/api/v1/cert/uninstall")
+def cert_uninstall(payload: dict):
+    """Uninstall a PCE-managed CA by SHA-1 thumbprint.
+
+    Body::
+
+        {"thumbprint_sha1": "…40 hex…", "dry_run": false}
+    """
+    thumb = (payload or {}).get("thumbprint_sha1") or ""
+    dry_run = bool((payload or {}).get("dry_run", False))
+    if not thumb:
+        raise HTTPException(400, "thumbprint_sha1 is required")
+    res = _cert_wizard.uninstall_ca(thumb, dry_run=dry_run)
+    log_event(
+        logger, "cert.uninstall.result",
+        ok=res.ok, needs_elevation=res.needs_elevation,
+        platform=res.platform.value, dry_run=res.dry_run,
+    )
+    return res.as_dict()
+
+
+@app.post("/api/v1/cert/export")
+def cert_export(payload: dict):
+    """Copy the mitmproxy CA to a user-chosen path.
+
+    Body::
+
+        {"dest": "C:/Users/me/Desktop/pce-ca.pem"}
+    """
+    dest = (payload or {}).get("dest") or ""
+    if not dest:
+        raise HTTPException(400, "dest is required")
+    res = _cert_wizard.export_ca(Path(dest))
+    log_event(logger, "cert.export.result",
+              ok=res.ok, dest=dest, platform=res.platform.value)
+    return res.as_dict()
+
+
+@app.post("/api/v1/cert/regenerate")
+def cert_regenerate(payload: Optional[dict] = None):
+    """Clear the mitmproxy CA files so the next mitmdump run regenerates them."""
+    dry_run = bool((payload or {}).get("dry_run", False))
+    res = _cert_wizard.regenerate_ca(dry_run=dry_run)
+    log_event(logger, "cert.regenerate.result",
+              ok=res.ok, dry_run=res.dry_run, platform=res.platform.value)
+    return res.as_dict()
+
+
+# ---------------------------------------------------------------------------
+# System proxy toggle (P2 — TASK-004 §5.3)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/proxy")
+def proxy_state():
+    """Report the host's current system proxy state."""
+    state = _proxy_toggle.get_proxy_state()
+    return state.as_dict()
+
+
+@app.post("/api/v1/proxy/enable")
+def proxy_enable(payload: Optional[dict] = None):
+    """Point the OS at PCE's mitmproxy listener.
+
+    Body (optional)::
+
+        {"host": "127.0.0.1", "port": 8080,
+         "bypass": ["127.0.0.1", "localhost", ...],
+         "dry_run": false}
+    """
+    payload = payload or {}
+    host = payload.get("host") or PROXY_LISTEN_HOST
+    # Use explicit None-check so that explicit ``port=0`` flows through to
+    # the validator (which rejects it) instead of being silently replaced.
+    port_raw = payload.get("port")
+    port = int(port_raw) if port_raw is not None else PROXY_LISTEN_PORT
+    bypass = payload.get("bypass")
+    dry_run = bool(payload.get("dry_run", False))
+    res = _proxy_toggle.enable_system_proxy(
+        host=host, port=port, bypass=bypass, dry_run=dry_run,
+    )
+    log_event(
+        logger, "proxy.enable.result",
+        ok=res.ok, needs_elevation=res.needs_elevation,
+        host=host, port=port, dry_run=res.dry_run,
+    )
+    return res.as_dict()
+
+
+@app.post("/api/v1/proxy/disable")
+def proxy_disable(payload: Optional[dict] = None):
+    """Clear the OS system proxy."""
+    dry_run = bool((payload or {}).get("dry_run", False))
+    res = _proxy_toggle.disable_system_proxy(dry_run=dry_run)
+    log_event(logger, "proxy.disable.result",
+              ok=res.ok, dry_run=res.dry_run)
+    return res.as_dict()
+
+
+# ---------------------------------------------------------------------------
+# Supervisor (P2 — TASK-004 §5.5)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/supervisor")
+def supervisor_status():
+    """Report the status of every process the server is supervising."""
+    sup: Optional[Supervisor] = getattr(app.state, "supervisor", None)
+    if sup is None:
+        return {"running": False, "started_at": None, "processes": []}
+    return sup.get_status().as_dict()
+
+
+@app.post("/api/v1/supervisor/{name}/restart")
+async def supervisor_restart(name: str):
+    """Force-restart one managed process (stop + auto-respawn)."""
+    sup: Optional[Supervisor] = getattr(app.state, "supervisor", None)
+    if sup is None:
+        raise HTTPException(409, "no supervisor is running in this server")
+    ok = await sup.restart(name)
+    if not ok:
+        raise HTTPException(404, f"no managed process named {name!r}")
+    log_event(logger, "supervisor.restart_requested", name=name)
+    return {"ok": True, "name": name}
+
+
+# ---------------------------------------------------------------------------
+# LiteLLM SDK bridge (P2 — TASK-004 §5.4)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/sdk/litellm")
+def sdk_litellm_status():
+    """Report whether the LiteLLM bridge is running."""
+    bridge: Optional[LiteLLMBridge] = getattr(app.state, "litellm_bridge", None)
+    if bridge is None:
+        return {
+            "running": False, "port": None, "config_path": None,
+            "litellm_available": LITELLM_AVAILABLE,
+        }
+    return bridge.get_status()
+
+
+@app.post("/api/v1/sdk/litellm/start")
+async def sdk_litellm_start(payload: Optional[dict] = None):
+    """Spawn the PCE-configured LiteLLM proxy subprocess.
+
+    Body (optional)::
+
+        {"port": 9900}
+    """
+    payload = payload or {}
+    port_raw = payload.get("port")
+    port = int(port_raw) if port_raw is not None else 9900
+    bridge: Optional[LiteLLMBridge] = getattr(app.state, "litellm_bridge", None)
+    if bridge is not None and bridge.get_status().get("running"):
+        return {"ok": False, "error": "already_running", **bridge.get_status()}
+    ingest_url = f"http://{INGEST_HOST}:{INGEST_PORT}/api/v1/captures"
+    bridge = LiteLLMBridge(port=port, pce_ingest_url=ingest_url)
+    result = await bridge.start()
+    if result.get("ok"):
+        app.state.litellm_bridge = bridge
+    log_event(logger, "litellm.start.result",
+              ok=bool(result.get("ok")), port=port,
+              litellm_available=LITELLM_AVAILABLE)
+    return result
+
+
+@app.post("/api/v1/sdk/litellm/stop")
+async def sdk_litellm_stop():
+    """Stop the LiteLLM proxy subprocess (if running)."""
+    bridge: Optional[LiteLLMBridge] = getattr(app.state, "litellm_bridge", None)
+    if bridge is None:
+        return {"ok": True, "running": False, "message": "bridge not started"}
+    result = await bridge.stop()
+    app.state.litellm_bridge = None
+    log_event(logger, "litellm.stop.result", ok=True)
+    return result
 
 
 # ---------------------------------------------------------------------------
