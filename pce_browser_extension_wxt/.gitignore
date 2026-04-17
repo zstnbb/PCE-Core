@@ -5,8 +5,9 @@ node_modules/
 .DS_Store
 stats-*.html
 web-ext.config.ts
-# Synced from ../pce_browser_extension/ at build time; never commit
+# Synced from ../pce_browser_extension/ at build time; never commit.
+# `interceptor/` is not in the list because P2.5 Phase 2 ported it to TS
+# entrypoints (`entrypoints/interceptor-*.ts`).
 public/content_scripts/
-public/interceptor/
 public/icons/
 public/popup/

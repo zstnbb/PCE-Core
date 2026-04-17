@@ -28,7 +28,7 @@ declare module "wxt/client" {
 }
 
 // ---------------------------------------------------------------------------
-// Chrome extension APIs — coarse `any`-typed stub.
+// WXT globals + Chrome extension APIs — coarse `any`-typed stubs.
 //
 // We intentionally do not reproduce `@types/chrome`'s ~500 KB of
 // declarations here. Post-install, those real types supersede this
@@ -36,19 +36,47 @@ declare module "wxt/client" {
 // Pre-install, the `any` relaxation keeps `tsc --noEmit` clean without
 // encouraging us to depend on fields that don't exist at runtime —
 // linting + `pnpm typecheck` after install will catch those.
+//
+// NOTE: everything belongs inside `declare global { ... }` plus a final
+// `export {};` so TypeScript treats this file as an ambient module and
+// the globals actually land in the global scope. A plain top-level
+// `declare namespace chrome` will NOT leak out once the file also
+// declares module augmentations like `declare module "wxt/sandbox"`.
 // ---------------------------------------------------------------------------
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-declare namespace chrome {
-  const scripting: any;
-  const runtime: any;
-  const storage: any;
-  const action: any;
-  const contextMenus: any;
-  const tabs: any;
-  const windows: any;
-  const alarms: any;
-  const webRequest: any;
-  const webNavigation: any;
+declare global {
+  // WXT auto-imported helpers
+  interface ContentScriptMatchesDef {
+    matches: string[];
+    excludeMatches?: string[];
+    runAt?: "document_start" | "document_end" | "document_idle";
+    allFrames?: boolean;
+    world?: "ISOLATED" | "MAIN";
+    main: (ctx?: any) => void | Promise<void>;
+  }
+  interface UnlistedScriptDef {
+    main: () => void | Promise<void>;
+  }
+  function defineBackground(main: () => void | Promise<void>): any;
+  function defineBackground(def: any): any;
+  function defineContentScript(def: ContentScriptMatchesDef): any;
+  function defineUnlistedScript(main: () => void | Promise<void>): any;
+  function defineUnlistedScript(def: UnlistedScriptDef): any;
+
+  // Chrome extension APIs (coarse stubs)
+  namespace chrome {
+    const scripting: any;
+    const runtime: any;
+    const storage: any;
+    const action: any;
+    const contextMenus: any;
+    const tabs: any;
+    const windows: any;
+    const alarms: any;
+    const webRequest: any;
+    const webNavigation: any;
+  }
 }
+export {};
 /* eslint-enable @typescript-eslint/no-explicit-any */

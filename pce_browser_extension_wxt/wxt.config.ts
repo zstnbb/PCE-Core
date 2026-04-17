@@ -3,16 +3,26 @@ import { defineConfig } from "wxt";
 /**
  * WXT config for the PCE browser extension.
  *
- * See README.md for migration status. The short version:
+ * See README.md for migration status. The short version (post-P2.5 Phase 2):
  * - Build chain, manifest generation, HMR and cross-browser zip are handled
  *   here.
- * - Background service worker has been ported to TypeScript (see
- *   `entrypoints/background.ts`).
- * - The 13 site-specific content scripts are still the legacy `.js` files
- *   under `../pce_browser_extension/content_scripts/`. A prebuild step
- *   copies them into `public/content_scripts/` so WXT can register them
- *   without an in-flight rewrite (see `scripts/sync-legacy-assets.mjs`).
- *   Migration to TypeScript will happen file-by-file in a follow-up PR.
+ * - Background service worker + injector + capture queue are TypeScript
+ *   (`entrypoints/background.ts`, `entrypoints/background/*.ts`).
+ * - Bridge content script is TypeScript (`entrypoints/bridge.content.ts`)
+ *   and registers itself via `defineContentScript`, so it's _not_ in the
+ *   imperative `content_scripts` list below.
+ * - Interceptor page-context scripts are TypeScript unlisted scripts
+ *   (`entrypoints/interceptor-*.ts`). WXT emits them at the output root
+ *   as `interceptor-<name>.js`, which `bridge.content.ts` injects via
+ *   `chrome.runtime.getURL`. `web_accessible_resources` below lists those
+ *   new paths.
+ * - The 13 site-specific content scripts + shared helpers
+ *   (`pce_dom_utils.js`, `selector_engine.js`, `site_configs.js`,
+ *   `detector.js`, `behavior_tracker.js`, `text_collector.js`) remain
+ *   legacy `.js` under `../pce_browser_extension/content_scripts/`. A
+ *   prebuild step copies them into `public/content_scripts/` so WXT can
+ *   register them without an in-flight rewrite. Phase 3 migrates them
+ *   2–3 per PR.
  *
  * Two release flavours are produced via WXT env:
  *   - default sideload build (host_permissions: <all_urls>)
@@ -40,15 +50,16 @@ const COVERED_SITES = [
   "https://kimi.com/*",
 ] as const;
 
-// Shared per-site content-script asset list (legacy layout, copied verbatim
-// by `scripts/sync-legacy-assets.mjs`).
+// Shared per-site content-script asset list (legacy layout, copied
+// verbatim by `scripts/sync-legacy-assets.mjs`). `bridge.js` is
+// intentionally absent: it's now a TS entrypoint (`bridge.content.ts`)
+// that registers itself on the same matches via `defineContentScript`.
 const SITE_SCRIPT_COMMON = [
   "content_scripts/pce_dom_utils.js",
   "content_scripts/site_configs.js",
   "content_scripts/selector_engine.js",
   "content_scripts/detector.js",
   "content_scripts/behavior_tracker.js",
-  "content_scripts/bridge.js",
   "content_scripts/text_collector.js",
 ] as const;
 
@@ -128,12 +139,16 @@ export default defineConfig({
           exclude_matches: [...COVERED_SITES],
         },
       ],
+      // Page-context interceptor scripts emitted by the TS unlisted
+      // entrypoints (`entrypoints/interceptor-*.ts`). The bridge
+      // injects these via `chrome.runtime.getURL` so they must be
+      // web-accessible.
       web_accessible_resources: [
         {
           resources: [
-            "interceptor/page_confirmed.js",
-            "interceptor/ai_patterns.js",
-            "interceptor/network_interceptor.js",
+            "interceptor-page-confirmed.js",
+            "interceptor-ai-patterns.js",
+            "interceptor-network.js",
           ],
           matches: ["<all_urls>"],
         },

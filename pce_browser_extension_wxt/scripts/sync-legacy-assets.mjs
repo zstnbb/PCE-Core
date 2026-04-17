@@ -15,9 +15,13 @@ const ROOT = resolve(__dirname, "..");
 const LEGACY = resolve(ROOT, "..", "pce_browser_extension");
 const PUBLIC = resolve(ROOT, "public");
 
+// `interceptor/` is NOT copied anymore — it was ported to TS entrypoints
+// in P2.5 Phase 2 (`entrypoints/interceptor-*.ts`). Leaving stale JS
+// copies under `public/interceptor/` would confuse reviewers.
+// `content_scripts/bridge.js` is likewise redundant (now `bridge.content.ts`)
+// but the whole dir is copied until Phase 3 ports the 13 site extractors.
 const COPY_TARGETS = [
   "content_scripts",
-  "interceptor",
   "icons",
   "popup",
 ];
