@@ -19,7 +19,9 @@
   "include": [
     "entrypoints/**/*",
     "utils/**/*",
+    "test/**/*",
     "wxt.config.ts",
+    "vitest.config.ts",
     "types.d.ts"
   ],
   "exclude": [
