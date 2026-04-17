@@ -1,21 +1,33 @@
 # ARCHITECTURE
 
 - Project: PCE
-- Version: v0.1 Foundation Architecture
-- Updated: 2026-04-05
-- Scope: 只覆盖“记录 -> 看见”阶段，不覆盖“理解 -> 干预”的实现细节
+- Version: v0.2 Industrialization Architecture
+- Updated: 2026-04-17
+- Scope: 覆盖“记录 -> 看见”阶段的完整实现，同时明确"抓 / 存 / 渲染"三大能力的工业级与用户友好目标，为“理解 -> 干预”阶段预留扩展点
+
+## 0. 版本说明
+
+v0.2 相对 v0.1 的主要变化：
+
+- 引入“抓 / 存 / 渲染”作为一级能力划分
+- 明确对齐 OpenInference / OpenTelemetry GenAI 语义（见 ADR-004）
+- 桌面壳选型收口到 Tauri（见 ADR-005）
+- 浏览器扩展构建链迁 WXT（见 ADR-006）
+- OTLP 导出定位为可选次级通道（见 ADR-007）
+- 引入工业化阶段 P0-P3 与非目标列表
+- 强化 schema migration、可观测性、健康指标等"工业级"约束
 
 ## 1. 目标
 
-第一版架构的目标不是让 PCE 立刻具备高级推理能力，而是建立一条稳定的本地数据管道，使用户在多个 AI 工具中的交互可以被：
+v0.2 架构的目标是在不改变"记录 -> 看见"产品路径的前提下，把整条本地数据管道从"能跑"提升为"能给非技术用户装、能稳定长期运行、能和开源标准互通"。
 
-- 捕获
-- 归一化
-- 存储
-- 查询
-- 回看
+核心能力必须同时满足：
 
-同时，这条管道必须能在将来平滑升级为“可注入、可评估、可更新”的更高级内核。
+- 抓：多来源 AI 交互数据能被完整、可观测、可健康度量地带进系统
+- 存：以标准化 schema 持久化，支持导出 / 导入 / 保留策略，具备正规 migration
+- 渲染：以对用户友好的方式呈现、搜索、管理，具备桌面壳与托盘体验
+
+同时，这条管道必须能在将来平滑升级为"可注入、可评估、可更新"的更高级内核。
 
 ## 2. 设计约束
 
@@ -29,377 +41,361 @@
 记录失败不能导致用户的 AI 使用失败。
 
 ### 2.4 Progressive enhancement
-第一版先做只读记录，未来再做读写注入。
+当前只做只读记录，未来再做读写注入；同一条管道必须向前兼容。
 
 ### 2.5 Security by default
-必须对认证信息、Cookie、敏感头和令牌进行脱敏，避免把密钥当作可见业务数据落库。
+必须对认证信息、Cookie、敏感头和令牌进行脱敏。
 
-## 3. 总体结构
+### 2.6 Industrial grade（v0.2 新增）
+关键路径必须具备可观测性、健康指标、schema migration 与分层测试，能打成单文件分发物。
 
-```text
-[User AI Tools]
-    |
-    |-- Complete Mode: system-level HTTPS proxy
-    |-- Light Mode: env-based routing / browser extension / local adapters
-    v
-[Capture Layer]
-    v
-[Proxy Engine]
-    v
-[Normalizer]
-    v
-[Storage Engine]
-    v
-[Query API]
-    v
-[Dashboard / Desktop Shell]
+### 2.7 User friendly（v0.2 新增）
+非技术用户从下载到看到第一条捕获应少于 10 分钟，核心动作（证书、代理、扩展、暂停、导出）必须有一键入口。
 
-Future:
-[Annotation / Continuity / Injection Modules]
-```
+### 2.8 Open standard alignment（v0.2 新增）
+归一化数据对齐 OpenInference / OpenTelemetry GenAI，不再发明私有字段语义（见 ADR-004）。
 
-## 4. 模式设计
+## 3. 三大核心能力
 
-### 4.1 Complete Mode
+从 v0.2 开始，PCE 的能力统一以"抓 / 存 / 渲染"三轴组织，它们彼此独立演进，各自要同时达到工业级与用户友好。
 
-目标：一次安装后，尽量用系统级方式统一覆盖 AI 域名流量。
+### 3.1 抓 (Capture)
+职责：把 AI 交互数据从多条来源带进系统，并打上可靠的来源标记。
+统一入口：`pce_core` 的 Ingest API + mitmproxy addon + MCP tools。
+关键要求：每条来源都能被度量成功率、失败率、延迟分布。
 
-组成：
-- 系统级 HTTPS 代理
-- 本地 CA 证书
-- AI 域名 allowlist
-- 桌面壳负责安装、启停、状态展示
+### 3.2 存 (Storage)
+职责：将抓到的数据以标准 schema 持久化，并为查询、导出、迁移提供稳定接口。
+统一底座：本地 SQLite + FTS5。
+关键要求：schema 对齐 OpenInference，有正规 migration，支持导出 / 导入 / 保留策略。
 
-优点：
-- 覆盖最完整
-- 用户心智最统一
-- 为未来注入预留最自然的路径
+### 3.3 渲染 (Render)
+职责：把数据以用户友好的方式呈现、搜索、管理，并承载安装与运维入口。
+统一形态：本地 dashboard + Tauri 桌面壳 + 可选 Phoenix 开发者视图。
+关键要求：托盘长期常驻、健康状态显式、首次引导完整。
 
-代价：
-- 需要用户授权安装本地证书
-- 需要系统层配置与管理员权限
-- 少数应用可能受证书锁定影响
+## 4. 双轨安装模式
 
-### 4.2 Light Mode
+抓层与渲染层共同服务两种安装模式，但三大能力的内部实现与这两种模式解耦。
 
-目标：降低信任门槛与安装复杂度。
+### 4.1 Light Mode
+- 入口：浏览器扩展 + 环境变量 + MCP Server
+- 目标：零信任门槛，不要求系统级授权
+- 覆盖：用户浏览器内、自己写代码调 API 的场景、AI Agent 主动录入
 
-组成：
-- 环境变量或 API 基址覆盖
-- 浏览器插件或网页端补充采集
-- 针对特定工具的本地适配器
-
-优点：
-- 用户更容易接受
-- 不一定需要系统级证书
-- 便于早期验证与分步接入
-
-代价：
-- 覆盖不完整
-- 维护适配器和插件更碎片化
+### 4.2 Complete Mode
+- 入口：系统级 HTTPS 代理 + 本地 CA 证书
+- 目标：最大覆盖率，含桌面 App / 终端脚本 / 手机 Wi-Fi 流量
+- 覆盖：上述加任何走系统代理的 HTTPS AI 流量
 
 ### 4.3 模式关系
+两种模式共享完全相同的抓层 Ingest API、存层 schema、渲染层界面。差别只在"怎么进来"，不在"进来之后如何处理"。见 ADR-003。
 
-两种模式共享同一后端：
-
-- 相同的存储层
-- 相同的查询层
-- 相同的时间线与搜索视图
-- 相同的后续分析模块入口
-
-差别只在“怎么进来”，不在“进来之后怎么处理”。
-
-## 5. 组件分解
-
-### 5.1 Capture Layer
-
-职责：把不同来源的流量、安全地送入 PCE 内核。
-
-主要输入：
-- 系统代理流量
-- 通过环境变量路由过来的 API 请求
-- 浏览器插件发送的网页对话数据
-- 未来可能出现的工具专用 adapter
-
-核心要求：
-- 明确区分 source
-- 只允许名单内 AI 域名或可信本地适配入口进入
-- 所有非目标流量一律放行或忽略
-
-### 5.2 Proxy Engine
-
-职责：拦截、转发、记录请求与响应。
-
-当前阶段：
-- 只读请求
-- 只读响应
-- 原样转发上游
-- 异步送入存储队列
-
-未来阶段：
-- 在转发前进行上下文注入
-- 在响应后做评估或打分
-
-核心要求：
-- 极低额外延迟
-- 如果内部存储或解析出错，依然尽量不影响上游响应
-- Header 脱敏要在持久化前完成
-
-### 5.3 Normalizer
-
-职责：把不同上游协议转成 PCE 自己的统一结构。
-
-为什么必须独立成层：
-- OpenAI、Anthropic、Google 请求格式不同
-- 网页插件抓取到的对话格式与 API 请求又不同
-- 如果没有统一结构，后面的搜索、时间线和分析都会被来源格式绑死
-
-输出目标：
-- 原始快照仍然保留
-- 同时尽力产生统一的 session / message 视图
-
-### 5.4 Storage Engine
-
-职责：持久化原始快照和归一化结果，并提供稳定索引。
-
-当前阶段建议使用：
-- SQLite
-
-原因：
-- 零配置
-- 本地单文件
-- 对第一版足够
-- 易于调试与导出
-
-### 5.5 Query API
-
-职责：给本地 dashboard、未来分析模块和导出工具提供统一查询入口。
-
-第一版最小能力：
-- 按时间列出记录
-- 按 source 列出记录
-- 按关键词搜索消息内容
-- 查看单条 capture 详情
-
-### 5.6 Dashboard
-
-职责：把“看见”变成可用体验。
-
-第一版最小界面：
-- 时间线或列表视图
-- 过滤器（来源 / 时间 / Provider）
-- 搜索框
-- 单条详情页
-- 状态指示（当前模式、数据目录、是否暂停记录）
-
-### 5.7 Desktop Shell
-
-这不是第一开发动作，但它是最终产品形态的重要容器。
-
-职责包括：
-- 安装向导
-- 系统托盘 / 菜单栏图标
-- 状态查看
-- 模式切换
-- 代理启停
-- 本地证书安装与卸载引导
-
-## 6. 数据流
-
-### 6.1 当前阶段数据流
+## 5. 总体结构
 
 ```text
-request enters capture layer
-    -> target host checked against allowlist
-    -> request forwarded upstream
-    -> request snapshot queued
-    -> response received
-    -> response snapshot queued
-    -> normalizer extracts structured fields
-    -> storage writes raw + normalized data asynchronously
-    -> query API exposes records
-    -> dashboard renders timeline/search
+                ┌─────────────────────────────────────────────────┐
+                │                   USER AI TOOLS                 │
+                └──────┬───────────┬───────────┬───────────┬──────┘
+                       │           │           │           │
+                 ┌─────▼───┐  ┌────▼────┐  ┌───▼────┐  ┌──▼────┐
+                 │ Browser │  │ System  │  │ User   │  │ AI    │
+                 │ Ext     │  │ Proxy   │  │ SDK    │  │ Agent │
+                 │ (WXT)   │  │ (mitm)  │  │(LiteLLM)│  │(MCP)  │
+                 └────┬────┘  └────┬────┘  └───┬────┘  └──┬────┘
+                      │            │           │          │
+                      └────────────┴──── Ingest API ──────┘
+                                         │
+                                         ▼
+                                  ┌─────────────┐
+                                  │  Normalizer │
+                                  │ + Reconciler│
+                                  │ + Redactor  │
+                                  └──────┬──────┘
+                                         │
+                                         ▼
+                                  ┌─────────────┐
+                                  │ SQLite      │  ◄── source of truth
+                                  │ Raw / Sess  │
+                                  │ Msg / FTS5  │
+                                  └──────┬──────┘
+                                         │
+                            ┌────────────┼──────────────┐
+                            ▼            ▼              ▼
+                     ┌────────────┐ ┌─────────┐  ┌────────────┐
+                     │ Query API  │ │ OTLP    │  │ Export     │
+                     │ /health    │ │ (opt-in)│  │ OTLP/JSONL │
+                     └──────┬─────┘ └────┬────┘  └────────────┘
+                            │            │
+                            ▼            ▼
+                     ┌────────────┐  ┌───────────┐
+                     │ Dashboard  │  │ Phoenix   │
+                     │ + Tauri UI │  │ (optional)│
+                     └────────────┘  └───────────┘
+
+Future: Annotation / Continuity / Injection modules mount above SQLite.
 ```
 
-### 6.2 关键要求
+## 6. 抓层详解
 
-- 存储必须异步，不要阻塞主请求路径
-- 请求和响应都要记录
-- 失败时尽量只丢记录，不丢业务调用
-- 非目标域名不处理
+### 6.1 浏览器扩展通道
+- 框架：迁移到 WXT（见 ADR-006），保持现有 13+ 站点提取器与通用拦截器
+- 子通道：DOM 提取、`fetch` / `XMLHttpRequest` / `WebSocket` / `EventSource` monkey-patch、存储快照
+- 权限双模式：sideload `<all_urls>` / webstore 白名单 + `activeTab`，通过 WXT 构建变量切换
+- 输出：POST 到本地 Ingest API
 
-## 7. 存储分层
+### 6.2 系统代理通道 (mitmproxy)
+- 已有：`pce_proxy/addon.py`
+- 三种捕获模式：allowlist / smart（allowlist + 启发式 AI 检测）/ all
+- 子通道：Local Capture / WireGuard 手机模式 / 传统 HTTP(S) 代理
+- 输出：直接调用 `pce_core.db` 与 normalizer
 
-为了兼顾第一版的忠实记录和后续的可分析性，存储建议分为三层。
+### 6.3 MCP 通道
+- 已有：`pce_mcp/server.py`
+- 工具：`pce_capture` / `pce_query_*`
+- 场景：Claude Desktop / Cursor / Windsurf 等 Agent 主动把会话录入 PCE
 
-### Tier 0: Raw Capture Layer
+### 6.4 SDK 捕获通道（P2 新增）
+- 方式：用户在自己代码中把 `api_base` 指向本地 LiteLLM Proxy，LiteLLM 再把流量落到 PCE
+- PCE 侧：读 LiteLLM log 或启用 LiteLLM 的 HTTP 回调，写入 `source = sdk`
+- 优势：零维护单个 provider 的格式适配
 
-这是第一版最重要的事实层，尽量不可变。
+### 6.5 归一化与多源协调
+- `pce_core/normalizer/` 负责 provider 识别、消息抽取、SSE 重组
+- `reconciler.py` 负责 DOM 路与网络路的消息级合并与去重（PCE 独有能力，不对外依赖）
+- 脱敏在归一化之前完成（见 7.5）
 
-建议表：`raw_captures`
+### 6.6 抓层健康指标
+每条来源必须上报以下维度（P0 任务）：
+- 最近一次成功捕获时间
+- 最近一段时间的成功数 / 失败数 / 丢弃数
+- p50 / p95 处理延迟
+- 活跃 session 数
 
-建议字段：
-- `id`
-- `created_at`
-- `source_id`
-- `direction` (`request` / `response`)
-- `pair_id`（用于关联同一来回）
-- `host`
-- `path`
-- `method`
-- `provider`
-- `model_name`
-- `status_code`
-- `latency_ms`
-- `headers_redacted_json`
-- `body_text_or_json`
-- `body_format`
-- `error`
-- `session_hint`
+## 7. 存层详解
 
-说明：
-- 这里存的是低层事实
-- 必须脱敏后再落库
-- 这是将来调试、回放和重新归一化的依据
+### 7.1 三层存储
 
-### Tier 1: Normalized Session Layer
+沿用 v0.1 的三层模型，字段命名升级到 OpenInference 兼容（见 7.2）。
 
-用于“看见”阶段的搜索、时间线和跨来源统一视图。
+**Tier 0: Raw Capture Layer**
+表：`raw_captures`
+作用：事实层，不可变，保持提供方原貌。字段不受 OpenInference 约束。
+必包字段：`id` / `created_at` / `source_id` / `direction` / `pair_id` / `host` / `path` / `method` / `provider` / `model_name` / `status_code` / `latency_ms` / `headers_redacted_json` / `body_text_or_json` / `body_format` / `error` / `session_hint`。
 
-建议表：
-- `sources`
-- `sessions`
-- `messages`
+**Tier 1: Normalized Session Layer**
+表：`sources` / `sessions` / `messages`。
+这一层对齐 OpenInference，具体字段映射见 7.2。
 
-`sources` 建议字段：
-- `id`
-- `source_type`（proxy / browser_extension / adapter）
-- `tool_name`
-- `install_mode`（light / complete）
-- `active`
-- `notes`
+**Tier 2: Derived Meaning Layer（预留）**
+未来：`annotations` / `continuity_models` / `inference_runs` / `intervention_logs`。
 
-`sessions` 建议字段：
-- `id`
-- `source_id`
-- `started_at`
-- `ended_at`
-- `provider`
-- `tool_family`
-- `session_key`
-- `message_count`
-- `title_hint`
-- `created_via`
+### 7.2 OpenInference / OTel GenAI 字段对齐
 
-`messages` 建议字段：
-- `id`
-- `session_id`
-- `capture_pair_id`
-- `ts`
-- `role`
-- `content_text`
-- `content_json`
-- `model_name`
-- `token_estimate`
+遵循 ADR-004，所有归一化产物必须能以 OpenInference 属性视图对外呈现。建议映射（P1 落实）：
 
-### Tier 2: Derived Meaning Layer
+| 内部字段 | OpenInference 属性 |
+|---|---|
+| `messages.role` | `llm.input_messages[i].message.role` |
+| `messages.content_text` | `llm.input_messages[i].message.content` / `llm.output_messages[i].message.content` |
+| `messages.model_name` | `llm.model_name` |
+| `messages.token_estimate` | `llm.token_count.prompt` / `llm.token_count.completion` |
+| `sessions.provider` | `llm.provider` |
+| `sessions.session_key` | `session.id` |
+| `raw_captures.latency_ms` | 作为 span duration |
 
-这不是第一版必须实现，但要预留位置。
+迁移策略：加新字段、保留旧字段、先双写，三个 release 后删旧字段。
 
-未来可能表：
-- `annotations`
-- `continuity_models`
-- `inference_runs`
-- `intervention_logs`
+### 7.3 OTLP 可选次级通道
 
-## 8. 域名与过滤策略
+遵循 ADR-007：
+- 默认关闭
+- `OTEL_EXPORTER_OTLP_ENDPOINT` 驱动
+- 失败不阻塞主路径
+- SQLite 仍为唯一可信来源
 
-第一版建议只针对明确的 AI 相关域名做拦截，例如：
+### 7.4 Schema Migration 机制
 
-- `api.openai.com`
-- `api.anthropic.com`
-- `generativelanguage.googleapis.com`
+P0 必须落地：
+- `pce_core/migrations/` 目录，按 `NNNN_description.py` 命名
+- 启动时检测 `CAPTURE_SCHEMA_VERSION` 并依次应用
+- 每条 migration 必须可回退
+- 每个 release 附带一份 migration 说明
 
-原则：
-- allowlist 优先
-- 不做全流量无差别存档
-- 未来通过配置文件扩展域名范围
+### 7.5 脱敏（Redactor）
 
-## 9. 脱敏与隐私策略
+以下信息默认不得以明文落库：
+- `Authorization` / `Cookie` / `Set-Cookie`
+- 任何 API Key 或 bearer token
 
-以下信息默认不应以明文落库：
+处理方式：
+- 头字段整体删除或将值替换为 `REDACTED`
+- 脱敏逻辑位于归一化**之前**，raw_captures 也必须脱敏
+- 未来支持用户自定义白名单
 
-- `Authorization`
-- `Cookie`
-- `Set-Cookie`
-- 任何 API Key
-- 任何可直接复用的 bearer token
+### 7.6 数据生命周期
 
-推荐处理方式：
-- 头字段整体删除
-- 或保留字段名但将值替换为 `REDACTED`
+必须支持：
+- 暂停记录（全局或按 source）
+- 按时间段删除
+- 按 session 删除
+- 数据保留策略（只留最近 N 天 / N 条）
+- 导出（OTLP JSONL、标准 JSON）与导入
 
-同时需要支持：
-- 暂停记录
-- 删除指定时间段数据
-- 导出指定范围数据
+## 8. 渲染层详解
 
-## 10. 性能与稳定性预算
+### 8.1 本地 Dashboard
+- 基于 `pce_core/dashboard/`
+- 必备：时间线 / 搜索（FTS5）/ 详情页 / 健康指标页 / 设置页
+- 可演进为 React/Svelte 组件化，但非 P3 必须
 
-第一版记录模式建议目标：
+### 8.2 桌面壳（Tauri）
+遵循 ADR-005：
+- Rust 主进程 + Web 前端
+- Python 后端以 sidecar 方式启动
+- 官方 tray / updater / notification
+- 所有数据访问必须走 Python 后端 HTTP API，不直连 DB
 
-- 代理新增延迟：尽量控制在用户几乎不可感知范围
-- 业务调用优先级高于记录优先级
+### 8.3 可选 Phoenix 视图
+- 作为"开发者面板"嵌入 `pce_app`
+- 用户按需 `pip install arize-phoenix`
+- 通过 OTLP endpoint 读 PCE 数据
+- 默认关闭
+
+### 8.4 诊断命令
+- `pce diagnose` 一键收集日志 / 配置 / 版本 / schema_version，打包成可提交的 zip
+- 协助未来用户报 bug / 社区支持
+
+## 9. 数据流
+
+### 9.1 主流程
+
+```text
+capture arrives at Ingest API (or addon / MCP tool)
+    -> source resolved + redaction applied
+    -> raw snapshot persisted to raw_captures
+    -> normalizer picks provider + extracts messages
+    -> reconciler merges with existing DOM/network siblings
+    -> session_manager resolves/creates session
+    -> messages / sessions upserted
+    -> optional OTLP span emitted (opt-in)
+    -> FTS5 index updated
+    -> Dashboard / Tauri UI reads via Query API
+```
+
+### 9.2 关键要求
+- 存储异步，不阻塞业务调用
+- raw 与 normalized 必须独立落库
+- 任何一步失败都不能让上游请求失败
+- 捕获动作自身也要打内部 trace（P1 任务）
+
+## 10. 域名与过滤策略
+
+- allowlist 优先，默认只拦截明确 AI 域名
+- SMART 模式允许启发式扩展（基于请求体字段、响应签名）
+- ALL 模式只对高级用户开放，桌面壳必须显式告知风险
+- 非目标域名原样放行，不落库
+
+## 11. 性能与稳定性预算
+
+- 代理新增延迟：尽量不可感知
+- 业务调用优先级始终高于记录优先级
 - 任何内部异常不得导致大面积请求失败
+- 归一化 / reconciler 长期堆积必须可排障（P1 的管道 trace 支撑此项）
 
-## 11. 技术栈建议
+## 12. 开源生态对齐策略
 
-### 当前核心
-- Python
+### 12.1 成体系吸收
+- **OpenInference / OTel GenAI**：作为存层 schema 标准（ADR-004）
+- **WXT**：作为浏览器扩展构建链（ADR-006）
+- **Tauri**：作为桌面壳（ADR-005）
+- **mitmproxy**：作为系统代理内核（ADR-002，延续 v0.1）
+
+### 12.2 部分借鉴
+- **LiteLLM**：作为 SDK 场景的中间层网关（不作为核心存储）
+- **Phoenix**：作为可选开发者 UI（不替代我们自己的 dashboard）
+
+### 12.3 不采纳
+- **Langfuse 服务端部署**：Postgres + ClickHouse + Redis 太重，违反 local-first
+- **Helicone 服务端部署**：同上
+- **anything-analyzer 整体架构**：任务级协议分析工具，语义不兼容
+- **OpenLLMetry 作为主归一器**：只覆盖 SDK 场景，不能处理网页捕获
+
+### 12.4 自研保留项
+- 浏览器扩展的 DOM 提取逻辑
+- 多源 reconciler
+- 跨工具 session 自动归并
+- 脱敏策略
+- Local-first 的桌面分发
+
+## 13. 技术栈
+
+### 后端核心
+- Python 3.10+
 - mitmproxy
-- SQLite
+- FastAPI
+- SQLite + FTS5
 
-### 查询与本地接口
-- FastAPI（可选，推荐）
+### 存层标准
+- OpenInference 属性命名
+- OTLP（opentelemetry-sdk）作为可选导出
 
-### 桌面壳（后续）
-- Tauri 优先
-- Electron 作为备选
+### 抓层
+- 浏览器扩展：WXT + TypeScript
+- SDK 通道：LiteLLM Proxy
 
-### 本地展示（后续）
-- React 或轻量 Web UI
+### 渲染层
+- Dashboard：原生 HTML/JS（短期）→ 可选演进为 React
+- 桌面壳：Tauri + Rust
+- 开发者视图：Arize Phoenix（可选）
 
-## 12. 分阶段实现建议
+### 工程基础设施
+- 测试：pytest + Playwright（扩展 e2e）
+- 打包：Tauri bundler（Win/macOS/Linux）
+- 自动更新：Tauri updater
 
-### Stage 1A - Proxy PoC
-- 跑通 mitmproxy
-- allowlist 指向少量 AI 域名
-- 把请求与响应脱敏后写入 SQLite
-- 提供最小命令行查看脚本
+## 14. 分阶段实现路径
 
-### Stage 1B - Normalized View
-- 从 raw capture 生成 session / message 视图
-- 解决最小会话归并问题
-- 提供基础搜索能力
+### P0 稳定现有链路
+- 结构化日志 + 健康指标 API
+- Dashboard 健康页
+- 正规 schema migration
+- 冒烟测试覆盖 proxy / MCP / 扩展三条入口
+- 任务单：`TASK-002-P0-stabilize-current-pipeline.md`
 
-### Stage 1C - Local Dashboard
-- 时间线
-- 搜索
-- 详情页
-- 状态页
+### P1 存层工业化
+- OpenInference 映射层
+- OTLP 可选导出
+- 导出 / 导入 / 保留策略
+- 管道自身 trace
+- 任务单：`TASK-003-P1-storage-standardization.md`
 
-### Stage 1D - Desktop Packaging
-- 菜单栏 / 托盘
-- 模式切换
-- 启停管理
-- 安装引导
+### P2 抓层工业化 + UX
+- 浏览器扩展迁 WXT
+- 跨平台 CA 证书向导
+- 系统代理一键开关
+- LiteLLM SDK 通道
+- 代理健康守护
+- 任务单：`TASK-004-P2-capture-ux-upgrade.md`
 
-## 13. 暂不纳入本架构实现范围的模块
+### P3 渲染层工业化 + UX
+- Tauri 桌面壳
+- 首次运行引导
+- 托盘 / 菜单栏图标
+- 自动更新
+- `pce diagnose` 命令
+- 可选 Phoenix 嵌入
+- 任务单：`TASK-005-P3-desktop-shell.md`
 
-这些模块在架构上预留位置，但不应阻塞当前开发：
+## 15. 暂不纳入本架构实现范围的模块
+
+这些模块在架构上预留位置，但不应阻塞 P0-P3：
 
 - 连续性模型
 - 自动 infer 引擎
 - 自动注入策略
 - 回答质量评估器
 - 企业化多用户能力
+- 云端同步
+- 移动端原生 App
+- CDP 内嵌浏览器（作为 P4 候选）

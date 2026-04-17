@@ -1,9 +1,9 @@
-0# PROJECT
+# PROJECT
 
 - Project: PCE (working title)
 - Status: Active
-- Current Phase: Foundation / Phase 1
-- Updated: 2026-04-05
+- Current Phase: Foundation 已完成，进入工业化阶段 P0
+- Updated: 2026-04-17
 
 ## 1. 项目定义
 
@@ -159,13 +159,57 @@ PCE 的长期演化路径定义为：
 ### Complete Mode
 通过系统级 HTTPS 代理与本地证书统一覆盖 AI 域名流量的完整模式。
 
-## 11. 当前文档地图
+## 11. 工业化阶段划分
 
-- `docs/decisions/2026-04-05-foundation-session.md`
-  - 本轮收敛结果
-- `docs/engineering/ARCHITECTURE.md`
-  - 第一版结构与技术边界
-- `docs/engineering/adr/`
-  - 关键决策记录
-- `tasks/TASK-001-proxy-poc.md`
-  - 当前执行入口
+在 Foundation 阶段打通“记录 -> 看见”之后，PCE 进入工业化阶段，目标是将拓 / 存 / 渲染三大能力同时提升为工业级 + 用户友好。
+
+阶段划分如下：
+
+### P0 稳定现有链路
+- 方向：让当前能跑的链路有可观测、有健康指标、有 schema migration 框架、有冒烟测试
+- 任务单：`tasks/TASK-002-P0-stabilize-current-pipeline.md`
+
+### P1 存层工业化
+- 方向：schema 对齐 OpenInference / OTel GenAI；提供 OTLP 导出；完善导出 / 导入 / 保留策略与管道自身 trace
+- 任务单：`tasks/TASK-003-P1-storage-standardization.md`
+
+### P2 抓层工业化 + UX
+- 方向：浏览器扩展迁 WXT；证书向导 + 系统代理开关；SDK 捕获通道（LiteLLM）；代理健康守护
+- 任务单：`tasks/TASK-004-P2-capture-ux-upgrade.md`
+
+### P3 渲染层工业化 + UX
+- 方向：Tauri 桌面壳；首次引导；托盘 / 菜单栏图标；自动更新；诊断命令；可选 Phoenix 视图
+- 任务单：`tasks/TASK-005-P3-desktop-shell.md`
+
+### P4 长期演进
+- 方向：DuckDB 分析层、sqlite-vec 语义检索、OpenLLMetry instrumentor、移动端抓包引导、CDP 内嵌浏览器
+- 按需展开，不进入当前执行队列
+
+## 12. 当前文档地图
+
+决议文档：
+- `docs/decisions/2026-04-05-foundation-session.md` — 基础阶段收敛
+- `docs/decisions/2026-04-17-industrialization-roadmap.md` — 工业化阶段收敛
+
+架构文档：
+- `docs/engineering/ARCHITECTURE.md` — 版本随阶段演进，当前 v0.2
+
+ADR：
+- `ADR-001` 第一阶段先做记录不做干预
+- `ADR-002` 采用本地统一代理作为底层内核
+- `ADR-003` 采用双轨安装模式
+- `ADR-004` 存层 schema 对齐 OpenInference / OTel GenAI
+- `ADR-005` 桌面壳选 Tauri 不选 Electron
+- `ADR-006` 浏览器扩展构建链迁移 WXT
+- `ADR-007` OTLP 导出作为可选次级通道
+
+任务单：
+- `tasks/TASK-001-proxy-poc.md` — 已完成 (Foundation)
+- `tasks/TASK-002-P0-stabilize-current-pipeline.md` — 当前执行入口
+- `tasks/TASK-003-P1-storage-standardization.md`
+- `tasks/TASK-004-P2-capture-ux-upgrade.md`
+- `tasks/TASK-005-P3-desktop-shell.md`
+
+Handoff：
+- `handoff/HANDOFF-TASK-001.md` — 已完成
+- `handoff/HANDOFF-TASK-002.md` — 当前活动

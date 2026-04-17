@@ -1,23 +1,37 @@
-# PCE Foundation Pack
+# PCE Docs
 
-这是一套根据 2026-04-05 讨论整理出的可落盘文件，用来替代长聊天，指导后续实现与迭代。
+这是 PCE 项目的所有落盘文档入口。它用来替代长聊天，指导后续实现与迭代。
+
+截至 2026-04-17，项目已跨过 Foundation 阶段（TASK-001 完成），正式进入工业化阶段 P0。
 
 ## 这套文件怎么用
 
-先读顺序如下：
+先读顺序如下（推荐第一次接手项目的人按这个顺序看）：
 
 1. `docs/decisions/2026-04-05-foundation-session.md`
-   - 看这轮到底定了什么。
-2. `docs/PROJECT.md`
-   - 看项目当前阶段、目标、边界和产品原则。
-3. `docs/engineering/ARCHITECTURE.md`
-   - 看第一版内核的结构、数据流和技术边界。
-4. `docs/engineering/adr/`
-   - 看为什么选这些方案，而不是别的方案。
-5. `tasks/TASK-001-proxy-poc.md`
-   - 这是本地 agent 当前应该执行的任务单。
-6. `handoff/HANDOFF-TASK-001.md`
-   - 这是可以直接交给本地 agent 的 handoff 文本。
+   - 看项目起点是怎么定义的。
+2. `docs/decisions/2026-04-17-industrialization-roadmap.md`
+   - 看进入工业化阶段后，方向怎么收口。
+3. `docs/PROJECT.md`
+   - 看项目当前阶段、目标、边界、产品原则与阶段划分。
+4. `docs/engineering/ARCHITECTURE.md`
+   - 看 v0.2 架构：抓 / 存 / 渲染三大能力、模式设计、数据流。
+5. `docs/engineering/adr/`
+   - 看每一个关键决策为什么这样选。共 7 份 ADR。
+6. `tasks/TASK-002-P0-stabilize-current-pipeline.md`
+   - 当前阶段的执行入口。
+7. `handoff/HANDOFF-TASK-002.md`
+   - 可直接交给本地 agent 的 handoff。
+
+## 阶段与任务对照
+
+| 阶段 | 任务单 | Handoff | 状态 |
+|---|---|---|---|
+| Foundation | `tasks/TASK-001-proxy-poc.md` | `handoff/HANDOFF-TASK-001.md` | 已完成 |
+| P0 稳定现状 | `tasks/TASK-002-P0-stabilize-current-pipeline.md` | `handoff/HANDOFF-TASK-002.md` | 当前活动 |
+| P1 存层工业化 | `tasks/TASK-003-P1-storage-standardization.md` | 待 P0 完成后产出 | 待启动 |
+| P2 抓层工业化 + UX | `tasks/TASK-004-P2-capture-ux-upgrade.md` | 待 P1 完成后产出 | 待启动 |
+| P3 渲染层工业化 + UX | `tasks/TASK-005-P3-desktop-shell.md` | 待 P2 完成后产出 | 待启动 |
 
 ## 文件分工
 
