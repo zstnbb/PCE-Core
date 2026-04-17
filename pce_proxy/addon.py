@@ -21,19 +21,19 @@ from .config import ALLOWED_HOSTS
 from .db import init_db, insert_capture, new_pair_id
 from .redact import redact_headers_json, safe_body_text
 from pce_core.normalizer.pipeline import try_normalize_pair
-from pce_core.db import SOURCE_PROXY
+from pce_core.db import SOURCE_PROXY, record_pipeline_error
 from pce_core.config import CAPTURE_MODE, CaptureMode
+from pce_core.logging_config import configure_logging, log_event
 
+# Install PCE's structured logger. Idempotent – a no-op if the server
+# process has already configured logging.
+configure_logging()
 logger = logging.getLogger("pce.addon")
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
-)
 
 # Ensure DB is ready when the addon is loaded
 init_db()
 
-logger.info("PCE Proxy capture mode: %s", CAPTURE_MODE.value)
+log_event(logger, "proxy.addon_loaded", capture_mode=CAPTURE_MODE.value)
 
 
 # ---------------------------------------------------------------------------
@@ -115,7 +115,10 @@ def _register_discovered_domain(host: str, confidence: str, reasons: list[str]) 
     if host in _discovered_domains or _is_allowlisted(host):
         return
     _discovered_domains.add(host)
-    logger.info("SMART: new AI domain discovered: %s (confidence=%s)", host, confidence)
+    log_event(
+        logger, "smart.domain_discovered",
+        host=host, confidence=confidence, reasons=reasons,
+    )
     try:
         from pce_core.db import add_custom_domain
         add_custom_domain(host, source="smart_heuristic", confidence=confidence, reason=", ".join(reasons))
@@ -147,9 +150,10 @@ class PCEAddon:
                     host, flow.request.path, flow.request.method, body_raw,
                 )
                 if confidence:
-                    logger.info(
-                        "SMART detected AI request: %s %s (confidence=%s, reasons=%s)",
-                        host, flow.request.path, confidence, reasons,
+                    log_event(
+                        logger, "smart.request_detected",
+                        host=host, path=flow.request.path,
+                        confidence=confidence, reasons=reasons,
                     )
                     # Auto-register discovered domain
                     _register_discovered_domain(host, confidence, reasons)
@@ -183,7 +187,7 @@ class PCEAddon:
             body_text, body_fmt = safe_body_text(body_raw)
             model = _extract_model(body_raw)
 
-            insert_capture(
+            rid = insert_capture(
                 direction="request",
                 pair_id=pair_id,
                 host=host,
@@ -195,9 +199,25 @@ class PCEAddon:
                 body_text_or_json=body_text,
                 body_format=body_fmt,
             )
-            logger.info("captured request  %s %s %s", flow.request.method, host, flow.request.path)
-        except Exception:
+            if rid is None:
+                record_pipeline_error(
+                    "ingest", "proxy request insert returned None",
+                    source_id=SOURCE_PROXY, pair_id=pair_id,
+                    details={"direction": "request", "host": host, "path": flow.request.path},
+                )
+            log_event(
+                logger, "capture.request_recorded",
+                pair_id=pair_id[:8], host=host, path=flow.request.path,
+                method=flow.request.method, provider=_provider_from_host(host),
+                model_name=model,
+            )
+        except Exception as exc:
             logger.exception("request capture failed – letting request through")
+            record_pipeline_error(
+                "ingest", f"proxy request capture exception: {type(exc).__name__}: {exc}",
+                source_id=SOURCE_PROXY, pair_id=pair_id,
+                details={"direction": "request", "host": host},
+            )
 
     # --- response phase ---------------------------------------------------
 
@@ -263,7 +283,7 @@ class PCEAddon:
             body_raw = flow.response.content or b""
             body_text, body_fmt = safe_body_text(body_raw)
 
-            insert_capture(
+            rid = insert_capture(
                 direction="response",
                 pair_id=pair_id,
                 host=host,
@@ -276,20 +296,39 @@ class PCEAddon:
                 body_text_or_json=body_text,
                 body_format=body_fmt,
             )
-            logger.info(
-                "captured response %s %s %s -> %d (%.0f ms)",
-                flow.request.method, host, flow.request.path,
-                flow.response.status_code, latency,
+            if rid is None:
+                record_pipeline_error(
+                    "ingest", "proxy response insert returned None",
+                    source_id=SOURCE_PROXY, pair_id=pair_id,
+                    details={"direction": "response", "host": host, "status_code": flow.response.status_code},
+                )
+            log_event(
+                logger, "capture.response_recorded",
+                pair_id=pair_id[:8], host=host, path=flow.request.path,
+                method=flow.request.method, provider=_provider_from_host(host),
+                status_code=flow.response.status_code,
+                latency_ms=round(latency, 2),
             )
 
             # Auto-normalize the completed pair into sessions + messages
             try:
                 try_normalize_pair(pair_id, source_id=SOURCE_PROXY, created_via="proxy")
-            except Exception:
+            except Exception as exc:
                 logger.exception("auto-normalization failed for pair %s – non-fatal", pair_id[:8])
+                record_pipeline_error(
+                    "normalize",
+                    f"try_normalize_pair(proxy): {type(exc).__name__}: {exc}",
+                    source_id=SOURCE_PROXY, pair_id=pair_id,
+                    details={"host": host, "status_code": flow.response.status_code},
+                )
 
-        except Exception:
+        except Exception as exc:
             logger.exception("response capture failed – letting response through")
+            record_pipeline_error(
+                "ingest", f"proxy response capture exception: {type(exc).__name__}: {exc}",
+                source_id=SOURCE_PROXY, pair_id=pair_id,
+                details={"direction": "response", "host": host},
+            )
 
 
 # mitmproxy picks up addon instances via the `addons` module-level list.

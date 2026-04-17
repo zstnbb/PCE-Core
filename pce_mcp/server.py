@@ -28,10 +28,14 @@ from pce_core.db import (
     query_messages,
     insert_session,
     insert_message,
+    record_pipeline_error,
     SOURCE_MCP,
 )
+from pce_core.logging_config import configure_logging, log_event
 from pce_core.normalizer.pipeline import normalize_conversation, try_normalize_pair
 
+# Configure logging once per process; safe to call repeatedly.
+configure_logging()
 logger = logging.getLogger("pce.mcp")
 
 # ---------------------------------------------------------------------------
@@ -84,6 +88,16 @@ def pce_capture(
     meta_json = json.dumps(meta, ensure_ascii=False) if meta else None
     results = []
 
+    log_event(
+        logger, "mcp.tool_called",
+        tool="pce_capture",
+        pair_id=pair_id[:8],
+        provider=provider, direction=direction, host=host,
+        has_conversation=bool(conversation_json),
+        has_request=bool(request_body),
+        has_response=bool(response_body),
+    )
+
     if direction == "conversation" and conversation_json:
         # Single conversation capture
         cid = insert_capture(
@@ -111,7 +125,18 @@ def pce_capture(
                         results.append(f"Normalized → session: {sid[:8]}")
             except Exception as e:
                 results.append(f"Conversation normalization skipped: {e}")
+                record_pipeline_error(
+                    "normalize",
+                    f"mcp normalize_conversation: {type(e).__name__}: {e}",
+                    source_id=SOURCE_MCP, pair_id=pair_id,
+                    details={"provider": provider, "host": host},
+                )
         else:
+            record_pipeline_error(
+                "ingest", "mcp conversation insert returned None",
+                source_id=SOURCE_MCP, pair_id=pair_id,
+                details={"provider": provider, "host": host},
+            )
             return "Error: Failed to insert capture"
 
     elif request_body or response_body:
@@ -133,6 +158,12 @@ def pce_capture(
             )
             if cid:
                 results.append(f"Captured request: {cid[:8]}")
+            else:
+                record_pipeline_error(
+                    "ingest", "mcp request insert returned None",
+                    source_id=SOURCE_MCP, pair_id=pair_id,
+                    details={"provider": provider, "host": host},
+                )
 
         if response_body:
             cid = insert_capture(
@@ -153,6 +184,12 @@ def pce_capture(
             )
             if cid:
                 results.append(f"Captured response: {cid[:8]}")
+            else:
+                record_pipeline_error(
+                    "ingest", "mcp response insert returned None",
+                    source_id=SOURCE_MCP, pair_id=pair_id,
+                    details={"provider": provider, "host": host},
+                )
 
             # Auto-normalize if we have both request and response
             if request_body:
@@ -162,9 +199,21 @@ def pce_capture(
                         results.append(f"Normalized → session: {sid[:8]}")
                 except Exception as e:
                     results.append(f"Normalization skipped: {e}")
+                    record_pipeline_error(
+                        "normalize",
+                        f"mcp try_normalize_pair: {type(e).__name__}: {e}",
+                        source_id=SOURCE_MCP, pair_id=pair_id,
+                        details={"provider": provider, "host": host},
+                    )
     else:
         return "Error: Provide either conversation_json or request_body/response_body"
 
+    log_event(
+        logger, "mcp.tool_completed",
+        tool="pce_capture",
+        pair_id=pair_id[:8],
+        outcome="; ".join(results) if results else "no-op",
+    )
     return f"OK. pair_id={pair_id}. " + "; ".join(results)
 
 

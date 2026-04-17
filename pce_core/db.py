@@ -3,23 +3,36 @@
 Implements:
 - Tier 0: raw_captures (immutable fact layer)
 - Tier 1: sources, sessions, messages (normalized view)
+- Pipeline errors (internal observability, added in P0)
 
 All writes are designed to be fail-safe: exceptions are logged but never
 propagated to the caller so that upstream requests are not blocked.
+
+Schema evolution is managed by ``pce_core.migrations`` — see that module
+and its README for how to add new migrations.
 """
 
+import json as _json
 import logging
 import sqlite3
 import time
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from .config import DB_PATH, DATA_DIR
+from .migrations import (
+    EXPECTED_SCHEMA_VERSION,
+    apply_migrations,
+    get_current_version,
+    get_migration_history,
+)
 
 logger = logging.getLogger("pce.db")
 
-# Current capture schema version — bump when the capture payload format changes.
+# Current capture payload format version — bump when the capture payload
+# format changes. This is a *per-row* tag on raw_captures and is distinct
+# from the database schema version tracked by ``pce_core.migrations``.
 # v1: Original format (proxy-era)
 # v2: Added meta_json, session_hint, schema_version, network_intercept direction
 CAPTURE_SCHEMA_VERSION = 2
@@ -220,84 +233,31 @@ def get_connection(db_path: Optional[Path] = None) -> sqlite3.Connection:
 
 
 def init_db(db_path: Optional[Path] = None) -> None:
-    """Create tables and seed default sources if needed."""
+    """Initialise the database, applying any pending schema migrations.
+
+    Responsibilities delegated to ``pce_core.migrations``:
+    - Create every baseline table / index / trigger (0001_baseline)
+    - Handle legacy ad-hoc migrations for existing installs
+    - Create the ``pipeline_errors`` table (0002_pipeline_errors)
+    - Track current schema version in ``schema_meta``
+
+    Raises:
+        RuntimeError: if the database is at a schema version newer than
+            this build expects (downgrade protection). The caller — typically
+            the FastAPI lifespan — should treat this as fatal.
+    """
     conn = get_connection(db_path)
     try:
-        conn.executescript(SCHEMA_SQL)
-        # Migrate: rebuild raw_captures if CHECK constraint is outdated
-        # (pre-v0.1.1 databases lacked 'conversation' in the direction CHECK)
-        try:
-            _needs_rebuild = False
-            table_sql = conn.execute(
-                "SELECT sql FROM sqlite_master WHERE type='table' AND name='raw_captures'"
-            ).fetchone()
-            if table_sql and table_sql[0] and ("'network_intercept'" not in table_sql[0] or "'clipboard'" not in table_sql[0]):
-                _needs_rebuild = True
-            if _needs_rebuild:
-                conn.execute("ALTER TABLE raw_captures RENAME TO _raw_captures_old")
-                conn.executescript(SCHEMA_SQL)
-                conn.execute("""
-                    INSERT INTO raw_captures
-                        (id, created_at, source_id, direction, pair_id, host, path,
-                         method, provider, model_name, status_code, latency_ms,
-                         headers_redacted_json, body_text_or_json, body_format,
-                         error, session_hint)
-                    SELECT id, created_at, source_id, direction, pair_id, host, path,
-                           method, provider, model_name, status_code, latency_ms,
-                           headers_redacted_json, body_text_or_json, body_format,
-                           error, session_hint
-                    FROM _raw_captures_old
-                """)
-                conn.execute("DROP TABLE _raw_captures_old")
-                logger.info("Migrated raw_captures: rebuilt table with updated CHECK constraint")
-        except Exception:
-            logger.exception("Migration check failed (non-fatal)")
-        # Migrate: add schema_version column if missing
-        cols = {row[1] for row in conn.execute("PRAGMA table_info(raw_captures)").fetchall()}
-        if "schema_version" not in cols:
-            conn.execute("ALTER TABLE raw_captures ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1")
-            logger.info("Migrated raw_captures: added schema_version column")
-        # Migrate: add meta_json column if missing
-        if "meta_json" not in cols:
-            conn.execute("ALTER TABLE raw_captures ADD COLUMN meta_json TEXT")
-            logger.info("Migrated raw_captures: added meta_json column")
-        # Migrate: add session metadata columns if missing
-        sess_cols = {row[1] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()}
-        for col, coltype in [
-            ("language", "TEXT"),
-            ("topic_tags", "TEXT"),
-            ("total_tokens", "INTEGER"),
-            ("model_names", "TEXT"),
-        ]:
-            if col not in sess_cols:
-                conn.execute(f"ALTER TABLE sessions ADD COLUMN {col} {coltype}")
-                logger.info("Migrated sessions: added %s column", col)
-        # Migrate: add favorited column to sessions if missing
-        if "favorited" not in sess_cols:
-            conn.execute("ALTER TABLE sessions ADD COLUMN favorited INTEGER NOT NULL DEFAULT 0")
-            logger.info("Migrated sessions: added favorited column")
-        # Migrate: rebuild FTS index if empty but messages exist
-        try:
-            fts_count = conn.execute(
-                "SELECT COUNT(*) FROM messages_fts"
-            ).fetchone()[0]
-            msg_count = conn.execute(
-                "SELECT COUNT(*) FROM messages"
-            ).fetchone()[0]
-            if fts_count == 0 and msg_count > 0:
-                conn.execute(
-                    "INSERT INTO messages_fts(messages_fts) VALUES('rebuild')"
-                )
-                logger.info("Migrated: rebuilt FTS index for %d existing messages", msg_count)
-        except Exception:
-            logger.debug("FTS migration check skipped (non-fatal)")
-        for src_id, src_type, tool, mode, notes in _DEFAULT_SOURCES:
-            conn.execute(
-                "INSERT OR IGNORE INTO sources (id, source_type, tool_name, install_mode, notes) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (src_id, src_type, tool, mode, notes),
-            )
-        conn.commit()
+        applied = apply_migrations(conn)
+        logger.info(
+            "database ready",
+            extra={"event": "db.ready", "pce_fields": {
+                "schema_version": applied,
+                "expected_schema_version": EXPECTED_SCHEMA_VERSION,
+                "capture_payload_version": CAPTURE_SCHEMA_VERSION,
+                "db_path": str((db_path or DB_PATH)),
+            }},
+        )
     finally:
         conn.close()
 
@@ -654,6 +614,351 @@ def get_capture_health(db_path: Optional[Path] = None) -> dict:
         }
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Pipeline errors (P0)
+# ---------------------------------------------------------------------------
+
+# Cap on total rows kept in pipeline_errors. When exceeded, the oldest
+# rows are pruned. This keeps the health API cheap and the DB from
+# ballooning when the pipeline hits a hot failure.
+_PIPELINE_ERROR_MAX_ROWS = 10_000
+_PIPELINE_ERROR_RETAIN_SECONDS = 7 * 86400  # 7 days
+
+
+def record_pipeline_error(
+    stage: str,
+    message: str,
+    *,
+    level: str = "ERROR",
+    source_id: Optional[str] = None,
+    pair_id: Optional[str] = None,
+    details: Optional[dict[str, Any]] = None,
+    db_path: Optional[Path] = None,
+) -> None:
+    """Record an internal pipeline error for health-API roll-ups.
+
+    Fail-safe: any DB error is swallowed so instrumentation never takes
+    down the pipeline itself.
+
+    Args:
+        stage: Stage identifier. Canonical values are ``ingest``,
+            ``normalize``, ``reconcile``, ``session_resolve``, ``persist``,
+            ``fts_index``, ``otel_emit``. New values are accepted as-is.
+        message: Short human-readable summary (<= 500 chars recommended).
+        level: Python logging level name, default ``ERROR``.
+        source_id: Source that triggered the error, if known.
+        pair_id: Capture pair the error applies to, if known.
+        details: Optional structured context. Must not contain sensitive
+            payload content \u2014 keep to identifiers / counts / class names.
+    """
+    try:
+        details_json = _json.dumps(details, ensure_ascii=False) if details else None
+    except Exception:
+        details_json = None
+
+    try:
+        conn = get_connection(db_path)
+        try:
+            conn.execute(
+                """
+                INSERT INTO pipeline_errors
+                    (ts, stage, level, source_id, pair_id, message, details_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (time.time(), stage, level, source_id, pair_id,
+                 message[:2000] if message else "",
+                 details_json),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        # Last-resort: never propagate. Use stderr logger so we at least
+        # see it in the console even if DB is completely broken.
+        logger.exception("Failed to record pipeline error (stage=%s)", stage)
+
+
+def get_pipeline_error_counts(
+    *,
+    window_seconds: float = 86400,
+    db_path: Optional[Path] = None,
+) -> dict[str, dict[str, int]]:
+    """Return pipeline error counts grouped by stage and level.
+
+    Returns a dict of ``{stage: {level: count}}`` covering the last
+    ``window_seconds`` seconds. Stages with zero errors are omitted.
+    """
+    since = time.time() - window_seconds
+    conn = get_connection(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """
+            SELECT stage, level, COUNT(*) AS c
+            FROM pipeline_errors
+            WHERE ts >= ?
+            GROUP BY stage, level
+            """,
+            (since,),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        # Table may not exist yet on a DB that somehow skipped migration 0002.
+        return {}
+    finally:
+        conn.close()
+
+    out: dict[str, dict[str, int]] = {}
+    for r in rows:
+        out.setdefault(r["stage"], {})[r["level"]] = r["c"]
+    return out
+
+
+def prune_pipeline_errors(db_path: Optional[Path] = None) -> int:
+    """Trim old pipeline_errors rows. Returns the number of rows deleted.
+
+    Keeps at most ``_PIPELINE_ERROR_MAX_ROWS`` rows and drops anything
+    older than ``_PIPELINE_ERROR_RETAIN_SECONDS``.
+    """
+    cutoff = time.time() - _PIPELINE_ERROR_RETAIN_SECONDS
+    deleted = 0
+    try:
+        conn = get_connection(db_path)
+        try:
+            cur = conn.execute(
+                "DELETE FROM pipeline_errors WHERE ts < ?", (cutoff,),
+            )
+            deleted += cur.rowcount or 0
+            # Enforce the row cap by keeping only the newest N.
+            cur = conn.execute(
+                """
+                DELETE FROM pipeline_errors
+                WHERE id IN (
+                    SELECT id FROM pipeline_errors
+                    ORDER BY ts DESC
+                    LIMIT -1 OFFSET ?
+                )
+                """,
+                (_PIPELINE_ERROR_MAX_ROWS,),
+            )
+            deleted += cur.rowcount or 0
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        logger.exception("prune_pipeline_errors failed")
+    return deleted
+
+
+# ---------------------------------------------------------------------------
+# Detailed health (P0)
+# ---------------------------------------------------------------------------
+
+def get_detailed_health(db_path: Optional[Path] = None) -> dict:
+    """Return the full health snapshot consumed by ``GET /api/v1/health``.
+
+    Structure matches TASK-002 \u00a75.1:
+
+    - ``schema_version`` / ``expected_schema_version`` / ``capture_payload_version``
+    - ``sources``: per-source counters, failures, drop rate, latency p50/p95
+    - ``pipeline``: error counts per stage, FTS index lag
+    - ``storage``: DB size bytes, table row counts
+
+    Never raises \u2014 degraded fields become ``None`` instead.
+    """
+    now = time.time()
+    path = db_path or DB_PATH
+
+    conn = get_connection(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        schema_version = get_current_version(conn)
+
+        # ── Per-source counters & latency percentiles ────────────────
+        since_1h = now - 3600
+        since_24h = now - 86400
+
+        src_rows = conn.execute(
+            """
+            SELECT rc.source_id,
+                   s.source_type,
+                   s.tool_name,
+                   MAX(rc.created_at)                                          AS last_capture_at,
+                   SUM(CASE WHEN rc.created_at >= ? THEN 1 ELSE 0 END)         AS captures_1h,
+                   SUM(CASE WHEN rc.created_at >= ? THEN 1 ELSE 0 END)         AS captures_24h,
+                   COUNT(*)                                                    AS captures_total
+            FROM raw_captures rc
+            JOIN sources s ON rc.source_id = s.id
+            GROUP BY rc.source_id
+            """,
+            (since_1h, since_24h),
+        ).fetchall()
+
+        # Per-source ingest failures recorded into pipeline_errors
+        fail_rows = conn.execute(
+            """
+            SELECT source_id, COUNT(*) AS c
+            FROM pipeline_errors
+            WHERE ts >= ? AND stage = 'ingest'
+            GROUP BY source_id
+            """,
+            (since_24h,),
+        ).fetchall() if _has_table(conn, "pipeline_errors") else []
+        failures_by_source = {r["source_id"]: r["c"] for r in fail_rows if r["source_id"]}
+
+        # Per-source response latency percentiles (last 24h)
+        lat_rows = conn.execute(
+            """
+            SELECT source_id, latency_ms
+            FROM raw_captures
+            WHERE direction = 'response'
+              AND created_at >= ?
+              AND latency_ms IS NOT NULL
+            """,
+            (since_24h,),
+        ).fetchall()
+        lat_by_source: dict[str, list[float]] = {}
+        for r in lat_rows:
+            lat_by_source.setdefault(r["source_id"], []).append(r["latency_ms"])
+
+        sources_out: dict[str, dict] = {}
+        for r in src_rows:
+            source_id = r["source_id"]
+            captures_24h = int(r["captures_24h"] or 0)
+            failures_24h = int(failures_by_source.get(source_id, 0))
+            denom = captures_24h + failures_24h
+            drop_rate = round(failures_24h / denom, 4) if denom > 0 else 0.0
+            p50, p95 = _percentiles(lat_by_source.get(source_id, []))
+
+            sources_out[source_id] = {
+                "source_type": r["source_type"],
+                "tool_name": r["tool_name"],
+                "last_capture_at": r["last_capture_at"],
+                "last_capture_ago_s": round(now - r["last_capture_at"], 2) if r["last_capture_at"] else None,
+                "captures_last_1h": int(r["captures_1h"] or 0),
+                "captures_last_24h": captures_24h,
+                "captures_total": int(r["captures_total"] or 0),
+                "failures_last_24h": failures_24h,
+                "drop_rate": drop_rate,
+                "latency_p50_ms": p50,
+                "latency_p95_ms": p95,
+            }
+
+        # Ensure well-known sources are always present, even if they have
+        # no rows yet, so the dashboard shows them as "never" rather than
+        # silently omitting them.
+        for sid in (SOURCE_PROXY, SOURCE_BROWSER_EXT, SOURCE_MCP):
+            sources_out.setdefault(sid, {
+                "source_type": sid.split("-")[0] if "-" in sid else sid,
+                "tool_name": None,
+                "last_capture_at": None,
+                "last_capture_ago_s": None,
+                "captures_last_1h": 0,
+                "captures_last_24h": 0,
+                "captures_total": 0,
+                "failures_last_24h": int(failures_by_source.get(sid, 0)),
+                "drop_rate": 0.0,
+                "latency_p50_ms": None,
+                "latency_p95_ms": None,
+            })
+
+        # ── Pipeline stage errors ────────────────────────────────────
+        pipeline_errors_24h: dict[str, dict[str, int]] = {}
+        if _has_table(conn, "pipeline_errors"):
+            rows = conn.execute(
+                """
+                SELECT stage, level, COUNT(*) AS c
+                FROM pipeline_errors
+                WHERE ts >= ?
+                GROUP BY stage, level
+                """,
+                (since_24h,),
+            ).fetchall()
+            for r in rows:
+                pipeline_errors_24h.setdefault(r["stage"], {})[r["level"]] = r["c"]
+
+        def _stage_errors(stage: str) -> int:
+            levels = pipeline_errors_24h.get(stage, {})
+            return sum(levels.values())
+
+        # FTS index lag = messages.rowid max - messages_fts.rowid max.
+        # When triggers are working and no rebuild is pending, the two
+        # should match; any positive number indicates lag.
+        try:
+            msg_max = conn.execute("SELECT COALESCE(MAX(rowid), 0) FROM messages").fetchone()[0]
+            fts_max = conn.execute("SELECT COALESCE(MAX(rowid), 0) FROM messages_fts").fetchone()[0]
+            fts_lag_rows = int(msg_max) - int(fts_max)
+        except sqlite3.OperationalError:
+            fts_lag_rows = None
+
+        pipeline = {
+            "errors_last_24h_by_stage": pipeline_errors_24h,
+            "normalizer_errors_last_24h": _stage_errors("normalize"),
+            "reconciler_errors_last_24h": _stage_errors("reconcile"),
+            "persist_errors_last_24h": _stage_errors("persist"),
+            "ingest_errors_last_24h": _stage_errors("ingest"),
+            "fts_index_lag_rows": fts_lag_rows,
+        }
+
+        # ── Storage stats ────────────────────────────────────────────
+        raw_count = conn.execute("SELECT COUNT(*) FROM raw_captures").fetchone()[0]
+        sess_count = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
+        msg_count = conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
+        snip_count = conn.execute("SELECT COUNT(*) FROM snippets").fetchone()[0]
+        earliest = conn.execute("SELECT MIN(created_at) FROM raw_captures").fetchone()[0]
+        try:
+            db_size = path.stat().st_size if path.exists() else 0
+        except OSError:
+            db_size = 0
+
+        storage = {
+            "db_path": str(path),
+            "db_size_bytes": int(db_size),
+            "db_size_mb": round(db_size / 1024 / 1024, 2),
+            "raw_captures_rows": int(raw_count),
+            "sessions_rows": int(sess_count),
+            "messages_rows": int(msg_count),
+            "snippets_rows": int(snip_count),
+            "oldest_capture_age_days": (
+                round((now - earliest) / 86400, 2) if earliest else None
+            ),
+        }
+
+        return {
+            "status": "ok",
+            "timestamp": now,
+            "schema_version": schema_version,
+            "expected_schema_version": EXPECTED_SCHEMA_VERSION,
+            "capture_payload_version": CAPTURE_SCHEMA_VERSION,
+            "sources": sources_out,
+            "pipeline": pipeline,
+            "storage": storage,
+        }
+    finally:
+        conn.close()
+
+
+def _has_table(conn: sqlite3.Connection, name: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,),
+    ).fetchone()
+    return row is not None
+
+
+def _percentiles(values: list[float]) -> tuple[Optional[float], Optional[float]]:
+    """Return (p50, p95) in milliseconds, rounded. ``None`` if empty."""
+    if not values:
+        return None, None
+    sorted_vals = sorted(values)
+    n = len(sorted_vals)
+
+    def _pick(pct: float) -> float:
+        # Nearest-rank method; adequate for dashboard purposes.
+        idx = max(0, min(n - 1, int(round(pct / 100 * (n - 1)))))
+        return sorted_vals[idx]
+
+    return round(_pick(50), 2), round(_pick(95), 2)
 
 
 # ---------------------------------------------------------------------------

@@ -15,8 +15,10 @@ from urllib.parse import parse_qs, urlparse
 from ..db import (
     insert_message,
     get_connection,
+    record_pipeline_error,
     update_message_enrichment,
 )
+from ..logging_config import log_event
 from ..rich_content import build_content_json, load_attachments_from_content_json
 from .base import NormalizedMessage, NormalizedResult
 
@@ -305,7 +307,21 @@ def persist_result(
     )
 
     if session_id is None:
-        logger.error("Failed to create session for pair %s", pair_id)
+        record_pipeline_error(
+            "session_resolve",
+            "find_or_create_session returned None",
+            source_id=source_id, pair_id=pair_id,
+            details={
+                "provider": result.provider,
+                "tool_family": result.tool_family,
+                "created_via": created_via,
+            },
+        )
+        log_event(
+            logger, "session.resolve_failed",
+            level=logging.ERROR,
+            pair_id=pair_id[:8], provider=result.provider,
+        )
         return None
 
     # Build dedup map from existing messages (only for existing sessions)
@@ -417,11 +433,21 @@ def persist_result(
     try:
         from ..tagger import tag_session
         tag_session(session_id, db_path=db_path)
-    except Exception:
+    except Exception as exc:
         logger.debug("Auto-tag failed for session %s (non-fatal)", session_id[:8])
+        record_pipeline_error(
+            "tag", f"tag_session: {type(exc).__name__}: {exc}",
+            level="WARNING", source_id=source_id, pair_id=pair_id,
+            details={"session_id": session_id},
+        )
 
-    logger.info(
-        "Normalized %s -> session %s (%d new, %d enriched, provider=%s, existing=%s)",
-        pair_id[:8], session_id[:8], msg_count, enriched_count, result.provider, is_existing,
+    log_event(
+        logger, "normalize.persisted",
+        pair_id=pair_id[:8], session_id=session_id[:8],
+        new_msgs=msg_count, enriched=enriched_count,
+        provider=result.provider,
+        is_existing_session=is_existing,
+        normalizer=getattr(result, "normalizer_name", None),
+        confidence=getattr(result, "confidence", None),
     )
     return session_id

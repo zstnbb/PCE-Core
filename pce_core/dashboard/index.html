@@ -49,6 +49,10 @@
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           <span>Services</span>
         </a></li>
+        <li><a href="#" data-view="health">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+          <span>Health</span>
+        </a></li>
       </ul>
       <div class="server-info">
         <div class="status-dot" id="status-dot"></div>
@@ -342,8 +346,49 @@
           </div>
         </div>
       </section>
+
+      <!-- Health View -->
+      <section id="view-health" class="view">
+        <div class="view-header">
+          <h2>
+            <svg class="header-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+            Pipeline Health
+          </h2>
+          <div class="filters-bar" style="margin-bottom:0">
+            <span id="health-last-updated" class="health-updated"></span>
+            <button id="health-refresh" class="btn-sm">Refresh</button>
+          </div>
+        </div>
+        <p class="health-desc">
+          Live snapshot of PCE&rsquo;s internal state: schema version, per-source capture health,
+          pipeline error counts and storage usage. Auto-refreshes every 10 seconds while visible.
+        </p>
+
+        <div class="health-schema-row" id="health-schema-row"></div>
+
+        <div class="settings-section">
+          <h3>Capture Sources</h3>
+          <div id="health-sources-grid" class="health-sources-grid"></div>
+        </div>
+
+        <div class="settings-section">
+          <h3>Pipeline Stages (last 24 h)</h3>
+          <div id="health-pipeline" class="health-pipeline"></div>
+        </div>
+
+        <div class="settings-section">
+          <h3>Storage</h3>
+          <div id="health-storage" class="health-storage"></div>
+        </div>
+
+        <div class="settings-section">
+          <h3>Raw Payload</h3>
+          <pre id="health-raw" class="health-raw">Loading&hellip;</pre>
+        </div>
+      </section>
     </main>
   </div>
   <script src="/dashboard/app.js?v=7"></script>
+  <script src="/dashboard/health.js?v=1"></script>
 </body>
 </html>

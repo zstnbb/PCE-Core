@@ -28,6 +28,7 @@ from .db import (
     delete_snippet,
     get_custom_domains,
     get_capture_health,
+    get_detailed_health,
     get_snippet,
     get_snippet_categories,
     get_source_activity,
@@ -37,18 +38,22 @@ from .db import (
     insert_snippet,
     list_custom_domains,
     new_pair_id,
+    prune_pipeline_errors,
     query_by_pair,
     query_captures,
     query_messages,
     query_recent,
     query_sessions,
     query_snippets,
+    record_pipeline_error,
     refresh_custom_domains,
     remove_custom_domain,
     reset_all_data,
     set_session_favorite,
     update_snippet,
 )
+from .logging_config import configure_logging, log_event
+from .migrations import EXPECTED_SCHEMA_VERSION, get_current_version, get_migration_history
 from .models import (
     CaptureIn,
     CaptureOut,
@@ -62,11 +67,10 @@ from .models import (
 )
 from .normalizer.pipeline import normalize_conversation, try_normalize_pair
 
+# Configure root logging before creating the server logger so subsequent
+# loggers pick up the JSON formatter when PCE_LOG_JSON=1.
+configure_logging()
 logger = logging.getLogger("pce.server")
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
-)
 
 # ---------------------------------------------------------------------------
 # Source type → default source_id mapping
@@ -85,10 +89,33 @@ _SOURCE_MAP = {
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Initialising database at %s", DB_PATH)
-    init_db()
-    logger.info("PCE Core server v%s ready on %s:%s", __version__, INGEST_HOST, INGEST_PORT)
+    log_event(logger, "server.starting", db_path=str(DB_PATH), version=__version__)
+    try:
+        init_db()
+    except RuntimeError as exc:
+        # Downgrade-protection: the DB is at a schema version we don't
+        # recognise. Surface the error clearly and abort startup.
+        log_event(
+            logger, "server.start_failed",
+            level=logging.CRITICAL,
+            reason="schema_version_incompatible",
+            error=str(exc),
+        )
+        raise
+    # Trim stale pipeline_errors on startup so health counts reflect recent
+    # behaviour and the table never grows unbounded across long uptimes.
+    try:
+        pruned = prune_pipeline_errors()
+        if pruned:
+            log_event(logger, "pipeline_errors.pruned", deleted=pruned)
+    except Exception:
+        logger.exception("prune_pipeline_errors on startup failed (non-fatal)")
+    log_event(
+        logger, "server.ready",
+        host=INGEST_HOST, port=INGEST_PORT, version=__version__,
+    )
     yield
+    log_event(logger, "server.stopping")
 
 
 app = FastAPI(
@@ -110,15 +137,56 @@ app.add_middleware(
 # Health
 # ---------------------------------------------------------------------------
 
-@app.get("/api/v1/health", response_model=HealthOut)
+@app.get("/api/v1/health")
 def health():
-    stats = get_stats()
-    return HealthOut(
-        status="ok",
-        version=__version__,
-        db_path=str(DB_PATH),
-        total_captures=stats["total_captures"],
-    )
+    """Detailed health snapshot — per-source, pipeline, storage.
+
+    Response shape matches TASK-002 §5.1 and is consumed by the
+    dashboard health page. The top-level ``status`` / ``version`` /
+    ``db_path`` / ``total_captures`` fields are preserved for
+    backward compatibility with older clients and the ``HealthOut``
+    Pydantic model.
+    """
+    try:
+        snapshot = get_detailed_health()
+    except Exception:
+        logger.exception("get_detailed_health failed – returning degraded payload")
+        snapshot = {
+            "status": "degraded",
+            "timestamp": None,
+            "schema_version": None,
+            "expected_schema_version": EXPECTED_SCHEMA_VERSION,
+            "sources": {},
+            "pipeline": {},
+            "storage": {},
+        }
+    # Backward-compatible surface fields.
+    snapshot.setdefault("status", "ok")
+    snapshot["version"] = __version__
+    snapshot["db_path"] = str(DB_PATH)
+    snapshot["total_captures"] = snapshot.get("storage", {}).get("raw_captures_rows", 0)
+    snapshot["ingest_host"] = INGEST_HOST
+    snapshot["ingest_port"] = INGEST_PORT
+    return snapshot
+
+
+@app.get("/api/v1/health/migrations")
+def migrations_status():
+    """Return schema version state and applied migration history."""
+    from .db import get_connection
+
+    conn = get_connection()
+    try:
+        current = get_current_version(conn)
+        history = get_migration_history(conn)
+    finally:
+        conn.close()
+    return {
+        "current_version": current,
+        "expected_version": EXPECTED_SCHEMA_VERSION,
+        "ok": current == EXPECTED_SCHEMA_VERSION,
+        "history": history,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -166,19 +234,46 @@ def ingest_capture(payload: CaptureIn):
     )
 
     if capture_id is None:
+        # Record so the health API can surface a non-zero failures_last_24h
+        # for this source instead of silently swallowing the failure.
+        record_pipeline_error(
+            "ingest",
+            "insert_capture returned None",
+            source_id=source_id,
+            pair_id=pair_id,
+            details={
+                "source_type": payload.source_type,
+                "direction": payload.direction,
+                "host": payload.host,
+                "provider": payload.provider,
+            },
+        )
+        log_event(
+            logger, "capture.ingest_failed", level=logging.ERROR,
+            source_type=payload.source_type, direction=payload.direction,
+            host=payload.host, provider=payload.provider,
+        )
         raise HTTPException(status_code=500, detail="Failed to insert capture")
 
-    logger.info(
-        "ingested %s %s from %s (%s)",
-        payload.direction, payload.host, payload.source_type, capture_id[:8],
+    log_event(
+        logger, "capture.ingested",
+        capture_id=capture_id[:8], pair_id=pair_id[:8],
+        source_type=payload.source_type, direction=payload.direction,
+        host=payload.host, provider=payload.provider,
+        model_name=payload.model_name,
     )
 
     # Auto-normalize when a response completes a pair
     if payload.direction == "response":
         try:
             try_normalize_pair(pair_id, source_id=source_id, created_via=payload.source_type)
-        except Exception:
+        except Exception as exc:
             logger.exception("Auto-normalization failed for pair %s – non-fatal", pair_id[:8])
+            record_pipeline_error(
+                "normalize", f"try_normalize_pair: {type(exc).__name__}: {exc}",
+                source_id=source_id, pair_id=pair_id,
+                details={"direction": "response", "host": payload.host},
+            )
 
     # Normalize conversation captures (e.g. from browser extension DOM extraction)
     elif payload.direction == "conversation":
@@ -189,8 +284,13 @@ def ingest_capture(payload: CaptureIn):
                 normalize_conversation(
                     rows[0], source_id=source_id, created_via=payload.source_type,
                 )
-        except Exception:
+        except Exception as exc:
             logger.exception("Conversation normalization failed for %s – non-fatal", pair_id[:8])
+            record_pipeline_error(
+                "normalize", f"normalize_conversation: {type(exc).__name__}: {exc}",
+                source_id=source_id, pair_id=pair_id,
+                details={"direction": "conversation", "host": payload.host},
+            )
 
     # Normalize network-intercepted captures (browser extension fetch/XHR/WS interception)
     elif payload.direction == "network_intercept":
@@ -201,8 +301,13 @@ def ingest_capture(payload: CaptureIn):
                 normalize_conversation(
                     rows[0], source_id=source_id, created_via="browser_extension_network",
                 )
-        except Exception:
+        except Exception as exc:
             logger.exception("Network intercept normalization failed for %s – non-fatal", pair_id[:8])
+            record_pipeline_error(
+                "normalize", f"normalize_conversation(net): {type(exc).__name__}: {exc}",
+                source_id=source_id, pair_id=pair_id,
+                details={"direction": "network_intercept", "host": payload.host},
+            )
 
     return CaptureOut(id=capture_id, pair_id=pair_id, source_id=source_id)
 
