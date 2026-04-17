@@ -12,6 +12,7 @@ from typing import Optional
 from pathlib import Path
 
 from ..db import query_by_pair, query_sessions
+from ..otel_exporter import pipeline_span
 from ..rich_content import build_content_json
 from .base import normalize_pair, NormalizedResult
 from .message_processor import (
@@ -46,33 +47,42 @@ def try_normalize_pair(
     Returns session_id on success, None if normalization is not possible
     or the pair is incomplete.
     """
-    rows = query_by_pair(pair_id, db_path=db_path)
-    if len(rows) < 2:
-        return None  # pair not yet complete
+    with pipeline_span("pce.pipeline.try_normalize_pair", pair_id=pair_id, source_id=source_id):
+        rows = query_by_pair(pair_id, db_path=db_path)
+        if len(rows) < 2:
+            return None  # pair not yet complete
 
-    request_row = None
-    response_row = None
-    for r in rows:
-        if r["direction"] == "request":
-            request_row = r
-        elif r["direction"] == "response":
-            response_row = r
+        request_row = None
+        response_row = None
+        for r in rows:
+            if r["direction"] == "request":
+                request_row = r
+            elif r["direction"] == "response":
+                response_row = r
 
-    if request_row is None or response_row is None:
-        return None
+        if request_row is None or response_row is None:
+            return None
 
-    result = normalize_pair(request_row, response_row)
-    if result is None:
-        return None
+        with pipeline_span("pce.normalize", pair_id=pair_id, provider=request_row.get("provider", "")):
+            result = normalize_pair(request_row, response_row)
+        if result is None:
+            return None
 
-    return _persist_result(
-        result,
-        pair_id=pair_id,
-        source_id=source_id,
-        created_via=created_via,
-        created_at=request_row.get("created_at", time.time()),
-        db_path=db_path,
-    )
+        with pipeline_span(
+            "pce.persist.message",
+            pair_id=pair_id,
+            provider=result.provider,
+            normalizer=getattr(result, "normalizer_name", None),
+            confidence=getattr(result, "confidence", 0.0),
+        ):
+            return _persist_result(
+                result,
+                pair_id=pair_id,
+                source_id=source_id,
+                created_via=created_via,
+                created_at=request_row.get("created_at", time.time()),
+                db_path=db_path,
+            )
 
 
 def normalize_conversation(
@@ -96,42 +106,52 @@ def normalize_conversation(
     from the same conversation are grouped into one session.
     """
     direction = capture_row.get("direction", "")
+    with pipeline_span(
+        "pce.pipeline.normalize_conversation",
+        direction=direction, source_id=source_id,
+        provider=capture_row.get("provider", ""),
+    ):
+        with pipeline_span("pce.normalize", direction=direction):
+            if direction == "network_intercept":
+                result = _normalize_network_intercept(capture_row)
+            else:
+                # For conversation captures (DOM extraction), use ConversationNormalizer
+                # directly.  Going through the registry would pick OpenAIChatNormalizer
+                # first for provider=openai/host=chatgpt.com, which doesn't read the
+                # DOM-extracted 'attachments' field on each message.
+                from .conversation import ConversationNormalizer
+                _conv_norm = ConversationNormalizer()
+                body = capture_row.get("body_text_or_json", "")
+                result = _conv_norm.normalize(
+                    body, body,
+                    provider=capture_row.get("provider", ""),
+                    host=capture_row.get("host", ""),
+                    path=capture_row.get("path", ""),
+                    model_name=capture_row.get("model_name"),
+                    created_at=capture_row.get("created_at"),
+                )
 
-    if direction == "network_intercept":
-        result = _normalize_network_intercept(capture_row)
-    else:
-        # For conversation captures (DOM extraction), use ConversationNormalizer
-        # directly.  Going through the registry would pick OpenAIChatNormalizer
-        # first for provider=openai/host=chatgpt.com, which doesn't read the
-        # DOM-extracted 'attachments' field on each message.
-        from .conversation import ConversationNormalizer
-        _conv_norm = ConversationNormalizer()
-        body = capture_row.get("body_text_or_json", "")
-        result = _conv_norm.normalize(
-            body, body,
-            provider=capture_row.get("provider", ""),
-            host=capture_row.get("host", ""),
-            path=capture_row.get("path", ""),
-            model_name=capture_row.get("model_name"),
-            created_at=capture_row.get("created_at"),
-        )
+        if result is None:
+            return None
 
-    if result is None:
-        return None
+        # Use session_hint (conversation ID from URL) as session_key fallback
+        session_hint = capture_row.get("session_hint")
+        if session_hint and not result.session_key:
+            result.session_key = session_hint
 
-    # Use session_hint (conversation ID from URL) as session_key fallback
-    session_hint = capture_row.get("session_hint")
-    if session_hint and not result.session_key:
-        result.session_key = session_hint
-
-    return _persist_result(
-        result,
-        pair_id=capture_row.get("pair_id", ""),
-        source_id=source_id,
-        created_via=created_via,
-        created_at=capture_row.get("created_at", time.time()),
-        db_path=db_path,
-    )
+        with pipeline_span(
+            "pce.persist.message",
+            provider=result.provider,
+            normalizer=getattr(result, "normalizer_name", None),
+        ):
+            return _persist_result(
+                result,
+                pair_id=capture_row.get("pair_id", ""),
+                source_id=source_id,
+                created_via=created_via,
+                created_at=capture_row.get("created_at", time.time()),
+                db_path=db_path,
+            )
 
 
 def _normalize_network_intercept(capture_row: dict) -> Optional[NormalizedResult]:

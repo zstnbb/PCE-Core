@@ -1,11 +1,28 @@
 # ARCHITECTURE
 
 - Project: PCE
-- Version: v0.2 Industrialization Architecture
+- Version: v0.3 Storage-Standardization Architecture
 - Updated: 2026-04-17
 - Scope: 覆盖“记录 -> 看见”阶段的完整实现，同时明确"抓 / 存 / 渲染"三大能力的工业级与用户友好目标，为“理解 -> 干预”阶段预留扩展点
 
 ## 0. 版本说明
+
+v0.3 相对 v0.2 的主要变化（P1 阶段落地）：
+
+- 存层 schema 升级到版本 3：`messages` / `sessions` 加上 OpenInference 兼容的
+  `oi_role_raw` / `oi_input_tokens` / `oi_output_tokens` / `oi_attributes_json`
+  / `oi_schema_version` 字段，采用"加新字段保留旧字段"的双写迁移（ADR-004）
+- 归一化层新增 `pce_core/normalizer/openinference_mapper.py`，
+  产生 message / session / pair-span 三个粒度的 OI 属性视图
+- 新增可选 OTLP 导出器 `pce_core/otel_exporter.py`（默认关闭，ADR-007），
+  在 `OTEL_EXPORTER_OTLP_ENDPOINT` 存在且 `opentelemetry-sdk` 可导入时启用
+- 管道关键阶段（`pce.pipeline.*` / `pce.normalize` / `pce.persist.message`）
+  用 OTel span 包装，SDK 未安装时为 no-op
+- `GET /api/v1/export?format=otlp|json` 以 NDJSON 或 JSON 信封格式流式导出数据
+- `POST /api/v1/import` 支持 NDJSON 和 JSON 信封格式的幂等导入
+- 新增 `pce_core/retention.py` + `PCE_RETENTION_DAYS` / `PCE_RETENTION_MAX_ROWS`
+  + `/api/v1/retention` / `/api/v1/retention/sweep` 端点
+- 整体测试矩阵从 P0 的 23 条冒烟扩展到 89 条（45 P1 单元 + 44 冒烟）
 
 v0.2 相对 v0.1 的主要变化：
 

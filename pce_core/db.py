@@ -974,9 +974,17 @@ def insert_session(
     session_key: Optional[str] = None,
     title_hint: Optional[str] = None,
     created_via: Optional[str] = None,
+    oi_attributes_json: Optional[str] = None,
     db_path: Optional[Path] = None,
 ) -> Optional[str]:
-    """Insert a session. Returns session id or None on failure."""
+    """Insert a session. Returns session id or None on failure.
+
+    ``oi_attributes_json`` — serialised OpenInference attribute dict
+    produced by :func:`pce_core.normalizer.openinference_mapper.session_to_oi_attributes`.
+    When provided, cached alongside the session so downstream export
+    paths don't need to recompute. Safe to omit; callers can backfill
+    later via :func:`update_session_oi_attributes`.
+    """
     session_id = new_id()
     try:
         conn = get_connection(db_path)
@@ -985,11 +993,12 @@ def insert_session(
                 """
                 INSERT INTO sessions
                     (id, source_id, started_at, provider, tool_family,
-                     session_key, message_count, title_hint, created_via)
-                VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
+                     session_key, message_count, title_hint, created_via,
+                     oi_attributes_json, oi_schema_version)
+                VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 1)
                 """,
                 (session_id, source_id, started_at, provider, tool_family,
-                 session_key, title_hint, created_via),
+                 session_key, title_hint, created_via, oi_attributes_json),
             )
             conn.commit()
             return session_id
@@ -998,6 +1007,30 @@ def insert_session(
     except Exception:
         logger.exception("Failed to insert session")
         return None
+
+
+def update_session_oi_attributes(
+    session_id: str,
+    oi_attributes_json: str,
+    *,
+    db_path: Optional[Path] = None,
+) -> bool:
+    """Backfill / refresh the OI attribute cache on a session row."""
+    try:
+        conn = get_connection(db_path)
+        try:
+            conn.execute(
+                "UPDATE sessions SET oi_attributes_json = ?, oi_schema_version = 1 "
+                "WHERE id = ?",
+                (oi_attributes_json, session_id),
+            )
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+    except Exception:
+        logger.exception("Failed to update session OI attrs for %s", session_id)
+        return False
 
 
 def insert_message(
@@ -1010,9 +1043,20 @@ def insert_message(
     model_name: Optional[str] = None,
     capture_pair_id: Optional[str] = None,
     token_estimate: Optional[int] = None,
+    oi_role_raw: Optional[str] = None,
+    oi_input_tokens: Optional[int] = None,
+    oi_output_tokens: Optional[int] = None,
+    oi_attributes_json: Optional[str] = None,
     db_path: Optional[Path] = None,
 ) -> Optional[str]:
-    """Insert a message. Returns message id or None on failure."""
+    """Insert a message. Returns message id or None on failure.
+
+    The ``oi_*`` parameters are the OpenInference-compatibility fields
+    added in migration 0003. They are additive – existing callers that
+    don't populate them will produce rows with NULL OI columns; a
+    background job or the export layer can backfill later by invoking
+    the mapper.
+    """
     msg_id = new_id()
     try:
         conn = get_connection(db_path)
@@ -1021,11 +1065,15 @@ def insert_message(
                 """
                 INSERT INTO messages
                     (id, session_id, capture_pair_id, ts, role,
-                     content_text, content_json, model_name, token_estimate)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     content_text, content_json, model_name, token_estimate,
+                     oi_role_raw, oi_input_tokens, oi_output_tokens,
+                     oi_attributes_json, oi_schema_version)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
                 """,
                 (msg_id, session_id, capture_pair_id, ts, role,
-                 content_text, content_json, model_name, token_estimate),
+                 content_text, content_json, model_name, token_estimate,
+                 oi_role_raw, oi_input_tokens, oi_output_tokens,
+                 oi_attributes_json),
             )
             # Update session message count and ended_at
             conn.execute(
@@ -1134,6 +1182,27 @@ def query_sessions(
         sql = f"SELECT * FROM sessions{where} ORDER BY started_at DESC LIMIT ?"
         params.append(last)
         rows = conn.execute(sql, params).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def query_messages_by_pair(
+    capture_pair_id: str,
+    db_path: Optional[Path] = None,
+) -> list[dict]:
+    """Return all messages tied to a single capture pair, ordered by timestamp.
+
+    Used by the OpenInference mapper to materialise a span for one
+    request/response pair without loading the entire session.
+    """
+    conn = get_connection(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            "SELECT * FROM messages WHERE capture_pair_id = ? ORDER BY ts ASC",
+            (capture_pair_id,),
+        ).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()

@@ -40,7 +40,7 @@ logger = logging.getLogger("pce.migrations")
 
 # Version that the code expects the database to be at after
 # ``apply_migrations`` completes. Bumped when a new migration is added.
-EXPECTED_SCHEMA_VERSION = 2
+EXPECTED_SCHEMA_VERSION = 3
 
 
 class Migration(NamedTuple):

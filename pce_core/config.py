@@ -116,3 +116,41 @@ PROXY_LISTEN_PORT = int(os.environ.get("PCE_PROXY_PORT", "8080"))
 # ---------------------------------------------------------------------------
 INGEST_HOST = os.environ.get("PCE_INGEST_HOST", "127.0.0.1")
 INGEST_PORT = int(os.environ.get("PCE_INGEST_PORT", "9800"))
+
+# ---------------------------------------------------------------------------
+# Retention policy (P1) — applied by pce_core.retention.
+# All disabled by default so upgraders keep existing data.
+# ---------------------------------------------------------------------------
+
+def _parse_int(name: str, default: int = 0) -> int:
+    raw = os.environ.get(name, "")
+    if not raw.strip():
+        return default
+    try:
+        return max(int(raw), 0)
+    except ValueError:
+        return default
+
+
+def _parse_float(name: str, default: float = 0.0) -> float:
+    raw = os.environ.get(name, "")
+    if not raw.strip():
+        return default
+    try:
+        return max(float(raw), 0.0)
+    except ValueError:
+        return default
+
+
+RETENTION_DAYS = _parse_int("PCE_RETENTION_DAYS", 0)
+RETENTION_MAX_ROWS = _parse_int("PCE_RETENTION_MAX_ROWS", 0)
+RETENTION_INTERVAL_HOURS = _parse_float("PCE_RETENTION_INTERVAL_HOURS", 6.0)
+
+# ---------------------------------------------------------------------------
+# OpenTelemetry OTLP exporter (P1, opt-in) — see ADR-007.
+# ---------------------------------------------------------------------------
+# Secondary, non-default channel. Local SQLite remains the source of truth.
+OTEL_EXPORTER_OTLP_ENDPOINT = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+OTEL_EXPORTER_OTLP_PROTOCOL = os.environ.get("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+OTEL_EXPORTER_OTLP_HEADERS = os.environ.get("OTEL_EXPORTER_OTLP_HEADERS", "")
+OTEL_SERVICE_NAME = os.environ.get("OTEL_SERVICE_NAME", "pce-core")

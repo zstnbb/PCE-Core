@@ -12,13 +12,20 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import __version__
-from .config import ALLOWED_HOSTS, CAPTURE_MODE, DB_PATH, INGEST_HOST, INGEST_PORT, PROXY_LISTEN_HOST, PROXY_LISTEN_PORT
+from . import config as _config
+from .config import (
+    ALLOWED_HOSTS, CAPTURE_MODE, DB_PATH,
+    INGEST_HOST, INGEST_PORT,
+    PROXY_LISTEN_HOST, PROXY_LISTEN_PORT,
+    OTEL_EXPORTER_OTLP_ENDPOINT,
+    RETENTION_DAYS, RETENTION_MAX_ROWS, RETENTION_INTERVAL_HOURS,
+)
 from .db import (
     SOURCE_BROWSER_EXT,
     SOURCE_MCP,
@@ -52,8 +59,18 @@ from .db import (
     set_session_favorite,
     update_snippet,
 )
+from .export import (
+    EXPORT_SCHEMA_VERSION,
+    export_summary,
+    iter_oi_spans,
+    stream_json_envelope,
+    stream_jsonl,
+)
+from .import_data import import_document, import_jsonl
 from .logging_config import configure_logging, log_event
 from .migrations import EXPECTED_SCHEMA_VERSION, get_current_version, get_migration_history
+from .otel_exporter import configure_otlp_exporter, is_enabled as _otel_is_enabled, shutdown_otlp_exporter
+from .retention import run_retention_loop, sweep_once
 from .models import (
     CaptureIn,
     CaptureOut,
@@ -89,6 +106,8 @@ _SOURCE_MAP = {
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import asyncio
+
     log_event(logger, "server.starting", db_path=str(DB_PATH), version=__version__)
     try:
         init_db()
@@ -110,12 +129,53 @@ async def lifespan(app: FastAPI):
             log_event(logger, "pipeline_errors.pruned", deleted=pruned)
     except Exception:
         logger.exception("prune_pipeline_errors on startup failed (non-fatal)")
+
+    # P1: initialise the opt-in OTLP exporter (no-op when the endpoint env
+    # var is unset). Always safe to call; logs its own ready / disabled event.
+    try:
+        configure_otlp_exporter()
+    except Exception:
+        logger.exception("configure_otlp_exporter failed (non-fatal)")
+
+    # P1: spawn the retention loop. The loop itself is a no-op when both
+    # PCE_RETENTION_DAYS and PCE_RETENTION_MAX_ROWS are 0.
+    app.state.retention_stop = asyncio.Event()
+    app.state.retention_task = asyncio.create_task(
+        run_retention_loop(
+            interval_hours=RETENTION_INTERVAL_HOURS,
+            stop_event=app.state.retention_stop,
+        ),
+        name="pce.retention.loop",
+    )
+
     log_event(
         logger, "server.ready",
         host=INGEST_HOST, port=INGEST_PORT, version=__version__,
+        otel_enabled=_otel_is_enabled(),
+        retention_days=RETENTION_DAYS,
+        retention_max_rows=RETENTION_MAX_ROWS,
     )
     yield
+
     log_event(logger, "server.stopping")
+    # Gracefully stop the retention loop so shutdown isn't stuck waiting
+    # the whole interval for the sleep to finish.
+    try:
+        stop_evt: asyncio.Event = app.state.retention_stop
+        stop_evt.set()
+        task: asyncio.Task = app.state.retention_task
+        task.cancel()
+        try:
+            await asyncio.wait_for(task, timeout=5.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+            pass
+    except Exception:
+        pass
+
+    try:
+        shutdown_otlp_exporter()
+    except Exception:
+        pass
 
 
 app = FastAPI(
@@ -187,6 +247,135 @@ def migrations_status():
         "ok": current == EXPECTED_SCHEMA_VERSION,
         "history": history,
     }
+
+
+# ---------------------------------------------------------------------------
+# Export / Import (P1 — TASK-003 §5.3)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/export/summary")
+def export_summary_endpoint(
+    since: Optional[float] = Query(None, description="Unix epoch seconds lower bound (inclusive)."),
+    until: Optional[float] = Query(None, description="Unix epoch seconds upper bound (inclusive)."),
+):
+    """Cheap preflight before calling the streaming export endpoints."""
+    return export_summary(since=since, until=until)
+
+
+@app.get("/api/v1/export")
+def export_endpoint(
+    format: str = Query("otlp", pattern="^(otlp|json)$", description="otlp (JSONL spans) or json (envelope)"),
+    since: Optional[float] = Query(None),
+    until: Optional[float] = Query(None),
+    include_raw: bool = Query(False, description="Only honoured by format=json."),
+):
+    """Stream the normalised data in an interoperable format.
+
+    - ``format=otlp`` → ``application/x-ndjson``: one OpenInference-shaped
+      span per line, ready for replay into any OTel-compatible backend.
+    - ``format=json`` → ``application/json``: a single streaming envelope
+      containing full session dicts plus messages (and optionally the
+      originating raw captures).
+    """
+    if format == "otlp":
+        log_event(
+            logger, "export.otlp_started",
+            since=since, until=until,
+        )
+        body = stream_jsonl(iter_oi_spans(since=since, until=until))
+        return StreamingResponse(
+            body,
+            media_type="application/x-ndjson",
+            headers={"X-PCE-Export-Format": "otlp"},
+        )
+
+    log_event(
+        logger, "export.json_started",
+        since=since, until=until, include_raw=include_raw,
+    )
+    body = stream_json_envelope(
+        since=since, until=until, include_raw=include_raw,
+    )
+    return StreamingResponse(
+        body,
+        media_type="application/json",
+        headers={
+            "X-PCE-Export-Format": "json",
+            "X-PCE-Export-Schema-Version": str(EXPORT_SCHEMA_VERSION),
+        },
+    )
+
+
+@app.post("/api/v1/import")
+async def import_endpoint(request: Request):
+    """Idempotent import of previously-exported PCE data.
+
+    Accepts either:
+
+    - ``Content-Type: application/x-ndjson`` — newline-delimited JSON
+      records (OpenInference spans or PCE session envelopes).
+    - ``Content-Type: application/json`` — a single envelope document as
+      produced by ``GET /api/v1/export?format=json``.
+
+    Returns a JSON summary describing what was created / matched / skipped.
+    """
+    content_type = (request.headers.get("content-type") or "").lower()
+    body_bytes = await request.body()
+    if not body_bytes:
+        raise HTTPException(status_code=400, detail="empty request body")
+
+    if "ndjson" in content_type or "jsonl" in content_type:
+        lines = body_bytes.splitlines()
+        summary = import_jsonl(lines)
+    else:
+        try:
+            doc = json.loads(body_bytes.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise HTTPException(status_code=400, detail=f"invalid JSON: {exc}")
+        if isinstance(doc, dict) and "sessions" in doc:
+            summary = import_document(doc)
+        elif isinstance(doc, list):
+            # Treat as a JSON array of records
+            summary = import_jsonl(iter(json.dumps(r) for r in doc))
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="payload must be NDJSON, an envelope object, or an array of records",
+            )
+
+    log_event(
+        logger, "import.received",
+        sessions_created=summary["sessions_created"],
+        messages_created=summary["messages_created"],
+        errors=len(summary["errors"]),
+    )
+    return summary
+
+
+# ---------------------------------------------------------------------------
+# Retention (P1 — TASK-003 §5.4)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/retention")
+def retention_status():
+    """Report the current retention policy and last sweep output."""
+    return {
+        "days": RETENTION_DAYS,
+        "max_raw_rows": RETENTION_MAX_ROWS,
+        "interval_hours": RETENTION_INTERVAL_HOURS,
+        "otel_enabled": _otel_is_enabled(),
+        "otel_endpoint": OTEL_EXPORTER_OTLP_ENDPOINT or None,
+    }
+
+
+@app.post("/api/v1/retention/sweep")
+def retention_sweep_endpoint(
+    days: Optional[int] = Query(None, ge=0, description="Override PCE_RETENTION_DAYS for this sweep."),
+    max_raw_rows: Optional[int] = Query(None, ge=0, description="Override PCE_RETENTION_MAX_ROWS for this sweep."),
+):
+    """Run a retention sweep right now. Returns the summary."""
+    summary = sweep_once(days=days, max_raw_rows=max_raw_rows)
+    return summary
 
 
 # ---------------------------------------------------------------------------

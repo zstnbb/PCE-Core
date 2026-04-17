@@ -15,12 +15,20 @@ from urllib.parse import parse_qs, urlparse
 from ..db import (
     insert_message,
     get_connection,
+    query_messages,
+    query_sessions,
     record_pipeline_error,
     update_message_enrichment,
+    update_session_oi_attributes,
 )
 from ..logging_config import log_event
 from ..rich_content import build_content_json, load_attachments_from_content_json
 from .base import NormalizedMessage, NormalizedResult
+from .openinference_mapper import (
+    message_to_oi_attributes,
+    pair_to_oi_span,
+    session_to_oi_attributes,
+)
 
 logger = logging.getLogger("pce.normalizer.message_processor")
 
@@ -403,6 +411,14 @@ def persist_result(
         }  # prevent within-batch dupes
 
         token_est = msg.token_estimate or estimate_tokens(msg.content_text)
+        oi_fields = _compute_message_oi_fields(
+            msg=msg,
+            session_id=session_id,
+            result=result,
+            source_id=source_id,
+            pair_id=pair_id,
+            token_est=token_est,
+        )
         msg_id = insert_message(
             session_id=session_id,
             ts=msg.ts or created_at,
@@ -412,6 +428,10 @@ def persist_result(
             model_name=msg.model_name or result.model_name,
             capture_pair_id=pair_id,
             token_estimate=token_est,
+            oi_role_raw=oi_fields["oi_role_raw"],
+            oi_input_tokens=oi_fields["oi_input_tokens"],
+            oi_output_tokens=oi_fields["oi_output_tokens"],
+            oi_attributes_json=oi_fields["oi_attributes_json"],
             db_path=db_path,
         )
         if msg_id:
@@ -441,6 +461,29 @@ def persist_result(
             details={"session_id": session_id},
         )
 
+    # Refresh session-level OpenInference attribute cache (cheap; the
+    # session_to_oi_attributes mapper is pure Python on ~10 small fields).
+    _refresh_session_oi_cache(
+        session_id=session_id,
+        source_id=source_id,
+        result=result,
+        created_via=created_via,
+        db_path=db_path,
+    )
+
+    # Secondary OTLP channel (ADR-007). Fails-open if exporter is off or
+    # anything throws. Only emits for pairs that produced at least one
+    # newly-inserted message — enrichment-only runs don't spam Phoenix.
+    if msg_count > 0:
+        _emit_pair_otlp_span(
+            pair_id=pair_id,
+            session_id=session_id,
+            source_id=source_id,
+            result=result,
+            created_via=created_via,
+            db_path=db_path,
+        )
+
     log_event(
         logger, "normalize.persisted",
         pair_id=pair_id[:8], session_id=session_id[:8],
@@ -451,3 +494,179 @@ def persist_result(
         confidence=getattr(result, "confidence", None),
     )
     return session_id
+
+
+# ---------------------------------------------------------------------------
+# OpenInference helpers (P1)
+# ---------------------------------------------------------------------------
+
+def _compute_message_oi_fields(
+    *,
+    msg: NormalizedMessage,
+    session_id: str,
+    result: NormalizedResult,
+    source_id: str,
+    pair_id: str,
+    token_est: Optional[int],
+) -> dict:
+    """Build the four OI fields written alongside each message.
+
+    Shape: ``{oi_role_raw, oi_input_tokens, oi_output_tokens, oi_attributes_json}``.
+    Failures are swallowed; the message still gets written without the
+    cache, and the export layer can backfill later.
+    """
+    try:
+        role_raw = str(msg.role or "")
+        # Token allocation convention: assistant → completion, everyone else → prompt
+        if (msg.role or "").lower() == "assistant":
+            oi_in: Optional[int] = None
+            oi_out: Optional[int] = token_est
+        else:
+            oi_in = token_est
+            oi_out = None
+
+        synthetic_session = {
+            "id": session_id,
+            "provider": result.provider,
+            "tool_family": result.tool_family,
+            "model_names": result.model_name,
+            "source_id": source_id,
+        }
+        synthetic_message = {
+            "role": msg.role,
+            "content_text": msg.content_text,
+            "content_json": msg.content_json,
+            "model_name": msg.model_name or result.model_name,
+            "token_estimate": token_est,
+            "capture_pair_id": pair_id,
+            "oi_input_tokens": oi_in,
+            "oi_output_tokens": oi_out,
+        }
+        attrs = message_to_oi_attributes(synthetic_message, synthetic_session)
+        return {
+            "oi_role_raw": role_raw or None,
+            "oi_input_tokens": oi_in,
+            "oi_output_tokens": oi_out,
+            "oi_attributes_json": json.dumps(attrs, ensure_ascii=False, sort_keys=True),
+        }
+    except Exception as exc:
+        logger.debug("OI mapper failed for message: %s", exc)
+        return {
+            "oi_role_raw": str(msg.role or "") or None,
+            "oi_input_tokens": None,
+            "oi_output_tokens": None,
+            "oi_attributes_json": None,
+        }
+
+
+def _refresh_session_oi_cache(
+    *,
+    session_id: str,
+    source_id: str,
+    result: NormalizedResult,
+    created_via: str,
+    db_path: Optional[Path],
+) -> None:
+    try:
+        # Try to pull the real row so tagger-populated fields (language,
+        # topic_tags, total_tokens, model_names) are reflected.
+        rows = query_sessions(last=1, db_path=db_path) if False else []
+        # query_sessions has no id filter; use get_connection directly.
+        conn = get_connection(db_path)
+        try:
+            conn.row_factory = __import__("sqlite3").Row
+            row = conn.execute(
+                "SELECT * FROM sessions WHERE id = ? LIMIT 1", (session_id,),
+            ).fetchone()
+            session_dict = dict(row) if row else {}
+        finally:
+            conn.close()
+
+        if not session_dict:
+            session_dict = {
+                "id": session_id,
+                "source_id": source_id,
+                "provider": result.provider,
+                "tool_family": result.tool_family,
+                "title_hint": result.title_hint,
+                "created_via": created_via,
+                "session_key": result.session_key,
+                "model_names": result.model_name,
+            }
+
+        attrs = session_to_oi_attributes(session_dict)
+        update_session_oi_attributes(
+            session_id,
+            json.dumps(attrs, ensure_ascii=False, sort_keys=True),
+            db_path=db_path,
+        )
+    except Exception as exc:
+        logger.debug("session OI cache refresh failed: %s", exc)
+
+
+def _emit_pair_otlp_span(
+    *,
+    pair_id: str,
+    session_id: str,
+    source_id: str,
+    result: NormalizedResult,
+    created_via: str,
+    db_path: Optional[Path],
+) -> None:
+    """Emit one OpenInference-shaped span for this capture pair.
+
+    Fails open – never raises back to ``persist_result``.
+    """
+    try:
+        from ..db import query_messages_by_pair, query_by_pair
+        from ..otel_exporter import emit_pair_span, is_enabled
+
+        if not is_enabled():
+            return  # cheap short-circuit: no OTLP target configured
+
+        pair_messages = query_messages_by_pair(pair_id, db_path=db_path) or []
+        if not pair_messages:
+            return
+
+        # Reuse the cached session attributes if present
+        conn = get_connection(db_path)
+        try:
+            conn.row_factory = __import__("sqlite3").Row
+            sess_row = conn.execute(
+                "SELECT * FROM sessions WHERE id = ? LIMIT 1", (session_id,),
+            ).fetchone()
+            session_dict = dict(sess_row) if sess_row else {
+                "id": session_id,
+                "provider": result.provider,
+                "tool_family": result.tool_family,
+            }
+        finally:
+            conn.close()
+
+        raw_rows = query_by_pair(pair_id, db_path=db_path) or []
+        raw_request = next((r for r in raw_rows if r.get("direction") == "request"), None)
+        raw_response = next((r for r in raw_rows if r.get("direction") == "response"), None)
+
+        span = pair_to_oi_span(
+            pair_id=pair_id,
+            session=session_dict,
+            messages=pair_messages,
+            raw_request=raw_request,
+            raw_response=raw_response,
+        )
+        emitted = emit_pair_span(span)
+        if emitted:
+            log_event(
+                logger, "otel.pair_emitted",
+                pair_id=pair_id[:8], session_id=session_id[:8],
+                provider=result.provider,
+            )
+    except Exception as exc:
+        logger.debug("OTLP span emit failed for pair=%s: %s", pair_id[:8], exc)
+        record_pipeline_error(
+            "otel_emit",
+            f"{type(exc).__name__}: {exc}",
+            level="WARNING", source_id=source_id, pair_id=pair_id,
+            details={"session_id": session_id},
+            db_path=db_path,
+        )
