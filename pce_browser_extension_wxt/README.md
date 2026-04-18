@@ -2,7 +2,8 @@
 
 P2 skeleton per [TASK-004 §5.1](../Docs/tasks/TASK-004-P2-capture-ux-upgrade.md)
 and [ADR-006](../Docs/docs/engineering/adr/ADR-006-browser-extension-framework-wxt.md).
-P2.5 Phase 3a (shared helpers + Vitest harness) landed on 2026-04-17.
+P2.5 Phase 3b batch 1 (ChatGPT + Claude + Gemini extractors on TypeScript
++ shared capture runtime) landed on 2026-04-18.
 
 ## Status
 
@@ -18,12 +19,16 @@ P2.5 Phase 3a (shared helpers + Vitest harness) landed on 2026-04-17.
 | `interceptor-page-confirmed.ts` on TypeScript | ✅ landed (P2.5.2) |
 | `interceptor-ai-patterns.ts` on TypeScript | ✅ landed (P2.5.2) |
 | `interceptor-network.ts` (fetch/XHR/WS/SSE) on TypeScript | ✅ landed (P2.5.2) |
-| Shared helpers (`pce-dom`, `selector-engine`, `site-configs`) on TS | ✅ **landed (P2.5.3a)** |
-| Vitest harness + unit tests for pure helpers | ✅ **landed (P2.5.3a)** |
-| `interceptor-ai-patterns` refactored for testability | ✅ **landed (P2.5.3a)** |
+| Shared helpers (`pce-dom`, `selector-engine`, `site-configs`) on TS | ✅ landed (P2.5.3a) |
+| Vitest harness + unit tests for pure helpers | ✅ landed (P2.5.3a) |
+| `interceptor-ai-patterns` refactored for testability | ✅ landed (P2.5.3a) |
 | Shared PCE message interfaces (`utils/pce-messages.ts`) | ✅ landed (P2) |
 | Chrome API pre-install type shim (`types.d.ts`) | ✅ landed (P2.5.1+2) |
-| 13 site-specific content scripts rewritten in TypeScript | ⏳ P2.5 Phase 3b-3f (2-3 per PR) |
+| Shared capture runtime (`utils/capture-runtime.ts`) | ✅ **landed (P2.5.3b1)** |
+| ChatGPT extractor on TypeScript | ✅ **landed (P2.5.3b1)** |
+| Claude extractor on TypeScript | ✅ **landed (P2.5.3b1)** |
+| Gemini extractor on TypeScript | ✅ **landed (P2.5.3b1)** |
+| Remaining 10 site extractors rewritten in TypeScript | ⏳ P2.5 Phase 3b batches 2-5 (2-3 per PR) |
 | E2E verified against the new bundle | ⏳ P2.5 Phase 4 |
 
 The step-by-step deferral honours ADR-006's guardrail:
@@ -34,6 +39,103 @@ The step-by-step deferral honours ADR-006's guardrail:
 Every P2.5 phase is a pure 1-for-1 behaviour port. The legacy JS under
 `../pce_browser_extension/` is the frozen source-of-truth for site
 extractors until Phase 3b–3f migrates them.
+
+## What P2.5 Phase 3b batch 1 shipped
+
+Three site extractors (`chatgpt.js`, `claude.js`, `gemini.js`) rewritten
+as `defineContentScript` entrypoints plus a shared capture runtime that
+factored out the ~80 % boilerplate they had in common. Behaviour parity
+with the legacy JS is strict — every timing constant, fingerprint format,
+rollback semantic, and DOM selector was lifted byte-for-byte.
+
+### New `utils/capture-runtime.ts`
+
+Shared factory `createCaptureRuntime(options)` that each site extractor
+instantiates. The runtime owns:
+
+- MutationObserver lifecycle (with retry-until-container-appears, up to
+  15 × 2 s attempts by default).
+- Debounced capture scheduling.
+- `fingerprintConversation()`-based change detection.
+- Two capture modes: `incremental` (ChatGPT/Gemini — `sentCount`-based
+  delta + optional `message_update`) and `full` (Claude — always
+  resend the whole conversation).
+- SPA navigation handling: `hookHistoryApi` (pushState/replaceState +
+  popstate) OR URL polling every `pollIntervalMs`.
+- Streaming deferral via optional `isStreaming()` hook.
+- `chrome.runtime.sendMessage` with rollback on lastError / non-ok
+  response.
+- Injectable `win` / `doc` / `chromeRuntime` so happy-dom tests drive
+  it without installing real extension APIs.
+
+The runtime exposes `start()`, `triggerCapture()`, `disconnect()` and
+test-only `fingerprint` / `sentCount` getters.
+
+### New `entrypoints/*.content.ts`
+
+- `entrypoints/chatgpt.content.ts` — 5 extraction strategies
+  (`[data-message-author-role]`, `[data-testid^=conversation-turn]`,
+  `article`, `[data-message-id]`, ARIA rows), Deep Research / Canvas
+  fallback, streaming detection (Stop button + `result-streaming`
+  class), synthetic `_new_` + timestamp conversation ID when no
+  `/c/<uuid>` URL is available, `history.pushState` hook.
+- `entrypoints/claude.content.ts` — dedicated `human-turn` /
+  `assistant-turn` selectors sorted by `getBoundingClientRect().top`,
+  generic `[class*=message]` fallback with class/data-role/ARIA
+  role detection, direct-children-of-container last-resort fallback,
+  `full` capture mode, URL-polling only (matches legacy Claude).
+- `entrypoints/gemini.content.ts` — Angular web-component extractor
+  (`<user-query>`, `<model-response>`), 4 turn-selector strategies
+  with dedup + role inference (tag / `data-turn-role` / class), URL
+  polling only.
+
+All three files are pure: each exports the site-specific helpers
+(`getContainer`, `extractMessages`, `isStreaming*`, `getSessionHint`,
+`getModelName`, `resolveConversationId`) as module-level functions so
+they can be unit-tested without executing the `defineContentScript`
+closure.
+
+### Manifest surgery (`wxt.config.ts`)
+
+The three ported sites (`chatgpt.com`, `chat.openai.com`, `claude.ai`,
+`gemini.google.com`) are no longer in the imperative `content_scripts`
+list — WXT auto-registers the TS `defineContentScript` entrypoints.
+A new reduced-bundle entry still injects `SITE_INDEPENDENT_HELPERS`
+(`behavior_tracker.js` + `text_collector.js` + `detector.js`) on
+those sites so `window.__PCE_BEHAVIOR` and the floating "Save snippet"
+button remain wired.
+
+The legacy shared-helper globals (`pce_dom_utils.js`, `site_configs.js`,
+`selector_engine.js`) are NOT injected on ported sites — the TS
+extractors consume `utils/pce-dom.ts` / `utils/site-configs.ts` /
+`utils/selector-engine.ts` directly via ESM imports.
+
+### Tests added (80 new cases across 4 files)
+
+| File | Test count |
+|---|---|
+| `utils/__tests__/capture-runtime.test.ts` | 13 |
+| `entrypoints/__tests__/chatgpt.content.test.ts` | 22 |
+| `entrypoints/__tests__/claude.content.test.ts` | 14 |
+| `entrypoints/__tests__/gemini.content.test.ts` | 16 |
+
+Coverage targets the migration-sensitive surfaces:
+
+- Capture runtime — fingerprint diff, incremental vs full delta
+  payload shapes, rollback on `lastError` + on non-ok response,
+  streaming deferral, observer+debounce lifecycle, SPA-nav reset of
+  fingerprint + sentCount, `resolveConversationId` override.
+- ChatGPT — every one of the 5 extraction strategies, `<thinking>`
+  panel wrapping, Deep Research fallback (assistant-only scenario),
+  synthetic `_new_` + timestamp ID, streaming indicators.
+- Claude — dedicated-selector pair with visual-top sort, thinking
+  panel wrap, `.font-user-message` / `.font-claude-message` class
+  markers, generic message-block role inference via
+  class/data-role/aria-label, direct-children-of-container fallback.
+- Gemini — `<user-query>` / `<model-response>` tag detection,
+  `data-turn-role` attributes, dedup of duplicated turns,
+  `[class*=turn]` fallback, generic noise-stripping (`.sr-only`,
+  `.chip-container`, `.action-button`).
 
 ## What P2.5 Phase 3a shipped
 
@@ -160,7 +262,7 @@ pnpm build:firefox              # Firefox bundle       → .output/firefox-mv3/
 pnpm zip                        # Chrome .zip for sideload / store
 pnpm zip:firefox                # Firefox .xpi
 pnpm typecheck                  # strict tsc --noEmit
-pnpm test                       # Vitest — unit tests (149 cases)
+pnpm test                       # Vitest — unit tests (229 cases after 3b1)
 pnpm test:watch                 # Vitest watch mode
 ```
 
@@ -191,7 +293,7 @@ Each phase is a separate PR, reviewable and revertable on its own:
 - `interceptor/ai_patterns.js` → `entrypoints/interceptor-ai-patterns.ts`
 - `interceptor/network_interceptor.js` → `entrypoints/interceptor-network.ts`
 
-### P2.5 Phase 3a ✅ (2026-04-17 — this PR)
+### P2.5 Phase 3a ✅ (2026-04-17 — commit `3b4e75a`)
 - `content_scripts/pce_dom_utils.js` → `utils/pce-dom.ts`
 - `content_scripts/selector_engine.js` → `utils/selector-engine.ts`
 - `content_scripts/site_configs.js` → `utils/site-configs.ts`
@@ -199,16 +301,18 @@ Each phase is a separate PR, reviewable and revertable on its own:
 - Vitest + happy-dom + fake-indexeddb devDeps + config + setup
 - 7 test files, 149 cases covering the migrated pure helpers
 
-### P2.5 Phase 3b–3f — 13 site extractors (2-3 per PR)
-1. `chatgpt.js` + `claude.js` + `gemini.js`
-2. `deepseek.js` + `google_ai_studio.js` + `perplexity.js`
-3. `copilot.js` + `poe.js` + `grok.js`
-4. `huggingface.js` + `manus.js` + `zhipu.js`
-5. `generic.js` + `universal_extractor.js` +
+### P2.5 Phase 3b — 13 site extractors (2-3 per PR)
+
+1. ✅ `chatgpt.js` + `claude.js` + `gemini.js` (**this PR**)
+2. ⏳ `deepseek.js` + `google_ai_studio.js` + `perplexity.js`
+3. ⏳ `copilot.js` + `poe.js` + `grok.js`
+4. ⏳ `huggingface.js` + `manus.js` + `zhipu.js`
+5. ⏳ `generic.js` + `universal_extractor.js` +
    `detector.js` / `behavior_tracker.js` / `text_collector.js`
 
 Each site extractor becomes an `entrypoints/<site>.content.ts`
-entrypoint with `defineContentScript`, importing from `utils/*.ts`.
+entrypoint with `defineContentScript`, importing from `utils/*.ts`
+and `utils/capture-runtime.ts`.
 
 ### P2.5 Phase 4 — cleanup
 - Delete `../pce_browser_extension/` (after Phase 3b–3f is complete
@@ -217,7 +321,7 @@ entrypoint with `defineContentScript`, importing from `utils/*.ts`.
 - Delete `public/{content_scripts,icons,popup}` staging.
 - Update root README and install docs to point only at this directory.
 
-## File tree (after Phase 3a)
+## File tree (after Phase 3b batch 1)
 
 ```
 pce_browser_extension_wxt/
@@ -238,6 +342,9 @@ pce_browser_extension_wxt/
 │   ├── interceptor-page-confirmed.ts      # ← P2.5 Phase 2
 │   ├── interceptor-ai-patterns.ts         # ← P2.5 Phase 2 (refactored 3a)
 │   ├── interceptor-network.ts             # ← P2.5 Phase 2
+│   ├── chatgpt.content.ts                 # ← P2.5 Phase 3b1
+│   ├── claude.content.ts                  # ← P2.5 Phase 3b1
+│   ├── gemini.content.ts                  # ← P2.5 Phase 3b1
 │   ├── background/
 │   │   ├── capture-queue.ts               # ← P2.5 Phase 1
 │   │   ├── injector.ts                    # ← P2.5 Phase 1
@@ -246,16 +353,21 @@ pce_browser_extension_wxt/
 │   │       └── injector.test.ts           # ← P2.5 Phase 3a
 │   └── __tests__/
 │       ├── background.test.ts             # ← P2.5 Phase 3a
-│       └── interceptor-ai-patterns.test.ts # ← P2.5 Phase 3a
+│       ├── interceptor-ai-patterns.test.ts # ← P2.5 Phase 3a
+│       ├── chatgpt.content.test.ts        # ← P2.5 Phase 3b1
+│       ├── claude.content.test.ts         # ← P2.5 Phase 3b1
+│       └── gemini.content.test.ts         # ← P2.5 Phase 3b1
 ├── utils/
 │   ├── pce-messages.ts                    # typed PCE message shapes
 │   ├── pce-dom.ts                         # ← P2.5 Phase 3a
 │   ├── selector-engine.ts                 # ← P2.5 Phase 3a
 │   ├── site-configs.ts                    # ← P2.5 Phase 3a
+│   ├── capture-runtime.ts                 # ← P2.5 Phase 3b1
 │   └── __tests__/
 │       ├── pce-dom.test.ts                # ← P2.5 Phase 3a
 │       ├── selector-engine.test.ts        # ← P2.5 Phase 3a
-│       └── site-configs.test.ts           # ← P2.5 Phase 3a
+│       ├── site-configs.test.ts           # ← P2.5 Phase 3a
+│       └── capture-runtime.test.ts        # ← P2.5 Phase 3b1
 └── public/                                # build-time staging (gitignored)
     ├── content_scripts/                   # synced from ../pce_browser_extension
     ├── icons/

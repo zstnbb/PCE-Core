@@ -3,7 +3,7 @@ import { defineConfig } from "wxt";
 /**
  * WXT config for the PCE browser extension.
  *
- * See README.md for migration status. The short version (post-P2.5 Phase 2):
+ * See README.md for migration status. The short version (post-P2.5 Phase 3b1):
  * - Build chain, manifest generation, HMR and cross-browser zip are handled
  *   here.
  * - Background service worker + injector + capture queue are TypeScript
@@ -16,13 +16,23 @@ import { defineConfig } from "wxt";
  *   as `interceptor-<name>.js`, which `bridge.content.ts` injects via
  *   `chrome.runtime.getURL`. `web_accessible_resources` below lists those
  *   new paths.
- * - The 13 site-specific content scripts + shared helpers
+ * - **ChatGPT / Claude / Gemini site extractors are TypeScript** (P2.5
+ *   Phase 3b batch 1): `entrypoints/chatgpt.content.ts`,
+ *   `entrypoints/claude.content.ts`, `entrypoints/gemini.content.ts`.
+ *   They register themselves via `defineContentScript` and consume
+ *   `utils/*.ts` directly (no window-global handoff). Their sites have
+ *   been removed from the imperative `content_scripts` list below; a
+ *   reduced `SITE_INDEPENDENT_HELPERS` entry still injects
+ *   `behavior_tracker.js` + `text_collector.js` + `detector.js` so
+ *   the `__PCE_BEHAVIOR` global + "Save snippet" floating button
+ *   remain wired.
+ * - The remaining 10 site-specific content scripts + shared helpers
  *   (`pce_dom_utils.js`, `selector_engine.js`, `site_configs.js`,
  *   `detector.js`, `behavior_tracker.js`, `text_collector.js`) remain
  *   legacy `.js` under `../pce_browser_extension/content_scripts/`. A
  *   prebuild step copies them into `public/content_scripts/` so WXT can
- *   register them without an in-flight rewrite. Phase 3 migrates them
- *   2–3 per PR.
+ *   register them without an in-flight rewrite. Phase 3b batches 2–5
+ *   migrate the rest 2–3 per PR.
  *
  * Two release flavours are produced via WXT env:
  *   - default sideload build (host_permissions: <all_urls>)
@@ -50,23 +60,50 @@ const COVERED_SITES = [
   "https://kimi.com/*",
 ] as const;
 
-// Shared per-site content-script asset list (legacy layout, copied
-// verbatim by `scripts/sync-legacy-assets.mjs`). `bridge.js` is
-// intentionally absent: it's now a TS entrypoint (`bridge.content.ts`)
-// that registers itself on the same matches via `defineContentScript`.
-const SITE_SCRIPT_COMMON = [
+// Site-independent helpers — run on every covered site regardless of
+// whether the site extractor is legacy JS or TS. These touch no site-
+// specific DOM structure:
+//   - behavior_tracker.js: writes `window.__PCE_BEHAVIOR` which the
+//     capture runtime reads when assembling the `meta.behavior` field.
+//   - text_collector.js: the floating "Save snippet" button.
+//   - detector.js: unknown-domain AI detection. Harmless on covered
+//     sites; carried over from the legacy bundle for parity.
+const SITE_INDEPENDENT_HELPERS = [
+  "content_scripts/behavior_tracker.js",
+  "content_scripts/text_collector.js",
+  "content_scripts/detector.js",
+] as const;
+
+// Legacy extractor dependencies — write the `window.__PCE_EXTRACT` /
+// `window.__PCE_SITE_CONFIGS` / `window.__PCE_SELECTOR_ENGINE` globals
+// that the *legacy* JS site extractors consume at runtime. TS
+// extractors do NOT need these because they import from `utils/*.ts`
+// directly; they therefore only receive `SITE_INDEPENDENT_HELPERS`.
+const LEGACY_EXTRACTOR_DEPS = [
   "content_scripts/pce_dom_utils.js",
   "content_scripts/site_configs.js",
   "content_scripts/selector_engine.js",
-  "content_scripts/detector.js",
-  "content_scripts/behavior_tracker.js",
-  "content_scripts/text_collector.js",
 ] as const;
 
-function siteBundle(site: string, extractor: string) {
+const LEGACY_SITE_SCRIPT_COMMON = [
+  ...LEGACY_EXTRACTOR_DEPS,
+  ...SITE_INDEPENDENT_HELPERS,
+] as const;
+
+// Sites whose extractor now ships as a TS `defineContentScript`
+// entrypoint (P2.5 Phase 3b). These get ONLY `SITE_INDEPENDENT_HELPERS`
+// via the shared entry below.
+const TS_EXTRACTOR_SITES = [
+  "https://chatgpt.com/*",
+  "https://chat.openai.com/*",
+  "https://claude.ai/*",
+  "https://gemini.google.com/*",
+] as const;
+
+function legacySiteBundle(site: string, extractor: string) {
   return {
     matches: [site],
-    js: [...SITE_SCRIPT_COMMON, `content_scripts/${extractor}`],
+    js: [...LEGACY_SITE_SCRIPT_COMMON, `content_scripts/${extractor}`],
     run_at: "document_start" as const,
   };
 }
@@ -104,24 +141,30 @@ export default defineConfig({
           "128": "icons/icon128.png",
         },
       },
-      // Content scripts are defined imperatively instead of via
-      // `entrypoints/*.content.ts` because the legacy JS files aren't yet
-      // TS-ified. When a site extractor moves to TS, it becomes an entrypoint
-      // and disappears from this list.
+      // Content scripts are defined imperatively for sites that still
+      // use legacy JS extractors. TS extractors register themselves via
+      // `defineContentScript` in their own entrypoint file and are NOT
+      // listed here — only a reduced "site-independent helpers" entry
+      // injects the shared `behavior_tracker` + `text_collector` +
+      // `detector` bundle on those sites.
       content_scripts: [
-        siteBundle("https://chatgpt.com/*", "chatgpt.js"),
-        siteBundle("https://chat.openai.com/*", "chatgpt.js"),
-        siteBundle("https://claude.ai/*", "claude.js"),
-        siteBundle("https://gemini.google.com/*", "gemini.js"),
-        siteBundle("https://aistudio.google.com/*", "google_ai_studio.js"),
-        siteBundle("https://manus.im/*", "manus.js"),
-        siteBundle("https://chat.deepseek.com/*", "deepseek.js"),
-        siteBundle("https://chat.z.ai/*", "zhipu.js"),
-        siteBundle("https://www.perplexity.ai/*", "perplexity.js"),
-        siteBundle("https://copilot.microsoft.com/*", "copilot.js"),
-        siteBundle("https://poe.com/*", "poe.js"),
-        siteBundle("https://huggingface.co/chat/*", "huggingface.js"),
-        siteBundle("https://grok.com/*", "grok.js"),
+        // --- Site-independent helpers for TS-extractor sites (P2.5 Phase 3b) ---
+        {
+          matches: [...TS_EXTRACTOR_SITES],
+          js: [...SITE_INDEPENDENT_HELPERS],
+          run_at: "document_start",
+        },
+
+        // --- Legacy JS extractors (Phase 3b batches 2-5 pending) ---
+        legacySiteBundle("https://aistudio.google.com/*", "google_ai_studio.js"),
+        legacySiteBundle("https://manus.im/*", "manus.js"),
+        legacySiteBundle("https://chat.deepseek.com/*", "deepseek.js"),
+        legacySiteBundle("https://chat.z.ai/*", "zhipu.js"),
+        legacySiteBundle("https://www.perplexity.ai/*", "perplexity.js"),
+        legacySiteBundle("https://copilot.microsoft.com/*", "copilot.js"),
+        legacySiteBundle("https://poe.com/*", "poe.js"),
+        legacySiteBundle("https://huggingface.co/chat/*", "huggingface.js"),
+        legacySiteBundle("https://grok.com/*", "grok.js"),
         {
           matches: [
             "https://chat.mistral.ai/*",
@@ -129,9 +172,11 @@ export default defineConfig({
             "https://www.kimi.com/*",
             "https://kimi.com/*",
           ],
-          js: [...SITE_SCRIPT_COMMON, "content_scripts/generic.js"],
+          js: [...LEGACY_SITE_SCRIPT_COMMON, "content_scripts/generic.js"],
           run_at: "document_start",
         },
+
+        // --- Universal detector for uncovered pages ---
         {
           matches: ["<all_urls>"],
           js: ["content_scripts/detector.js"],

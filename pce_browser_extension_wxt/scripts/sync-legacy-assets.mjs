@@ -18,8 +18,16 @@ const PUBLIC = resolve(ROOT, "public");
 // `interceptor/` is NOT copied anymore — it was ported to TS entrypoints
 // in P2.5 Phase 2 (`entrypoints/interceptor-*.ts`). Leaving stale JS
 // copies under `public/interceptor/` would confuse reviewers.
-// `content_scripts/bridge.js` is likewise redundant (now `bridge.content.ts`)
-// but the whole dir is copied until Phase 3 ports the 13 site extractors.
+//
+// The `content_scripts/` directory is still copied wholesale, but
+// several of its files are no longer referenced by the manifest:
+//   - `bridge.js` → redundant since Phase 2 (`bridge.content.ts`).
+//   - `chatgpt.js` / `claude.js` / `gemini.js` → redundant since
+//     Phase 3b batch 1 (`entrypoints/<site>.content.ts`).
+// These dead-weight copies are harmless (they just sit unused in
+// `public/content_scripts/`). Phase 4 will narrow the COPY_TARGETS
+// or move to explicit per-file staging once all 13 extractors are
+// ported.
 const COPY_TARGETS = [
   "content_scripts",
   "icons",
