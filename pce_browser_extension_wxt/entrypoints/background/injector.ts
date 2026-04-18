@@ -1,114 +1,54 @@
 /**
  * Dynamic / proactive content-script injection.
  *
- * Mirrors the per-domain script tables from the original service worker.
- * Two injection flavours are supported:
+ * Post-P2.5 Phase 3b complete: every covered site has a TS
+ * ``defineContentScript`` entrypoint that auto-registers via the
+ * manifest. The dynamic-injection path is only exercised when:
  *
- * - **Dynamic injection** — driven by ``detector.js`` messaging
- *   ``PCE_AI_PAGE_DETECTED`` from a page that wasn't covered by static
- *   content_scripts. We inject the full per-domain pipeline.
- * - **Proactive fallback** — fires on ``chrome.tabs.onUpdated`` after a
- *   brief delay. Catches automation / CDP scenarios where static
- *   content_scripts don't fire.
+ *   1. ``detector.content.ts`` fires ``PCE_AI_PAGE_DETECTED`` on an
+ *      AI page whose domain isn't in the manifest match list (e.g.
+ *      a new AI site the detector's heuristics caught).
+ *   2. ``proactiveInjectFallback`` runs for covered sites where the
+ *      static content script somehow didn't attach (SPA race, CDP /
+ *      automation, tab came back from discard, etc.).
  *
- * This module is deliberately self-contained: ``background.ts`` calls
- * ``handleDynamicInjection`` / ``proactiveInjectFallback`` and passes in
- * anything domain-specific (blacklist, isEnabled) explicitly so we don't
- * smuggle state between files.
+ * For both cases the injected payload is the same: the TS universal
+ * extractor emitted by WXT at ``universal-extractor.js``. On covered
+ * sites, that universal extractor bails out instantly (its
+ * ``SITE_EXTRACTOR_FLAGS`` guard checks ``__PCE_*_ACTIVE``); on
+ * unknown AI sites, it drives the shared capture runtime.
+ *
+ * The per-domain script tables + alias matching that lived here
+ * pre-Phase-4 (``DOMAIN_CONTENT_SCRIPTS`` + ``DOMAIN_EXTRACTOR_FLAGS``
+ * + ``UNIVERSAL_FALLBACK_SCRIPTS``) are GONE — WXT now owns that
+ * mapping via the manifest.
  */
 
 // ---------------------------------------------------------------------------
-// Domain → content-script tables
+// Injection payload — constant (Phase 4 cleanup)
 // ---------------------------------------------------------------------------
 
-const COMMON_PIPELINE = [
-  "pce_dom_utils.js",
-  "site_configs.js",
-  "selector_engine.js",
-  "detector.js",
-  "behavior_tracker.js",
-  "bridge.js",
-] as const;
-
-export const DOMAIN_CONTENT_SCRIPTS: Readonly<Record<string, readonly string[]>> = {
-  "chatgpt.com":           [...COMMON_PIPELINE, "chatgpt.js"],
-  "chat.openai.com":       [...COMMON_PIPELINE, "chatgpt.js"],
-  "claude.ai":             [...COMMON_PIPELINE, "claude.js"],
-  "gemini.google.com":     [...COMMON_PIPELINE, "gemini.js"],
-  "aistudio.google.com":   [...COMMON_PIPELINE, "google_ai_studio.js"],
-  "manus.im":              [...COMMON_PIPELINE, "manus.js"],
-  "chat.deepseek.com":     [...COMMON_PIPELINE, "deepseek.js"],
-  "chat.z.ai":             [...COMMON_PIPELINE, "zhipu.js"],
-  "www.perplexity.ai":     [...COMMON_PIPELINE, "perplexity.js"],
-  "copilot.microsoft.com": [...COMMON_PIPELINE, "copilot.js"],
-  "poe.com":               [...COMMON_PIPELINE, "poe.js"],
-  "huggingface.co":        [...COMMON_PIPELINE, "huggingface.js"],
-  "grok.com":              [...COMMON_PIPELINE, "grok.js"],
-  "chat.mistral.ai":       [...COMMON_PIPELINE, "generic.js"],
-  "kimi.moonshot.cn":      [...COMMON_PIPELINE, "generic.js"],
-  "www.kimi.com":          [...COMMON_PIPELINE, "generic.js"],
-  "kimi.com":              [...COMMON_PIPELINE, "generic.js"],
-  "chatglm.cn":            [...COMMON_PIPELINE, "generic.js"],
-  "chat.zhipuai.cn":       [...COMMON_PIPELINE, "generic.js"],
-} as const;
-
-export const DOMAIN_EXTRACTOR_FLAGS: Readonly<Record<string, string>> = {
-  "chatgpt.com": "__PCE_CHATGPT_ACTIVE",
-  "chat.openai.com": "__PCE_CHATGPT_ACTIVE",
-  "claude.ai": "__PCE_CLAUDE_ACTIVE",
-  "gemini.google.com": "__PCE_GEMINI_ACTIVE",
-  "aistudio.google.com": "__PCE_GOOGLE_AI_STUDIO_ACTIVE",
-  "manus.im": "__PCE_MANUS_ACTIVE",
-  "chat.deepseek.com": "__PCE_DEEPSEEK_ACTIVE",
-  "chat.z.ai": "__PCE_ZHIPU_ACTIVE",
-  "www.perplexity.ai": "__PCE_PERPLEXITY_ACTIVE",
-  "copilot.microsoft.com": "__PCE_COPILOT_ACTIVE",
-  "poe.com": "__PCE_POE_ACTIVE",
-  "huggingface.co": "__PCE_HUGGINGFACE_ACTIVE",
-  "grok.com": "__PCE_GROK_ACTIVE",
-  "chat.mistral.ai": "__PCE_GENERIC_ACTIVE",
-  "kimi.moonshot.cn": "__PCE_GENERIC_ACTIVE",
-  "www.kimi.com": "__PCE_GENERIC_ACTIVE",
-  "kimi.com": "__PCE_GENERIC_ACTIVE",
-  "chatglm.cn": "__PCE_GENERIC_ACTIVE",
-  "chat.zhipuai.cn": "__PCE_GENERIC_ACTIVE",
-} as const;
-
-// Legacy-JS fallback scripts (pre-P2.5.3b5 path names under
-// `content_scripts/`). Used by `toContentScriptPaths` to build the
-// `chrome.scripting.executeScript` file list for sites that still
-// have legacy JS entries in `DOMAIN_CONTENT_SCRIPTS`.
-const UNIVERSAL_FALLBACK_SCRIPTS = [
-  "pce_dom_utils.js",
-  "site_configs.js",
-  "selector_engine.js",
-  "behavior_tracker.js",
-  "bridge.js",
-  "universal_extractor.js",
-] as const;
-
-// TS-era fallback: the service worker injects
-// `universal-extractor.js` (emitted by the WXT unlisted-script
-// entrypoint `entrypoints/universal-extractor.ts`) at the output
-// root, not under `content_scripts/`. Used by
-// `getDynamicScriptsForDomain` when we've already run detector.js
-// (detector is the thing that triggered the dynamic-injection path).
+/**
+ * Path to the dynamically-injected universal extractor. Emitted at
+ * the output root by the unlisted-script entrypoint
+ * (``entrypoints/universal-extractor.ts``).
+ */
 export const UNIVERSAL_EXTRACTOR_TS_PATH = "universal-extractor.js";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export interface DomainMatch {
-  domain: string;
-  scripts: readonly string[];
-}
-
 export interface PipelineState {
+  /** Bridge content script active (forwards network captures). */
   bridge: boolean;
-  domUtils: boolean;
-  behavior: boolean;
+  /**
+   * Any extractor loaded — a site-specific `__PCE_*_ACTIVE` flag OR
+   * the universal-extractor's `__PCE_UNIVERSAL_EXTRACTOR_LOADED`.
+   */
   extractor: boolean;
+  /** Behavior tracker active (writes `window.__PCE_BEHAVIOR`). */
+  behavior: boolean;
 }
 
 export interface InjectionResult {
@@ -120,111 +60,103 @@ export interface InjectionResult {
 }
 
 // ---------------------------------------------------------------------------
-// Pure helpers (easy to unit-test once a Vitest harness lands)
+// Pure helpers
 // ---------------------------------------------------------------------------
 
-export function matchDomainConfig(hostname: string | null | undefined): DomainMatch | null {
-  if (!hostname) return null;
-  if (DOMAIN_CONTENT_SCRIPTS[hostname]) {
-    return { domain: hostname, scripts: DOMAIN_CONTENT_SCRIPTS[hostname] };
-  }
-  for (const [domain, scripts] of Object.entries(DOMAIN_CONTENT_SCRIPTS)) {
-    if (hostname.endsWith("." + domain)) {
-      return { domain, scripts };
-    }
-  }
-  return null;
+/**
+ * Returns the list of files the service worker should inject via
+ * `chrome.scripting.executeScript`. Post-Phase-4 this is always the
+ * TS universal extractor — the per-domain manifest handles matching
+ * for covered sites at page-load time.
+ */
+export function getDynamicScriptsForDomain(_domain: string): string[] {
+  return [UNIVERSAL_EXTRACTOR_TS_PATH];
 }
 
-export function toContentScriptPaths(files: readonly string[]): string[] {
-  return files.map((file) => "content_scripts/" + file);
-}
-
-export function getExtractorFlagForDomain(domain: string | null | undefined): string | null {
-  if (!domain) return null;
-  if (DOMAIN_EXTRACTOR_FLAGS[domain]) return DOMAIN_EXTRACTOR_FLAGS[domain];
-  for (const [knownDomain, flag] of Object.entries(DOMAIN_EXTRACTOR_FLAGS)) {
-    if (domain.endsWith("." + knownDomain)) return flag;
-  }
-  return null;
-}
-
-export function getDynamicScriptsForDomain(domain: string): string[] {
-  const match = matchDomainConfig(domain);
-  if (match) {
-    // Exclude detector.js when dynamically injecting — detector.js is
-    // what triggered the injection, so it's already running.
-    return toContentScriptPaths(match.scripts.filter((file) => file !== "detector.js"));
-  }
-  return toContentScriptPaths(UNIVERSAL_FALLBACK_SCRIPTS);
-}
-
+/**
+ * URL-keyed equivalent of `getDynamicScriptsForDomain`. Returns null
+ * for non-HTTP(S) URLs (e.g. ``about:blank``, ``chrome://settings``)
+ * so the service worker doesn't try to inject into privileged
+ * surfaces.
+ *
+ * The `opts.includeDetector` flag is kept for legacy ABI compatibility
+ * but is now a no-op: the detector is its own `defineContentScript`
+ * entrypoint and is never part of a dynamic-injection payload.
+ */
 export function getScriptsForUrl(
   url: string,
-  opts: { includeDetector?: boolean } = {},
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _opts: { includeDetector?: boolean } = {},
 ): string[] | null {
-  const { includeDetector = true } = opts;
-  let hostname: string;
   try {
-    hostname = new URL(url).hostname;
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    if (!parsed.hostname) return null;
   } catch {
     return null;
   }
-  const match = matchDomainConfig(hostname);
-  if (match) {
-    const files = includeDetector
-      ? match.scripts
-      : match.scripts.filter((file) => file !== "detector.js");
-    return toContentScriptPaths(files);
-  }
-  return null;
+  return [UNIVERSAL_EXTRACTOR_TS_PATH];
 }
 
 // ---------------------------------------------------------------------------
 // Runtime probes (require chrome.scripting)
 // ---------------------------------------------------------------------------
 
+/**
+ * Ask the tab whether the PCE pipeline is already attached. Used to
+ * short-circuit re-injection when the static content scripts already
+ * fired.
+ */
 export async function getTabPipelineState(
   tabId: number,
-  domain: string | null,
 ): Promise<PipelineState> {
-  const extractorFlag = getExtractorFlagForDomain(domain);
   try {
     const results = await chrome.scripting.executeScript({
       target: { tabId },
-      args: [extractorFlag],
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      func: (expectedExtractorFlag: string | null) => ({
-        bridge: Boolean(
-          (window as any).__PCE_BRIDGE_ACTIVE ||
-            (window as any).__PCE_BRIDGE_LOADED,
-        ),
-        domUtils: Boolean((window as any).__PCE_EXTRACT),
-        behavior: Boolean((window as any).__PCE_BEHAVIOR_TRACKER_ACTIVE),
-        extractor: expectedExtractorFlag
-          ? Boolean((window as any)[expectedExtractorFlag])
-          : Boolean((window as any).__PCE_UNIVERSAL_EXTRACTOR_LOADED),
-      }),
+      func: () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const w = window as any;
+        const siteFlagSet =
+          Boolean(w.__PCE_CHATGPT_ACTIVE) ||
+          Boolean(w.__PCE_CLAUDE_ACTIVE) ||
+          Boolean(w.__PCE_DEEPSEEK_ACTIVE) ||
+          Boolean(w.__PCE_GEMINI_ACTIVE) ||
+          Boolean(w.__PCE_GOOGLE_AI_STUDIO_ACTIVE) ||
+          Boolean(w.__PCE_MANUS_ACTIVE) ||
+          Boolean(w.__PCE_PERPLEXITY_ACTIVE) ||
+          Boolean(w.__PCE_GROK_ACTIVE) ||
+          Boolean(w.__PCE_POE_ACTIVE) ||
+          Boolean(w.__PCE_COPILOT_ACTIVE) ||
+          Boolean(w.__PCE_HUGGINGFACE_ACTIVE) ||
+          Boolean(w.__PCE_ZHIPU_ACTIVE) ||
+          Boolean(w.__PCE_GENERIC_ACTIVE) ||
+          Boolean(w.__PCE_UNIVERSAL_EXTRACTOR_LOADED);
+        return {
+          bridge: Boolean(w.__PCE_BRIDGE_ACTIVE || w.__PCE_BRIDGE_LOADED),
+          behavior: Boolean(w.__PCE_BEHAVIOR_TRACKER_ACTIVE),
+          extractor: siteFlagSet,
+        };
+      },
     });
     return (
       (results[0]?.result as PipelineState | undefined) ?? {
         bridge: false,
-        domUtils: false,
         behavior: false,
         extractor: false,
       }
     );
   } catch {
-    return { bridge: false, domUtils: false, behavior: false, extractor: false };
+    return { bridge: false, behavior: false, extractor: false };
   }
 }
 
 export async function tabHasExpectedPipeline(
   tabId: number,
-  domain: string | null,
 ): Promise<boolean> {
-  const state = await getTabPipelineState(tabId, domain);
-  return Boolean(state.bridge && state.domUtils && state.behavior && state.extractor);
+  const state = await getTabPipelineState(tabId);
+  return Boolean(state.bridge && state.behavior && state.extractor);
 }
 
 // ---------------------------------------------------------------------------
@@ -232,9 +164,11 @@ export async function tabHasExpectedPipeline(
 // ---------------------------------------------------------------------------
 
 export interface InjectionContext {
-  /** Used to gate work without the caller having to test both `enabled`
-   * and the blacklist. Caller supplies the two functions so we can stay
-   * decoupled from the `state` module. */
+  /**
+   * Called to short-circuit work. Caller supplies both `enabled` and
+   * blacklist predicates so this module stays decoupled from the
+   * state module in `background.ts`.
+   */
   isEnabled: () => boolean;
   isBlacklisted: (domain: string) => boolean;
   /** Shared set of tabs we've already injected into this session. */
@@ -248,7 +182,7 @@ export async function handleDynamicInjection(
 ): Promise<InjectionResult> {
   const domain = payload?.domain || "unknown";
 
-  if (ctx.injectedTabs.has(tabId) && (await tabHasExpectedPipeline(tabId, domain))) {
+  if (ctx.injectedTabs.has(tabId) && (await tabHasExpectedPipeline(tabId))) {
     console.debug(`[PCE] Tab ${tabId} already injected, skipping`);
     return { injected: false, reason: "already_injected" };
   }
@@ -258,7 +192,7 @@ export async function handleDynamicInjection(
     return { injected: false, reason: "blacklisted" };
   }
 
-  if (await tabHasExpectedPipeline(tabId, domain)) {
+  if (await tabHasExpectedPipeline(tabId)) {
     ctx.injectedTabs.add(tabId);
     return { injected: false, reason: "already_loaded" };
   }
@@ -275,7 +209,9 @@ export async function handleDynamicInjection(
       target: { tabId },
       files: getDynamicScriptsForDomain(domain),
     });
-    console.log(`[PCE] Successfully injected capture scripts into tab ${tabId} (${domain})`);
+    console.log(
+      `[PCE] Successfully injected capture scripts into tab ${tabId} (${domain})`,
+    );
     return { injected: true, domain, confidence };
   } catch (err) {
     ctx.injectedTabs.delete(tabId);
@@ -306,7 +242,7 @@ export async function proactiveInjectFallback(
     return;
   }
 
-  if (await tabHasExpectedPipeline(tabId, domain)) {
+  if (await tabHasExpectedPipeline(tabId)) {
     ctx.injectedTabs.add(tabId);
     return;
   }
@@ -319,6 +255,8 @@ export async function proactiveInjectFallback(
     ctx.injectedTabs.add(tabId);
     console.log(`[PCE] Proactive fallback injection: ${domain} (tab ${tabId})`);
   } catch (err) {
-    console.debug(`[PCE] Proactive injection skipped: ${(err as Error).message}`);
+    console.debug(
+      `[PCE] Proactive injection skipped: ${(err as Error).message}`,
+    );
   }
 }

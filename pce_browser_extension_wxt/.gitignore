@@ -6,8 +6,7 @@ node_modules/
 stats-*.html
 web-ext.config.ts
 # Synced from ../pce_browser_extension/ at build time; never commit.
-# `interceptor/` is not in the list because P2.5 Phase 2 ported it to TS
-# entrypoints (`entrypoints/interceptor-*.ts`).
-public/content_scripts/
+# Only icons/ and popup/ are still synced — `content_scripts/` was
+# retired by P2.5 Phase 4 (all scripts are now TS entrypoints).
 public/icons/
 public/popup/

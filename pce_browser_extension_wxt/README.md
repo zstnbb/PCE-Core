@@ -2,14 +2,14 @@
 
 P2 skeleton per [TASK-004 §5.1](../Docs/tasks/TASK-004-P2-capture-ux-upgrade.md)
 and [ADR-006](../Docs/docs/engineering/adr/ADR-006-browser-extension-framework-wxt.md).
-P2.5 Phase 3b batch 5 (Generic + universal-extractor + detector +
-behavior-tracker + text-collector — the final batch) landed on
-2026-04-18. **All 13 site extractors + every content-script-side
-shared helper are now on TypeScript.** The imperative
-`content_scripts` list in `wxt.config.ts` is empty; WXT auto-registers
-all entries from their `defineContentScript` / `defineUnlistedScript`
-declarations. Phase 4 (cleanup of the legacy JS directory + sync
-script) is the last remaining P2.5 milestone.
+P2.5 Phase 4a (injector rewire + legacy `content_scripts/` dir
+deletion + sync-script simplification) landed on 2026-04-18,
+concluding the primary migration milestone. **The legacy JS
+`content_scripts/` directory is gone.** Everything content-script
+shaped is TypeScript. The dynamic-injection path in `injector.ts`
+uses a single TS output file (`universal-extractor.js`).
+Follow-ups: move icons + popup directly into `public/`, delete
+`sync-legacy-assets.mjs` entirely, and rewrite the root README.
 
 ## Status
 
@@ -48,8 +48,12 @@ script) is the last remaining P2.5 milestone.
 | Behavior tracker on TypeScript | ✅ **landed (P2.5.3b5)** |
 | Text collector (Save snippet) on TypeScript | ✅ **landed (P2.5.3b5)** |
 | Universal extractor (dynamic injection) on TypeScript | ✅ **landed (P2.5.3b5)** |
-| E2E verified against the new bundle | ⏳ P2.5 Phase 4 |
-| Legacy JS directory removed | ⏳ P2.5 Phase 4 |
+| Legacy JS `content_scripts/` directory removed | ✅ **landed (P2.5.4a)** |
+| `injector.ts` rewired to TS-only output paths | ✅ **landed (P2.5.4a)** |
+| `sync-legacy-assets.mjs` narrowed to icons + popup | ✅ **landed (P2.5.4a)** |
+| Move icons + popup into `public/` + delete sync script | ⏳ P2.5 Phase 4b |
+| Update root README + cross-workspace install docs | ⏳ P2.5 Phase 4c |
+| E2E verified against the new bundle | ⏳ P2.5 Phase 4d (separate PR) |
 
 The step-by-step deferral honours ADR-006's guardrail:
 
@@ -59,6 +63,95 @@ The step-by-step deferral honours ADR-006's guardrail:
 Every P2.5 phase is a pure 1-for-1 behaviour port. The legacy JS under
 `../pce_browser_extension/` is the frozen source-of-truth for site
 extractors until Phase 3b–3f migrates them.
+
+## What P2.5 Phase 4a shipped
+
+The final cleanup sweep that validates the Phase 3b migration. No new
+TS ports; this PR is purely deletions + simplifications.
+
+### `injector.ts` rewrite (~50% smaller)
+
+All the per-domain script tables that lived here pre-Phase-4 are
+gone:
+
+- `COMMON_PIPELINE` constant — the 6-file shared header used by
+  `DOMAIN_CONTENT_SCRIPTS` entries.
+- `DOMAIN_CONTENT_SCRIPTS` — the 19-host → legacy file list map.
+- `DOMAIN_EXTRACTOR_FLAGS` — the 19-host → `__PCE_*_ACTIVE` flag
+  map (used to probe which site-specific extractor ran in a tab).
+- `UNIVERSAL_FALLBACK_SCRIPTS` — the legacy universal-fallback
+  6-file list.
+- `matchDomainConfig`, `toContentScriptPaths`,
+  `getExtractorFlagForDomain` — the helper functions that keyed
+  into the above tables.
+
+Replaced by a single constant and a single-file payload:
+
+```ts
+export const UNIVERSAL_EXTRACTOR_TS_PATH = "universal-extractor.js";
+
+export function getDynamicScriptsForDomain(_domain: string): string[] {
+  return [UNIVERSAL_EXTRACTOR_TS_PATH];
+}
+
+export function getScriptsForUrl(
+  url: string,
+  _opts: { includeDetector?: boolean } = {},
+): string[] | null {
+  // null for non-HTTP(S); else [UNIVERSAL_EXTRACTOR_TS_PATH]
+}
+```
+
+`getTabPipelineState` was simplified too — it no longer takes a
+domain argument, and the in-tab probe checks all 13 site-specific
+flags OR `__PCE_UNIVERSAL_EXTRACTOR_LOADED` in one pass.
+
+The public injection entry points (`handleDynamicInjection`,
+`proactiveInjectFallback`) keep their signatures unchanged so
+`background.ts` didn't need a single edit.
+
+### Why this works
+
+The TS universal extractor already has a `SITE_EXTRACTOR_FLAGS`
+guard (13 flags) that bails out when a site-specific extractor is
+already loaded. So injecting `universal-extractor.js` on a covered
+site is safe: it'll no-op. On an unknown AI site, it'll drive the
+shared capture runtime. One payload, two roles.
+
+### Test rewrite
+
+`entrypoints/background/__tests__/injector.test.ts` lost all 39
+tests that referenced the dropped tables / helpers and gained 9 new
+cases covering the simplified API:
+
+| Case | Behaviour |
+|---|---|
+| `UNIVERSAL_EXTRACTOR_TS_PATH === "universal-extractor.js"` | constant pins the WXT output path |
+| `getDynamicScriptsForDomain` returns universal for any domain | covered + unknown + no legacy prefix |
+| `getScriptsForUrl` null for `chrome:`/`about:`/`file:` | privileged surface guard |
+| `getScriptsForUrl` null for unparseable / empty URLs | invalid input |
+| `getScriptsForUrl` universal for HTTP(S) URLs | 3 variants: chatgpt, example, localhost |
+| `getScriptsForUrl` ignores `opts.includeDetector` | legacy ABI preserved as no-op |
+
+Total suite count: 9 cases for injector (down from 16 in batch 1,
+up from ~0 cases for the removed table tests).
+
+### `scripts/sync-legacy-assets.mjs` narrowed
+
+`COPY_TARGETS` is now `["icons", "popup"]` — `content_scripts/` is
+no longer copied. Phase 4b will move icons + popup directly into
+`public/` and delete the script.
+
+### `.gitignore` narrowed
+
+Removed `public/content_scripts/` (directory is gone).
+
+### Legacy dir deletion
+
+All 21 files under `../pce_browser_extension/content_scripts/` are
+removed. Remaining legacy artefacts at
+`../pce_browser_extension/`: `background/`, `interceptor/`,
+`icons/`, `popup/`, `manifest.json`. Phase 4b+4c sweeps these.
 
 ## What P2.5 Phase 3b batch 5 shipped (final batch)
 

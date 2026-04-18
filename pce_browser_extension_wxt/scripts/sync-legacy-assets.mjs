@@ -15,21 +15,22 @@ const ROOT = resolve(__dirname, "..");
 const LEGACY = resolve(ROOT, "..", "pce_browser_extension");
 const PUBLIC = resolve(ROOT, "public");
 
-// `interceptor/` is NOT copied anymore — it was ported to TS entrypoints
-// in P2.5 Phase 2 (`entrypoints/interceptor-*.ts`). Leaving stale JS
-// copies under `public/interceptor/` would confuse reviewers.
+// Post-P2.5 Phase 4: `content_scripts/` is no longer copied. Every
+// former legacy JS under `../pce_browser_extension/content_scripts/`
+// has been ported to TS entrypoints (`entrypoints/*.content.ts` +
+// `entrypoints/universal-extractor.ts`). The dynamic-injection path
+// in `background/injector.ts` references the WXT-emitted
+// `universal-extractor.js` at the output root, not a legacy path.
 //
-// The `content_scripts/` directory is still copied wholesale, but
-// several of its files are no longer referenced by the manifest:
-//   - `bridge.js` → redundant since Phase 2 (`bridge.content.ts`).
-//   - `chatgpt.js` / `claude.js` / `gemini.js` → redundant since
-//     Phase 3b batch 1 (`entrypoints/<site>.content.ts`).
-// These dead-weight copies are harmless (they just sit unused in
-// `public/content_scripts/`). Phase 4 will narrow the COPY_TARGETS
-// or move to explicit per-file staging once all 13 extractors are
-// ported.
+// `icons/` and `popup/` are still legacy assets — they live at
+// `../pce_browser_extension/{icons,popup}/` and get synced into
+// `public/{icons,popup}/` before each build. A follow-up commit
+// will move them directly into `public/` and delete this sync
+// entirely.
+//
+// The prebuild + predev hooks in package.json continue to invoke
+// this script so the icons + popup artefacts stay fresh.
 const COPY_TARGETS = [
-  "content_scripts",
   "icons",
   "popup",
 ];
