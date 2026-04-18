@@ -5,8 +5,6 @@
   "type": "module",
   "description": "PCE browser extension — WXT-powered build chain (P2 migration, see README.md).",
   "scripts": {
-    "prebuild": "node scripts/sync-legacy-assets.mjs",
-    "predev": "node scripts/sync-legacy-assets.mjs",
     "dev": "wxt",
     "dev:firefox": "wxt -b firefox",
     "build": "wxt build",

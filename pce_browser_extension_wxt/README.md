@@ -2,14 +2,13 @@
 
 P2 skeleton per [TASK-004 §5.1](../Docs/tasks/TASK-004-P2-capture-ux-upgrade.md)
 and [ADR-006](../Docs/docs/engineering/adr/ADR-006-browser-extension-framework-wxt.md).
-P2.5 Phase 4a (injector rewire + legacy `content_scripts/` dir
-deletion + sync-script simplification) landed on 2026-04-18,
-concluding the primary migration milestone. **The legacy JS
-`content_scripts/` directory is gone.** Everything content-script
-shaped is TypeScript. The dynamic-injection path in `injector.ts`
-uses a single TS output file (`universal-extractor.js`).
-Follow-ups: move icons + popup directly into `public/`, delete
-`sync-legacy-assets.mjs` entirely, and rewrite the root README.
+P2.5 Phase 4b (asset relocation + sync-script deletion + legacy
+dir removal) landed on 2026-04-18, following Phase 4a the same day.
+**The legacy `../pce_browser_extension/` directory is GONE.**
+Icons + popup moved directly into `public/` as the canonical source
+of truth. There is no longer a `prebuild`/`predev` hook — WXT reads
+`public/` as-is. The only follow-up is Phase 4c (root README +
+cross-workspace install docs) + Phase 4d (e2e verification).
 
 ## Status
 
@@ -51,7 +50,8 @@ Follow-ups: move icons + popup directly into `public/`, delete
 | Legacy JS `content_scripts/` directory removed | ✅ **landed (P2.5.4a)** |
 | `injector.ts` rewired to TS-only output paths | ✅ **landed (P2.5.4a)** |
 | `sync-legacy-assets.mjs` narrowed to icons + popup | ✅ **landed (P2.5.4a)** |
-| Move icons + popup into `public/` + delete sync script | ⏳ P2.5 Phase 4b |
+| Move icons + popup into `public/` + delete sync script | ✅ **landed (P2.5.4b)** |
+| Delete `../pce_browser_extension/` entirely | ✅ **landed (P2.5.4b)** |
 | Update root README + cross-workspace install docs | ⏳ P2.5 Phase 4c |
 | E2E verified against the new bundle | ⏳ P2.5 Phase 4d (separate PR) |
 
@@ -63,6 +63,72 @@ The step-by-step deferral honours ADR-006's guardrail:
 Every P2.5 phase is a pure 1-for-1 behaviour port. The legacy JS under
 `../pce_browser_extension/` is the frozen source-of-truth for site
 extractors until Phase 3b–3f migrates them.
+
+## What P2.5 Phase 4b shipped
+
+Purely housekeeping — the P2.5 migration's last structural change
+before the documentation sweep.
+
+### Asset relocation
+
+- `../pce_browser_extension/icons/*` (6 files: icon16/48/128.png +
+  matching SVG sources) → `pce_browser_extension_wxt/public/icons/*`
+- `../pce_browser_extension/popup/*` (3 files: popup.html / popup.css
+  / popup.js) → `pce_browser_extension_wxt/public/popup/*`
+
+Both targets are now tracked by git (they were gitignored previously
+because `sync-legacy-assets.mjs` regenerated them at build time).
+WXT resolves `popup/popup.html` and `icons/icon*.png` against
+`public/` as a flat static root, so the `wxt.config.ts` entries
+(`action.default_popup: "popup/popup.html"`, `icons: { "16":
+"icons/icon16.png", ... }`) need zero change.
+
+### Legacy dir deletion
+
+```
+rm -rf ../pce_browser_extension/
+```
+
+The entire folder is gone. It had been the source-of-truth for every
+content-script-side asset (JS, icons, popup HTML/CSS/JS, legacy MV3
+manifests). After Phase 4a removed `content_scripts/`, nothing
+needed the remaining `background/` / `interceptor/` / `manifest.json`
+/ `manifest.store.json` / root README anymore — WXT auto-generates
+the manifest from TS entrypoints.
+
+### Sync-script + prebuild hook removal
+
+- Deleted `scripts/sync-legacy-assets.mjs` (only file in the `scripts/`
+  directory, which is also gone).
+- Removed `"prebuild": "node scripts/sync-legacy-assets.mjs"` and
+  `"predev": "node scripts/sync-legacy-assets.mjs"` from
+  `package.json`.
+- Narrowed `.gitignore`: dropped `public/icons/` and `public/popup/`
+  (those directories are now tracked files). The remaining ignored
+  paths are `node_modules/`, `.output/`, `.wxt/`, `*.log`, `.DS_Store`,
+  `stats-*.html`, `web-ext.config.ts`.
+
+### `wxt.config.ts` docstring
+
+Updated the file-header block to reflect Phase 4 completion (the
+legacy dir no longer exists; `public/` is authoritative).
+
+### Verification
+
+No production-code changes. 527 Python tests still pass. The build
+chain (`pnpm dev`, `pnpm build`, `pnpm zip`) is now
+conceptually simpler:
+
+```
+pce_browser_extension_wxt/
+├── entrypoints/     ← TS source of truth
+├── utils/           ← shared TS helpers
+├── public/          ← static assets (icons + popup)
+└── .output/         ← WXT-generated builds (gitignored)
+```
+
+Nothing outside this directory is still required for a PCE
+extension build.
 
 ## What P2.5 Phase 4a shipped
 
@@ -146,12 +212,12 @@ no longer copied. Phase 4b will move icons + popup directly into
 
 Removed `public/content_scripts/` (directory is gone).
 
-### Legacy dir deletion
+### Legacy dir deletion (Phase 4a)
 
-All 21 files under `../pce_browser_extension/content_scripts/` are
-removed. Remaining legacy artefacts at
-`../pce_browser_extension/`: `background/`, `interceptor/`,
-`icons/`, `popup/`, `manifest.json`. Phase 4b+4c sweeps these.
+All 21 files under `../pce_browser_extension/content_scripts/` were
+removed. Phase 4b (later on 2026-04-18) swept the rest of the legacy
+dir (`background/`, `interceptor/`, `icons/`, `popup/`, `manifest.json`,
+`manifest.store.json`, `README.md`).
 
 ## What P2.5 Phase 3b batch 5 shipped (final batch)
 
@@ -762,11 +828,14 @@ entrypoint with `defineContentScript`, importing from `utils/*.ts`
 and `utils/capture-runtime.ts`.
 
 ### P2.5 Phase 4 — cleanup
-- Delete `../pce_browser_extension/` (after Phase 3b–3f is complete
-  and e2e verified).
-- Delete `scripts/sync-legacy-assets.mjs`.
-- Delete `public/{content_scripts,icons,popup}` staging.
-- Update root README and install docs to point only at this directory.
+- ✅ Phase 4a (2026-04-18 — commit `6686614`): injector rewired;
+  legacy `content_scripts/` dir deleted; sync script narrowed.
+- ✅ Phase 4b (2026-04-18 — **this PR**): icons + popup moved into
+  `public/`; legacy dir + sync script deleted entirely.
+- ⏳ Phase 4c: update root README / install docs / `CLAUDE.md` to
+  point only at `pce_browser_extension_wxt/`.
+- ⏳ Phase 4d (separate PR): e2e verification against the new
+  bundle (`tests/e2e/test_three_phase.py` etc.).
 
 ## File tree (after Phase 3b batch 5 — all content scripts on TS)
 
@@ -781,8 +850,9 @@ pce_browser_extension_wxt/
 ├── wxt.config.ts                          # MV3 manifest generator
 ├── test/
 │   └── setup.ts                           # ← P2.5 Phase 3a
-├── scripts/
-│   └── sync-legacy-assets.mjs             # dep-free Node sync (prebuild)
+├── public/                                 # static assets (tracked by git)
+│   ├── icons/                              # icon16/48/128.png + SVG sources
+│   └── popup/                              # popup.html + popup.css + popup.js
 ├── entrypoints/
 │   ├── background.ts                      # ← P2.5 Phase 1
 │   ├── bridge.content.ts                  # ← P2.5 Phase 2
@@ -843,8 +913,4 @@ pce_browser_extension_wxt/
 │       ├── selector-engine.test.ts        # ← P2.5 Phase 3a
 │       ├── site-configs.test.ts           # ← P2.5 Phase 3a
 │       └── capture-runtime.test.ts        # ← P2.5 Phase 3b1
-└── public/                                # build-time staging (gitignored)
-    ├── content_scripts/                   # synced from ../pce_browser_extension
-    ├── icons/
-    └── popup/
 ```

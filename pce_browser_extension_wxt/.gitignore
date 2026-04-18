@@ -5,8 +5,3 @@ node_modules/
 .DS_Store
 stats-*.html
 web-ext.config.ts
-# Synced from ../pce_browser_extension/ at build time; never commit.
-# Only icons/ and popup/ are still synced — `content_scripts/` was
-# retired by P2.5 Phase 4 (all scripts are now TS entrypoints).
-public/icons/
-public/popup/

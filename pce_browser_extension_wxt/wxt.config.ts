@@ -37,12 +37,11 @@ import { defineConfig } from "wxt";
  *   `defineUnlistedScript`, so the imperative `content_scripts` list
  *   below is now EMPTY. WXT auto-generates the manifest from the
  *   entrypoint files.
- * - The legacy JS under `../pce_browser_extension/content_scripts/`
- *   is still copied into `public/content_scripts/` by
- *   `scripts/sync-legacy-assets.mjs` — not because the manifest
- *   references it, but because `injector.ts`'s dynamic-injection
- *   fallback path still points at those filenames. Phase 4 removes
- *   the legacy dir and the sync script in one sweep.
+ * - **P2.5 Phase 4 complete**: the legacy
+ *   `../pce_browser_extension/` directory has been removed; icons +
+ *   popup now live directly under `public/` as the canonical source
+ *   of truth. There is no longer a sync step — WXT reads `public/`
+ *   as-is.
  *
  * Two release flavours are produced via WXT env:
  *   - default sideload build (host_permissions: <all_urls>)
