@@ -2,9 +2,10 @@
 
 P2 skeleton per [TASK-004 §5.1](../Docs/tasks/TASK-004-P2-capture-ux-upgrade.md)
 and [ADR-006](../Docs/docs/engineering/adr/ADR-006-browser-extension-framework-wxt.md).
-P2.5 Phase 3b batch 2 (DeepSeek + Google AI Studio + Perplexity
-extractors on TypeScript) landed on 2026-04-18, following batch 1
-(ChatGPT + Claude + Gemini + shared capture runtime) the same day.
+P2.5 Phase 3b batch 3 (Copilot + Poe + Grok extractors on TypeScript
++ `requireBothRoles` runtime option) landed on 2026-04-18, following
+batches 1-2 (ChatGPT + Claude + Gemini + DeepSeek + Google AI Studio
++ Perplexity + shared capture runtime) the same day.
 
 ## Status
 
@@ -29,10 +30,13 @@ extractors on TypeScript) landed on 2026-04-18, following batch 1
 | ChatGPT extractor on TypeScript | ✅ landed (P2.5.3b1) |
 | Claude extractor on TypeScript | ✅ landed (P2.5.3b1) |
 | Gemini extractor on TypeScript | ✅ landed (P2.5.3b1) |
-| DeepSeek extractor on TypeScript | ✅ **landed (P2.5.3b2)** |
-| Google AI Studio extractor on TypeScript | ✅ **landed (P2.5.3b2)** |
-| Perplexity extractor on TypeScript | ✅ **landed (P2.5.3b2)** |
-| Remaining 7 site extractors rewritten in TypeScript | ⏳ P2.5 Phase 3b batches 3-5 (2-3 per PR) |
+| DeepSeek extractor on TypeScript | ✅ landed (P2.5.3b2) |
+| Google AI Studio extractor on TypeScript | ✅ landed (P2.5.3b2) |
+| Perplexity extractor on TypeScript | ✅ landed (P2.5.3b2) |
+| Microsoft Copilot extractor on TypeScript | ✅ **landed (P2.5.3b3)** |
+| Poe extractor on TypeScript | ✅ **landed (P2.5.3b3)** |
+| Grok extractor on TypeScript | ✅ **landed (P2.5.3b3)** |
+| Remaining 4 site extractors rewritten in TypeScript | ⏳ P2.5 Phase 3b batches 4-5 (2-3 per PR) |
 | E2E verified against the new bundle | ⏳ P2.5 Phase 4 |
 
 The step-by-step deferral honours ADR-006's guardrail:
@@ -43,6 +47,87 @@ The step-by-step deferral honours ADR-006's guardrail:
 Every P2.5 phase is a pure 1-for-1 behaviour port. The legacy JS under
 `../pce_browser_extension/` is the frozen source-of-truth for site
 extractors until Phase 3b–3f migrates them.
+
+## What P2.5 Phase 3b batch 3 shipped
+
+Three more site extractors ported plus one small runtime-API addition
+(`requireBothRoles` option for sites whose DOM briefly shows only one
+role during render). 9 of 13 site extractors are now on TypeScript;
+4 remain.
+
+### New `entrypoints/*.content.ts`
+
+- `entrypoints/copilot.content.ts` — 6 role-selector strategies
+  (user-message / UserMessage / cib-message-group[source] /
+  data-testid / thread-message / turn-*), class+source+testId role
+  inference, `.ac-textBlock` / `.markdown` preference, badge-based
+  model-name lookup.
+- `entrypoints/poe.content.ts` — anchors on `[id^="message-"]`
+  Poe-specific `ChatMessage_chatMessage_<hash>` containers; role
+  detection via `rightSideMessageWrapper` (user) /
+  `leftSideMessageBubble` / `BotMessageHeader` (assistant);
+  `Message_messageTextContainer` → `Markdown_markdownContainer`
+  → `Message_selectableText` text-node preference;
+  `BotHeader_textContainer p` model name. `requireBothRoles: true`.
+- `entrypoints/grok.content.ts` — `#last-reply-container` iteration
+  with `[id^="response-"]` children; alignment-class role detection
+  (`items-end` = user, `items-start` = assistant); `.message-bubble`
+  text extraction; `grok-*` regex model-name from body text; `/c/<uuid>`
+  session hint. `requireBothRoles: true`.
+
+All three use incremental capture mode and URL-polling SPA nav.
+
+### New runtime option — `requireBothRoles`
+
+Poe and Grok both defer capture when the extracted messages contain
+only a user role OR only an assistant role — the DOM transiently
+reveals only one side during the first few hundred milliseconds of a
+render, and capturing it would produce an incomplete conversation.
+The legacy JS handled this with an inline ``hasUser && hasAssistant``
+guard + ``scheduleCapture(1500)`` retry. We've promoted that pattern
+into a reusable `requireBothRoles: boolean` flag on
+``createCaptureRuntime`` so batches 4-5 can reuse it cleanly.
+
+The guard fires inside ``captureNow``:
+  - If enabled and both roles aren't present, reschedule at
+    `streamCheckMs` (default 1500 ms).
+  - Otherwise behave exactly as before.
+
+Covered by 3 new unit tests under `utils/__tests__/capture-runtime.test.ts`.
+
+### Manifest update (`wxt.config.ts`)
+
+`TS_EXTRACTOR_SITES` grew from 7 to 10 entries. Copilot, Poe, and
+Grok are removed from `legacySiteBundle()` calls and share the
+reduced `SITE_INDEPENDENT_HELPERS` entry with batches 1-2 sites.
+Only 3 explicit `legacySiteBundle()` calls remain (manus, zhipu,
+huggingface) plus the generic entry for mistral/kimi.
+
+### Tests added (43 new cases across 4 files, 322 total)
+
+| File | Test count |
+|---|---|
+| `entrypoints/__tests__/copilot.content.test.ts` | 14 |
+| `entrypoints/__tests__/poe.content.test.ts` | 14 |
+| `entrypoints/__tests__/grok.content.test.ts` | 15 (12 file-local + 3 runtime) |
+
+Coverage highlights:
+
+- Copilot — session-hint path regex (3 forms), 6 role-detection
+  cases (class/source/testId per role), extractText noise stripping
+  + `.ac-textBlock` preference, model badge text + data-model
+  attribute fallback.
+- Poe — `normalizeText` strips timestamps + share/copy/copied,
+  `getMessageNodes` targets the hashed container class,
+  dedicated role detection for right/left-side wrappers +
+  `BotMessageHeader`, user+assistant pair with dedup of repeated
+  content, `BotHeader_textContainer` model-name lookup.
+- Grok — `normalizeText` covers share/auto/copy/timing/mode-toggle
+  classes, `/c/<uuid>` case-insensitive match, container fallback
+  chain, alignment-class role detection, message-bubble text
+  extraction + dedup, empty/ambiguous cases.
+- Runtime `requireBothRoles` — user-only defer + eventual proceed,
+  assistant-only defer, both-present pass-through.
 
 ## What P2.5 Phase 3b batch 2 shipped
 
@@ -333,7 +418,7 @@ pnpm build:firefox              # Firefox bundle       → .output/firefox-mv3/
 pnpm zip                        # Chrome .zip for sideload / store
 pnpm zip:firefox                # Firefox .xpi
 pnpm typecheck                  # strict tsc --noEmit
-pnpm test                       # Vitest — unit tests (279 cases after 3b2)
+pnpm test                       # Vitest — unit tests (322 cases after 3b3)
 pnpm test:watch                 # Vitest watch mode
 ```
 
@@ -375,8 +460,8 @@ Each phase is a separate PR, reviewable and revertable on its own:
 ### P2.5 Phase 3b — 13 site extractors (2-3 per PR)
 
 1. ✅ `chatgpt.js` + `claude.js` + `gemini.js` (2026-04-18)
-2. ✅ `deepseek.js` + `google_ai_studio.js` + `perplexity.js` (**this PR**)
-3. ⏳ `copilot.js` + `poe.js` + `grok.js`
+2. ✅ `deepseek.js` + `google_ai_studio.js` + `perplexity.js` (2026-04-18)
+3. ✅ `copilot.js` + `poe.js` + `grok.js` (**this PR**)
 4. ⏳ `huggingface.js` + `manus.js` + `zhipu.js`
 5. ⏳ `generic.js` + `universal_extractor.js` +
    `detector.js` / `behavior_tracker.js` / `text_collector.js`
@@ -392,7 +477,7 @@ and `utils/capture-runtime.ts`.
 - Delete `public/{content_scripts,icons,popup}` staging.
 - Update root README and install docs to point only at this directory.
 
-## File tree (after Phase 3b batch 2)
+## File tree (after Phase 3b batch 3)
 
 ```
 pce_browser_extension_wxt/
@@ -419,6 +504,9 @@ pce_browser_extension_wxt/
 │   ├── deepseek.content.ts                # ← P2.5 Phase 3b2
 │   ├── google-ai-studio.content.ts        # ← P2.5 Phase 3b2
 │   ├── perplexity.content.ts              # ← P2.5 Phase 3b2
+│   ├── copilot.content.ts                 # ← P2.5 Phase 3b3
+│   ├── poe.content.ts                     # ← P2.5 Phase 3b3
+│   ├── grok.content.ts                    # ← P2.5 Phase 3b3
 │   ├── background/
 │   │   ├── capture-queue.ts               # ← P2.5 Phase 1
 │   │   ├── injector.ts                    # ← P2.5 Phase 1
@@ -433,7 +521,10 @@ pce_browser_extension_wxt/
 │       ├── gemini.content.test.ts         # ← P2.5 Phase 3b1
 │       ├── deepseek.content.test.ts       # ← P2.5 Phase 3b2
 │       ├── google-ai-studio.content.test.ts # ← P2.5 Phase 3b2
-│       └── perplexity.content.test.ts     # ← P2.5 Phase 3b2
+│       ├── perplexity.content.test.ts     # ← P2.5 Phase 3b2
+│       ├── copilot.content.test.ts        # ← P2.5 Phase 3b3
+│       ├── poe.content.test.ts            # ← P2.5 Phase 3b3
+│       └── grok.content.test.ts           # ← P2.5 Phase 3b3
 ├── utils/
 │   ├── pce-messages.ts                    # typed PCE message shapes
 │   ├── pce-dom.ts                         # ← P2.5 Phase 3a

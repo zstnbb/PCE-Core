@@ -35,6 +35,7 @@ interface HarnessOptions {
   resolveConvId?: (msgs: ExtractedMessage[]) => string | null;
   debounceMs?: number;
   streamCheckMs?: number;
+  requireBothRoles?: boolean;
 }
 
 function buildHarness(options: HarnessOptions = {}) {
@@ -80,6 +81,7 @@ function buildHarness(options: HarnessOptions = {}) {
     isStreaming: options.isStreaming,
     resolveConversationId: options.resolveConvId,
     hookHistoryApi: options.hookHistoryApi ?? false,
+    requireBothRoles: options.requireBothRoles ?? false,
 
     chromeRuntime: chromeStub,
     logger: { log: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -370,6 +372,56 @@ describe("createCaptureRuntime — observer", () => {
     document.body.appendChild(document.createElement("div"));
     await new Promise((r) => setTimeout(r, 30));
     expect(sendMessage.mock.calls.length).toBe(callCount);
+  });
+});
+
+// --- requireBothRoles guard -------------------------------------------
+
+describe("createCaptureRuntime — requireBothRoles", () => {
+  it("defers capture when only user messages are present", async () => {
+    let msgs: ExtractedMessage[] = [
+      { role: "user", content: "hi" },
+      { role: "user", content: "still thinking?" },
+    ];
+    const { runtime, sendMessage } = buildHarness({
+      messages: () => msgs,
+      requireBothRoles: true,
+      debounceMs: 5,
+      streamCheckMs: 20,
+    });
+    runtime.triggerCapture();
+    expect(sendMessage).not.toHaveBeenCalled();
+
+    // Now add an assistant message; the reschedule should pick up.
+    msgs = [...msgs, { role: "assistant", content: "yes" }];
+    await new Promise((r) => setTimeout(r, 60));
+    expect(sendMessage).toHaveBeenCalled();
+    const payload = (sendMessage.mock.calls[0][0] as {
+      payload: { conversation: { messages: ExtractedMessage[] } };
+    }).payload;
+    expect(payload.conversation.messages.some((m) => m.role === "user")).toBe(true);
+    expect(payload.conversation.messages.some((m) => m.role === "assistant")).toBe(true);
+  });
+
+  it("defers capture when only assistant messages are present", () => {
+    const { runtime, sendMessage } = buildHarness({
+      messages: [{ role: "assistant", content: "streaming..." }],
+      requireBothRoles: true,
+    });
+    runtime.triggerCapture();
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("proceeds when both roles are present", () => {
+    const { runtime, sendMessage } = buildHarness({
+      messages: [
+        { role: "user", content: "q" },
+        { role: "assistant", content: "a" },
+      ],
+      requireBothRoles: true,
+    });
+    runtime.triggerCapture();
+    expect(sendMessage).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -110,6 +110,14 @@ export interface CaptureRuntimeOptions {
    */
   hookHistoryApi?: boolean;
 
+  /**
+   * If true, the runtime defers capture (at ``streamCheckMs``
+   * cadence) until the extracted messages contain BOTH a user role
+   * and an assistant role. Used by sites whose DOM briefly reveals
+   * only one side mid-render (Poe / Grok pattern). Defaults to false.
+   */
+  requireBothRoles?: boolean;
+
   // --- Injection points ---
   /** Injectable window handle. Defaults to `globalThis.window`. */
   win?: Window & typeof globalThis;
@@ -291,6 +299,17 @@ export function createCaptureRuntime(
       return;
     }
     if (!Array.isArray(allMsgs) || allMsgs.length === 0) return;
+
+    // Require-both-roles guard: defer capture when DOM briefly reveals
+    // only one side (Poe / Grok pattern).
+    if (options.requireBothRoles) {
+      const hasUser = allMsgs.some((m) => m && m.role === "user");
+      const hasAssistant = allMsgs.some((m) => m && m.role === "assistant");
+      if (!hasUser || !hasAssistant) {
+        schedule(STREAM_CHECK_MS);
+        return;
+      }
+    }
 
     const fp = fingerprintConversation(
       allMsgs as Array<{ role?: string; content?: string; attachments?: Array<Record<string, unknown>> }>,
