@@ -57,12 +57,15 @@ from .capture_verifier import (
 )
 from .sites.chatgpt import ChatGPTAdapter
 from .sites.claude import ClaudeAdapter
+from .sites.copilot import CopilotAdapter
 from .sites.deepseek import DeepSeekAdapter
 from .sites.gemini import GeminiAdapter
 from .sites.google_ai_studio import GoogleAIStudioAdapter
 from .sites.grok import GrokAdapter
+from .sites.huggingface import HuggingFaceAdapter
 from .sites.kimi import KimiAdapter
 from .sites.manus import ManusAdapter
+from .sites.mistral import MistralAdapter
 from .sites.perplexity import PerplexityAdapter
 from .sites.poe import PoeAdapter
 from .sites.zhipu import ZhiPuAdapter
@@ -78,12 +81,15 @@ logger = logging.getLogger("pce.e2e.three_phase")
 ALL_SITES = {
     "chatgpt": ChatGPTAdapter(),
     "claude": ClaudeAdapter(),
+    "copilot": CopilotAdapter(),
     "deepseek": DeepSeekAdapter(),
     "gemini": GeminiAdapter(),
     "googleaistudio": GoogleAIStudioAdapter(),
     "grok": GrokAdapter(),
+    "huggingface": HuggingFaceAdapter(),
     "kimi": KimiAdapter(),
     "manus": ManusAdapter(),
+    "mistral": MistralAdapter(),
     "perplexity": PerplexityAdapter(),
     "poe": PoeAdapter(),
     "zhipu": ZhiPuAdapter(),

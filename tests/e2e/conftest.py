@@ -235,6 +235,9 @@ def _launch_debug_chrome(
         args[3:3] = [
             "--enable-extensions",
             f"--load-extension={ext_dir}",
+            # Chrome 137+ disables --load-extension by default; re-enable
+            # it for E2E tests via feature override.
+            "--disable-features=DisableLoadExtensionCommandLineSwitch",
         ]
 
     proc = subprocess.Popen(
@@ -435,6 +438,12 @@ def driver():
         if use_profile_copy or not extension_preinstalled:
             options.add_argument("--enable-extensions")
             options.add_argument(f"--load-extension={ext_dir}")
+            # Chrome 137+ silently ignores --load-extension unless the
+            # DisableLoadExtensionCommandLineSwitch feature is turned off.
+            # See https://developer.chrome.com/blog/flag-changes-chrome-137.
+            options.add_argument(
+                "--disable-features=DisableLoadExtensionCommandLineSwitch"
+            )
 
         logger.info("Launching Chrome via Selenium...")
         chrome_driver = webdriver.Chrome(service=service, options=options)
