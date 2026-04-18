@@ -271,6 +271,12 @@ def launch_app(
 
     Returns:
         The Popen process object, or None if app not found.
+
+    P5.A-7: If ``app_name`` is on the user's bypass list (stored at
+    ``{DATA_DIR}/app_bypass.json`` — see :mod:`pce_core.app_bypass`),
+    the app is launched with a clean parent environment instead of the
+    proxy-injected one. This lets pinned / MDM-locked apps keep running
+    normally while the rest of the system routes through PCE.
     """
     installed = detect_installed_apps()
     target = None
@@ -285,15 +291,30 @@ def launch_app(
         return None
 
     exe_path = target["path"]
-    proxy_env = get_proxy_env(trust_mode)
 
-    # Merge with current environment
-    env = dict(os.environ)
-    env.update(proxy_env)
+    # Import lazily so test harnesses that monkey-patch app_bypass work
+    # without a circular-ish import at module load.
+    from .app_bypass import is_app_bypassed
+
+    if is_app_bypassed(app_name):
+        env = dict(os.environ)
+        # Strip any proxy vars the parent shell happened to export, so
+        # the bypassed app sees a truly-direct environment.
+        for var in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy",
+                     "NODE_EXTRA_CA_CERTS", "NODE_TLS_REJECT_UNAUTHORIZED"):
+            env.pop(var, None)
+        logger.info(
+            "Launching %s with bypass (no PCE proxy env): %s",
+            target["display_name"], exe_path,
+        )
+    else:
+        proxy_env = get_proxy_env(trust_mode)
+        env = dict(os.environ)
+        env.update(proxy_env)
+        logger.info("Launching %s through PCE proxy: %s", target["display_name"], exe_path)
+        logger.info("Proxy env: %s", {k: v for k, v in proxy_env.items() if k.isupper()})
 
     cmd = [exe_path] + (extra_args or [])
-    logger.info("Launching %s through PCE proxy: %s", target["display_name"], " ".join(cmd))
-    logger.info("Proxy env: %s", {k: v for k, v in proxy_env.items() if k.isupper()})
 
     try:
         proc = subprocess.Popen(cmd, env=env)

@@ -79,6 +79,9 @@ from . import proxy_toggle as _proxy_toggle
 from .sdk_capture_litellm import LITELLM_AVAILABLE, LiteLLMBridge
 from .supervisor import Supervisor
 from .models import (
+    AppBypassEntry,
+    AppBypassReport,
+    AppBypassUpdate,
     CaptureIn,
     CaptureOut,
     CaptureRecord,
@@ -344,6 +347,61 @@ def pinning_status(
             suspected_pinning_count=0,
             hosts=[],
         )
+
+
+# ---------------------------------------------------------------------------
+# Per-app proxy bypass (P5.A-7, UCS §3.1)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/bypass/apps", response_model=AppBypassReport)
+def bypass_list_apps() -> AppBypassReport:
+    """Return every KNOWN_APP with its current bypass flag.
+
+    The dashboard settings page renders one row per entry with a
+    checkbox bound to ``bypassed``. ``PUT /api/v1/bypass/apps`` with the
+    new list replaces the persisted set atomically.
+    """
+    from .app_bypass import load_bypass
+    from .electron_proxy import KNOWN_APPS
+
+    state = load_bypass()
+    bypassed_set = set(state["bypassed"])
+
+    entries = [
+        AppBypassEntry(
+            name=app.name,
+            display_name=app.display_name,
+            bypassed=app.name in bypassed_set,
+            ai_domains=list(app.ai_domains),
+        )
+        for app in KNOWN_APPS
+    ]
+    return AppBypassReport(
+        apps=entries,
+        bypassed_count=sum(1 for e in entries if e.bypassed),
+        updated_at=state["updated_at"],
+    )
+
+
+@app.put("/api/v1/bypass/apps", response_model=AppBypassReport)
+def bypass_update_apps(payload: AppBypassUpdate) -> AppBypassReport:
+    """Replace the bypass set atomically.
+
+    The request must carry the complete desired list (``{"bypassed":
+    [names...]}`` — not a delta). Unknown app names are silently dropped
+    so a future rename in KNOWN_APPS doesn't permanently strand stale
+    entries in the user's config.
+    """
+    from .app_bypass import save_bypass
+    from .electron_proxy import KNOWN_APPS
+
+    known_slugs = {app.name for app in KNOWN_APPS}
+    cleaned = [
+        name for name in payload.bypassed
+        if isinstance(name, str) and name.strip().lower() in known_slugs
+    ]
+    save_bypass(cleaned)
+    return bypass_list_apps()
 
 
 # ---------------------------------------------------------------------------

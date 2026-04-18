@@ -151,6 +151,39 @@ class PinningReport(BaseModel):
     hosts: list[HostPinningStats] = []
 
 
+class AppBypassEntry(BaseModel):
+    """One row of ``GET /api/v1/bypass/apps`` (P5.A-7).
+
+    ``name`` is the canonical slug the launcher keys off (matches
+    ``ElectronApp.name``). ``display_name`` is human-facing.
+    ``bypassed`` reflects the current persisted state.
+    """
+
+    name: str
+    display_name: str
+    bypassed: bool
+    ai_domains: list[str] = []
+
+
+class AppBypassReport(BaseModel):
+    """Response body for ``GET /api/v1/bypass/apps`` (P5.A-7)."""
+
+    apps: list[AppBypassEntry] = []
+    bypassed_count: int = 0
+    updated_at: float = 0.0
+
+
+class AppBypassUpdate(BaseModel):
+    """Request body for ``PUT /api/v1/bypass/apps`` (P5.A-7).
+
+    Replaces the whole bypass set atomically — callers send the complete
+    desired list, not a delta. The server normalises (dedup / lowercase)
+    before persisting.
+    """
+
+    bypassed: list[str] = []
+
+
 class StorageInfo(BaseModel):
     """Storage usage statistics."""
 
