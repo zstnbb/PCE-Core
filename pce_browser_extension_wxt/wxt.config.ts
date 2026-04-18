@@ -16,7 +16,8 @@ import { defineConfig } from "wxt";
  *   as `interceptor-<name>.js`, which `bridge.content.ts` injects via
  *   `chrome.runtime.getURL`. `web_accessible_resources` below lists those
  *   new paths.
- * - **Twelve site extractors are TypeScript** (P2.5 Phase 3b batches 1-4):
+ * - **All 13 site extractors + the shared helpers are TypeScript**
+ *   (P2.5 Phase 3b batches 1-5 completed on 2026-04-18):
  *     - batch 1: `entrypoints/chatgpt.content.ts`,
  *       `entrypoints/claude.content.ts`, `entrypoints/gemini.content.ts`.
  *     - batch 2: `entrypoints/deepseek.content.ts`,
@@ -26,20 +27,22 @@ import { defineConfig } from "wxt";
  *       `entrypoints/poe.content.ts`, `entrypoints/grok.content.ts`.
  *     - batch 4: `entrypoints/huggingface.content.ts`,
  *       `entrypoints/manus.content.ts`, `entrypoints/zhipu.content.ts`.
- *   They register themselves via `defineContentScript` and consume
- *   `utils/*.ts` directly (no window-global handoff). Their sites have
- *   been removed from the imperative `content_scripts` list below; a
- *   reduced `SITE_INDEPENDENT_HELPERS` entry still injects
- *   `behavior_tracker.js` + `text_collector.js` + `detector.js` so
- *   the `__PCE_BEHAVIOR` global + "Save snippet" floating button
- *   remain wired.
- * - The remaining 1 site-specific content script (`generic.js`,
- *   serving Mistral + Kimi) + shared helpers (`pce_dom_utils.js`,
- *   `selector_engine.js`, `site_configs.js`, `detector.js`,
- *   `behavior_tracker.js`, `text_collector.js`) remain legacy `.js`
- *   under `../pce_browser_extension/content_scripts/`. A prebuild
- *   step copies them into `public/content_scripts/`. Phase 3b batch 5
- *   finishes the migration.
+ *     - batch 5: `entrypoints/generic.content.ts` (Mistral + Kimi) +
+ *       `entrypoints/detector.content.ts` (all_urls) +
+ *       `entrypoints/behavior-tracker.content.ts` +
+ *       `entrypoints/text-collector.content.ts` +
+ *       `entrypoints/universal-extractor.ts` (unlisted; injected via
+ *       `chrome.scripting.executeScript` by the background worker).
+ *   All register themselves via `defineContentScript` /
+ *   `defineUnlistedScript`, so the imperative `content_scripts` list
+ *   below is now EMPTY. WXT auto-generates the manifest from the
+ *   entrypoint files.
+ * - The legacy JS under `../pce_browser_extension/content_scripts/`
+ *   is still copied into `public/content_scripts/` by
+ *   `scripts/sync-legacy-assets.mjs` — not because the manifest
+ *   references it, but because `injector.ts`'s dynamic-injection
+ *   fallback path still points at those filenames. Phase 4 removes
+ *   the legacy dir and the sync script in one sweep.
  *
  * Two release flavours are produced via WXT env:
  *   - default sideload build (host_permissions: <all_urls>)
@@ -67,66 +70,13 @@ const COVERED_SITES = [
   "https://kimi.com/*",
 ] as const;
 
-// Site-independent helpers — run on every covered site regardless of
-// whether the site extractor is legacy JS or TS. These touch no site-
-// specific DOM structure:
-//   - behavior_tracker.js: writes `window.__PCE_BEHAVIOR` which the
-//     capture runtime reads when assembling the `meta.behavior` field.
-//   - text_collector.js: the floating "Save snippet" button.
-//   - detector.js: unknown-domain AI detection. Harmless on covered
-//     sites; carried over from the legacy bundle for parity.
-const SITE_INDEPENDENT_HELPERS = [
-  "content_scripts/behavior_tracker.js",
-  "content_scripts/text_collector.js",
-  "content_scripts/detector.js",
-] as const;
-
-// Legacy extractor dependencies — write the `window.__PCE_EXTRACT` /
-// `window.__PCE_SITE_CONFIGS` / `window.__PCE_SELECTOR_ENGINE` globals
-// that the *legacy* JS site extractors consume at runtime. TS
-// extractors do NOT need these because they import from `utils/*.ts`
-// directly; they therefore only receive `SITE_INDEPENDENT_HELPERS`.
-const LEGACY_EXTRACTOR_DEPS = [
-  "content_scripts/pce_dom_utils.js",
-  "content_scripts/site_configs.js",
-  "content_scripts/selector_engine.js",
-] as const;
-
-const LEGACY_SITE_SCRIPT_COMMON = [
-  ...LEGACY_EXTRACTOR_DEPS,
-  ...SITE_INDEPENDENT_HELPERS,
-] as const;
-
-// Sites whose extractor now ships as a TS `defineContentScript`
-// entrypoint (P2.5 Phase 3b batches 1-4). These get ONLY
-// `SITE_INDEPENDENT_HELPERS` via the shared entry below.
-const TS_EXTRACTOR_SITES = [
-  // Batch 1
-  "https://chatgpt.com/*",
-  "https://chat.openai.com/*",
-  "https://claude.ai/*",
-  "https://gemini.google.com/*",
-  // Batch 2
-  "https://chat.deepseek.com/*",
-  "https://aistudio.google.com/*",
-  "https://www.perplexity.ai/*",
-  // Batch 3
-  "https://copilot.microsoft.com/*",
-  "https://poe.com/*",
-  "https://grok.com/*",
-  // Batch 4
-  "https://huggingface.co/chat/*",
-  "https://manus.im/*",
-  "https://chat.z.ai/*",
-] as const;
-
-function legacySiteBundle(site: string, extractor: string) {
-  return {
-    matches: [site],
-    js: [...LEGACY_SITE_SCRIPT_COMMON, `content_scripts/${extractor}`],
-    run_at: "document_start" as const,
-  };
-}
+// All site extractors + site-independent helpers now ship as TS
+// `defineContentScript` entrypoints (P2.5 Phase 3b completed). The
+// legacy `SITE_INDEPENDENT_HELPERS` / `LEGACY_EXTRACTOR_DEPS` /
+// `legacySiteBundle` helper are gone — WXT auto-registers
+// entrypoints. Phase 4 will remove the sync-legacy-assets.mjs copy
+// path entirely once `injector.ts` switches to the TS unlisted
+// universal-extractor output.
 
 export default defineConfig({
   srcDir: ".",
@@ -161,41 +111,10 @@ export default defineConfig({
           "128": "icons/icon128.png",
         },
       },
-      // Content scripts are defined imperatively for sites that still
-      // use legacy JS extractors. TS extractors register themselves via
-      // `defineContentScript` in their own entrypoint file and are NOT
-      // listed here — only a reduced "site-independent helpers" entry
-      // injects the shared `behavior_tracker` + `text_collector` +
-      // `detector` bundle on those sites.
-      content_scripts: [
-        // --- Site-independent helpers for TS-extractor sites (P2.5 Phase 3b) ---
-        {
-          matches: [...TS_EXTRACTOR_SITES],
-          js: [...SITE_INDEPENDENT_HELPERS],
-          run_at: "document_start",
-        },
-
-        // --- Legacy JS extractors (Phase 3b batch 5 pending) ---
-        // Mistral + Kimi still use `generic.js`.
-        {
-          matches: [
-            "https://chat.mistral.ai/*",
-            "https://kimi.moonshot.cn/*",
-            "https://www.kimi.com/*",
-            "https://kimi.com/*",
-          ],
-          js: [...LEGACY_SITE_SCRIPT_COMMON, "content_scripts/generic.js"],
-          run_at: "document_start",
-        },
-
-        // --- Universal detector for uncovered pages ---
-        {
-          matches: ["<all_urls>"],
-          js: ["content_scripts/detector.js"],
-          run_at: "document_idle",
-          exclude_matches: [...COVERED_SITES],
-        },
-      ],
+      // All content scripts now live in `entrypoints/*.content.ts` as
+      // `defineContentScript` declarations. WXT auto-registers them
+      // from those files — the imperative list is intentionally empty.
+      content_scripts: [],
       // Page-context interceptor scripts emitted by the TS unlisted
       // entrypoints (`entrypoints/interceptor-*.ts`). The bridge
       // injects these via `chrome.runtime.getURL` so they must be

@@ -2,11 +2,14 @@
 
 P2 skeleton per [TASK-004 §5.1](../Docs/tasks/TASK-004-P2-capture-ux-upgrade.md)
 and [ADR-006](../Docs/docs/engineering/adr/ADR-006-browser-extension-framework-wxt.md).
-P2.5 Phase 3b batch 4 (HuggingFace + Manus + Zhipu extractors on
-TypeScript) landed on 2026-04-18, following batches 1-3 (ChatGPT +
-Claude + Gemini + DeepSeek + Google AI Studio + Perplexity + Copilot +
-Poe + Grok + shared capture runtime with `requireBothRoles` option)
-the same day. **12 of 13 site extractors now on TypeScript**.
+P2.5 Phase 3b batch 5 (Generic + universal-extractor + detector +
+behavior-tracker + text-collector — the final batch) landed on
+2026-04-18. **All 13 site extractors + every content-script-side
+shared helper are now on TypeScript.** The imperative
+`content_scripts` list in `wxt.config.ts` is empty; WXT auto-registers
+all entries from their `defineContentScript` / `defineUnlistedScript`
+declarations. Phase 4 (cleanup of the legacy JS directory + sync
+script) is the last remaining P2.5 milestone.
 
 ## Status
 
@@ -37,11 +40,16 @@ the same day. **12 of 13 site extractors now on TypeScript**.
 | Microsoft Copilot extractor on TypeScript | ✅ landed (P2.5.3b3) |
 | Poe extractor on TypeScript | ✅ landed (P2.5.3b3) |
 | Grok extractor on TypeScript | ✅ landed (P2.5.3b3) |
-| HuggingFace Chat extractor on TypeScript | ✅ **landed (P2.5.3b4)** |
-| Manus extractor on TypeScript | ✅ **landed (P2.5.3b4)** |
-| Zhipu / Z.ai extractor on TypeScript | ✅ **landed (P2.5.3b4)** |
-| Remaining 1 site extractor (`generic.js` for Mistral + Kimi) | ⏳ P2.5 Phase 3b batch 5 |
+| HuggingFace Chat extractor on TypeScript | ✅ landed (P2.5.3b4) |
+| Manus extractor on TypeScript | ✅ landed (P2.5.3b4) |
+| Zhipu / Z.ai extractor on TypeScript | ✅ landed (P2.5.3b4) |
+| Generic extractor (Mistral + Kimi) on TypeScript | ✅ **landed (P2.5.3b5)** |
+| Detector (AI-page heuristic) on TypeScript | ✅ **landed (P2.5.3b5)** |
+| Behavior tracker on TypeScript | ✅ **landed (P2.5.3b5)** |
+| Text collector (Save snippet) on TypeScript | ✅ **landed (P2.5.3b5)** |
+| Universal extractor (dynamic injection) on TypeScript | ✅ **landed (P2.5.3b5)** |
 | E2E verified against the new bundle | ⏳ P2.5 Phase 4 |
+| Legacy JS directory removed | ⏳ P2.5 Phase 4 |
 
 The step-by-step deferral honours ADR-006's guardrail:
 
@@ -51,6 +59,107 @@ The step-by-step deferral honours ADR-006's guardrail:
 Every P2.5 phase is a pure 1-for-1 behaviour port. The legacy JS under
 `../pce_browser_extension/` is the frozen source-of-truth for site
 extractors until Phase 3b–3f migrates them.
+
+## What P2.5 Phase 3b batch 5 shipped (final batch)
+
+The last four legacy content-script files + one dynamically-injected
+extractor were ported to TypeScript:
+
+### New `entrypoints/*.content.ts` + unlisted entrypoint
+
+- `entrypoints/generic.content.ts` — Mistral + Kimi (the only sites
+  without a dedicated extractor). 9-selector heuristic ladder with
+  role inference via data-attrs + class keywords; `[class*=turn]`
+  fallback. `captureMode: "full"` (matches legacy `generic.js`
+  which always resent the whole conversation). Defensive
+  `isDedicatedHost` guard bails out early if injected on a site
+  that has its own TS extractor.
+- `entrypoints/detector.content.ts` — lightweight AI-page detector
+  (`<all_urls>`, excludes the 13 covered sites). Scored heuristic:
+  34 known AI domains (fast path), 5 URL path prefixes, 11 title
+  keywords, 5 meta-description keywords, 25 DOM signals with
+  per-selector weights. Posts `PCE_AI_PAGE_DETECTED` to the
+  background worker when score ≥ 6. Exposes `detectAIPage` +
+  `KNOWN_AI_DOMAINS` at module scope for testability.
+- `entrypoints/behavior-tracker.content.ts` — writes
+  `window.__PCE_BEHAVIOR` consumed by the capture runtime. Tracks
+  `request_sent_at` (click + Enter-key heuristics), `copy_events`
+  (last 10), `scroll_depth_pct` (max), `think_interval_ms`
+  (difference between the last two user messages). Exports
+  `createBehaviorState`, `getBehaviorSnapshot`, `isSendButtonTarget`,
+  `isSendKeyEvent`, `computeScrollDepth` at module scope.
+- `entrypoints/text-collector.content.ts` — floating "Save snippet"
+  button on all 13 covered sites. Byte-for-byte port of the legacy
+  inline HTML + CSS + 5-category picker. Exports `detectProvider`,
+  `clampFloatingPosition`, `CATEGORIES`, `MIN_SELECTION_LENGTH` at
+  module scope; the DOM-manipulation surface lives inside `main()`.
+- `entrypoints/universal-extractor.ts` — dynamically-injected
+  fallback for AI pages on unknown domains. Registered via
+  `defineUnlistedScript`; emitted at build output as
+  `universal-extractor.js`. Shares the capture runtime + `utils/`
+  with every other extractor, so its implementation is much
+  shorter (~360 lines vs. legacy's 460). Bails out fast if any
+  site-specific extractor flag is already set.
+
+### Manifest cleanup (`wxt.config.ts`)
+
+  - `content_scripts: []` — the imperative list is now EMPTY.
+    WXT auto-registers all 18 entrypoints:
+      - `bridge.content.ts` (from Phase 2)
+      - 13 site-specific extractors (batches 1-4 + `generic.content.ts`)
+      - `detector.content.ts` (matches `<all_urls>` except covered)
+      - `behavior-tracker.content.ts` (matches all covered sites)
+      - `text-collector.content.ts` (matches all covered sites)
+  - `SITE_INDEPENDENT_HELPERS` / `LEGACY_EXTRACTOR_DEPS` /
+    `LEGACY_SITE_SCRIPT_COMMON` / `TS_EXTRACTOR_SITES` constants
+    removed (all were wxt.config-only helpers).
+  - `legacySiteBundle()` helper removed (last call-site gone with
+    batch 4; unused throughout batch 5).
+  - `web_accessible_resources` unchanged (still lists the three
+    interceptor page-context scripts).
+
+### Injector tweak (`entrypoints/background/injector.ts`)
+
+Added `UNIVERSAL_EXTRACTOR_TS_PATH = "universal-extractor.js"` for
+Phase 4 to switch the dynamic-injection fallback from the legacy
+`content_scripts/universal_extractor.js` path. The legacy path stays
+as the default until Phase 4 because the `DOMAIN_CONTENT_SCRIPTS`
+table (used for dynamic injection on known AI sites) still carries
+other legacy filenames.
+
+### Tests added (~77 new cases across 5 files, ~444 total)
+
+| File | Test count |
+|---|---|
+| `entrypoints/__tests__/generic.content.test.ts` | 14 |
+| `entrypoints/__tests__/behavior-tracker.content.test.ts` | 17 |
+| `entrypoints/__tests__/text-collector.content.test.ts` | 14 |
+| `entrypoints/__tests__/detector.content.test.ts` | 13 |
+| `entrypoints/__tests__/universal-extractor.test.ts` | 19 |
+
+Coverage highlights:
+
+- Generic — `HOST_PROVIDER_MAP` completeness, `resolveProvider`
+  fallback to hostname-split, `isDedicatedHost` for 13 dedicated
+  sites, role detection (5 paths), Kimi segment pair extraction,
+  data-attribute extraction, `[class*=turn]` fallback.
+- Behavior tracker — pure `createBehaviorState` shape,
+  `getBehaviorSnapshot` composition + last-10 copy slicing +
+  `think_interval_ms` computation + reset semantic,
+  `isSendButtonTarget` across 4 detection paths, `isSendKeyEvent`
+  for Enter/Shift+Enter/non-Enter + contenteditable variant,
+  `computeScrollDepth` zero-fit + percentage + rounding.
+- Text collector — constants coverage, `detectProvider` 3 paths,
+  `clampFloatingPosition` 5 geometry cases.
+- Detector — `KNOWN_AI_DOMAINS` coverage, known-domain fast path,
+  heuristic threshold via DOM signals, title + path + DOM combo,
+  meta description keyword, negative case.
+- Universal extractor — `SITE_EXTRACTOR_FLAGS` coverage,
+  `CONTAINER_SELECTORS` ordering invariant,
+  `siteExtractorAlreadyActive` hit/miss, `findChatContainer`
+  priority + adjusted score for child count, role detection
+  (4 paths), `extractTextContent` null + prose preference,
+  `extractMessages` 2 strategies, `guessProvider` 3 paths.
 
 ## What P2.5 Phase 3b batch 4 shipped
 
@@ -506,7 +615,7 @@ pnpm build:firefox              # Firefox bundle       → .output/firefox-mv3/
 pnpm zip                        # Chrome .zip for sideload / store
 pnpm zip:firefox                # Firefox .xpi
 pnpm typecheck                  # strict tsc --noEmit
-pnpm test                       # Vitest — unit tests (367 cases after 3b4)
+pnpm test                       # Vitest — unit tests (~444 cases after 3b5)
 pnpm test:watch                 # Vitest watch mode
 ```
 
@@ -550,9 +659,10 @@ Each phase is a separate PR, reviewable and revertable on its own:
 1. ✅ `chatgpt.js` + `claude.js` + `gemini.js` (2026-04-18)
 2. ✅ `deepseek.js` + `google_ai_studio.js` + `perplexity.js` (2026-04-18)
 3. ✅ `copilot.js` + `poe.js` + `grok.js` (2026-04-18)
-4. ✅ `huggingface.js` + `manus.js` + `zhipu.js` (**this PR**)
-5. ⏳ `generic.js` (Mistral + Kimi) + `universal_extractor.js` +
+4. ✅ `huggingface.js` + `manus.js` + `zhipu.js` (2026-04-18)
+5. ✅ `generic.js` (Mistral + Kimi) + `universal_extractor.js` +
    `detector.js` / `behavior_tracker.js` / `text_collector.js`
+   (**this PR**)
 
 Each site extractor becomes an `entrypoints/<site>.content.ts`
 entrypoint with `defineContentScript`, importing from `utils/*.ts`
@@ -565,7 +675,7 @@ and `utils/capture-runtime.ts`.
 - Delete `public/{content_scripts,icons,popup}` staging.
 - Update root README and install docs to point only at this directory.
 
-## File tree (after Phase 3b batch 4)
+## File tree (after Phase 3b batch 5 — all content scripts on TS)
 
 ```
 pce_browser_extension_wxt/
@@ -598,6 +708,11 @@ pce_browser_extension_wxt/
 │   ├── huggingface.content.ts             # ← P2.5 Phase 3b4
 │   ├── manus.content.ts                   # ← P2.5 Phase 3b4
 │   ├── zhipu.content.ts                   # ← P2.5 Phase 3b4
+│   ├── generic.content.ts                 # ← P2.5 Phase 3b5 (Mistral + Kimi)
+│   ├── detector.content.ts                # ← P2.5 Phase 3b5 (<all_urls>)
+│   ├── behavior-tracker.content.ts        # ← P2.5 Phase 3b5
+│   ├── text-collector.content.ts          # ← P2.5 Phase 3b5
+│   ├── universal-extractor.ts             # ← P2.5 Phase 3b5 (unlisted)
 │   ├── background/
 │   │   ├── capture-queue.ts               # ← P2.5 Phase 1
 │   │   ├── injector.ts                    # ← P2.5 Phase 1
@@ -618,7 +733,12 @@ pce_browser_extension_wxt/
 │       ├── grok.content.test.ts           # ← P2.5 Phase 3b3
 │       ├── huggingface.content.test.ts    # ← P2.5 Phase 3b4
 │       ├── manus.content.test.ts          # ← P2.5 Phase 3b4
-│       └── zhipu.content.test.ts          # ← P2.5 Phase 3b4
+│       ├── zhipu.content.test.ts          # ← P2.5 Phase 3b4
+│       ├── generic.content.test.ts        # ← P2.5 Phase 3b5
+│       ├── detector.content.test.ts       # ← P2.5 Phase 3b5
+│       ├── behavior-tracker.content.test.ts # ← P2.5 Phase 3b5
+│       ├── text-collector.content.test.ts # ← P2.5 Phase 3b5
+│       └── universal-extractor.test.ts    # ← P2.5 Phase 3b5
 ├── utils/
 │   ├── pce-messages.ts                    # typed PCE message shapes
 │   ├── pce-dom.ts                         # ← P2.5 Phase 3a

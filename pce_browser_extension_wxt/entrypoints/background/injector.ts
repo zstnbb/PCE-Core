@@ -74,6 +74,10 @@ export const DOMAIN_EXTRACTOR_FLAGS: Readonly<Record<string, string>> = {
   "chat.zhipuai.cn": "__PCE_GENERIC_ACTIVE",
 } as const;
 
+// Legacy-JS fallback scripts (pre-P2.5.3b5 path names under
+// `content_scripts/`). Used by `toContentScriptPaths` to build the
+// `chrome.scripting.executeScript` file list for sites that still
+// have legacy JS entries in `DOMAIN_CONTENT_SCRIPTS`.
 const UNIVERSAL_FALLBACK_SCRIPTS = [
   "pce_dom_utils.js",
   "site_configs.js",
@@ -82,6 +86,14 @@ const UNIVERSAL_FALLBACK_SCRIPTS = [
   "bridge.js",
   "universal_extractor.js",
 ] as const;
+
+// TS-era fallback: the service worker injects
+// `universal-extractor.js` (emitted by the WXT unlisted-script
+// entrypoint `entrypoints/universal-extractor.ts`) at the output
+// root, not under `content_scripts/`. Used by
+// `getDynamicScriptsForDomain` when we've already run detector.js
+// (detector is the thing that triggered the dynamic-injection path).
+export const UNIVERSAL_EXTRACTOR_TS_PATH = "universal-extractor.js";
 
 // ---------------------------------------------------------------------------
 // Types
