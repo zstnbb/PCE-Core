@@ -2,8 +2,9 @@
 
 P2 skeleton per [TASK-004 §5.1](../Docs/tasks/TASK-004-P2-capture-ux-upgrade.md)
 and [ADR-006](../Docs/docs/engineering/adr/ADR-006-browser-extension-framework-wxt.md).
-P2.5 Phase 3b batch 1 (ChatGPT + Claude + Gemini extractors on TypeScript
-+ shared capture runtime) landed on 2026-04-18.
+P2.5 Phase 3b batch 2 (DeepSeek + Google AI Studio + Perplexity
+extractors on TypeScript) landed on 2026-04-18, following batch 1
+(ChatGPT + Claude + Gemini + shared capture runtime) the same day.
 
 ## Status
 
@@ -25,10 +26,13 @@ P2.5 Phase 3b batch 1 (ChatGPT + Claude + Gemini extractors on TypeScript
 | Shared PCE message interfaces (`utils/pce-messages.ts`) | ✅ landed (P2) |
 | Chrome API pre-install type shim (`types.d.ts`) | ✅ landed (P2.5.1+2) |
 | Shared capture runtime (`utils/capture-runtime.ts`) | ✅ **landed (P2.5.3b1)** |
-| ChatGPT extractor on TypeScript | ✅ **landed (P2.5.3b1)** |
-| Claude extractor on TypeScript | ✅ **landed (P2.5.3b1)** |
-| Gemini extractor on TypeScript | ✅ **landed (P2.5.3b1)** |
-| Remaining 10 site extractors rewritten in TypeScript | ⏳ P2.5 Phase 3b batches 2-5 (2-3 per PR) |
+| ChatGPT extractor on TypeScript | ✅ landed (P2.5.3b1) |
+| Claude extractor on TypeScript | ✅ landed (P2.5.3b1) |
+| Gemini extractor on TypeScript | ✅ landed (P2.5.3b1) |
+| DeepSeek extractor on TypeScript | ✅ **landed (P2.5.3b2)** |
+| Google AI Studio extractor on TypeScript | ✅ **landed (P2.5.3b2)** |
+| Perplexity extractor on TypeScript | ✅ **landed (P2.5.3b2)** |
+| Remaining 7 site extractors rewritten in TypeScript | ⏳ P2.5 Phase 3b batches 3-5 (2-3 per PR) |
 | E2E verified against the new bundle | ⏳ P2.5 Phase 4 |
 
 The step-by-step deferral honours ADR-006's guardrail:
@@ -39,6 +43,73 @@ The step-by-step deferral honours ADR-006's guardrail:
 Every P2.5 phase is a pure 1-for-1 behaviour port. The legacy JS under
 `../pce_browser_extension/` is the frozen source-of-truth for site
 extractors until Phase 3b–3f migrates them.
+
+## What P2.5 Phase 3b batch 2 shipped
+
+Three more site extractors ported to TypeScript on top of the shared
+capture runtime delivered in batch 1. No new runtime features — every
+extractor is a straight behaviour-parity port of its legacy `.js`
+counterpart using the same patterns as batch 1.
+
+### New `entrypoints/*.content.ts`
+
+- `entrypoints/deepseek.content.ts` — anchor-on-`.ds-markdown`
+  strategy with DOM walk-up to find turn containers; fallbacks for
+  `[data-role]` role-attributed elements and large-text-block
+  heuristics. 7-selector model-name detector with `DeepSeek-R1` /
+  `DeepSeek-V3` body-text fallback + `DeepSeek` ultimate default.
+- `entrypoints/google-ai-studio.content.ts` — elaborate port of the
+  largest legacy extractor (469 lines → ~500 lines TS with explicit
+  types). Extracts from `<ms-chat-turn>` web components with
+  `.chat-turn-container.user` / `.chat-turn-container.model` class
+  markers. Comprehensive noise-stripping via a regex ladder
+  (`edit` / `more_vert` / `user 12:34` / `google ai models may make
+  mistakes` / `download` / `content_copy` / …). Local attachment
+  extractor understands `<ms-image-chunk>`, `<ms-file-chunk>`,
+  `<pre>` code blocks, and external `<a href>` citations.
+  Streaming-aware (defers capture while a Stop/Cancel button is visible).
+- `entrypoints/perplexity.content.ts` — 6 thread-selector strategies
+  with role detection via class keywords (`query` / `answer` /
+  `prose` / `not-prose` / …); `[class*=query]` × `[class*=answer]`
+  index-pair fallback; 240-char dedup key. `model_name` always null
+  (matches legacy).
+
+All three use:
+  - `captureMode: "incremental"`
+  - `hookHistoryApi: false` (URL polling only)
+  - `pce-manual-capture` DOM bridge listener
+
+### Manifest update (`wxt.config.ts`)
+
+`TS_EXTRACTOR_SITES` grew from 4 entries to 7. The imperative
+`content_scripts` list shrank accordingly — DeepSeek, AI Studio, and
+Perplexity no longer get the legacy JS bundle; they share the reduced
+`SITE_INDEPENDENT_HELPERS` entry with the batch 1 sites.
+
+### Tests added (50 new cases across 3 files, 279 total)
+
+| File | Test count |
+|---|---|
+| `entrypoints/__tests__/perplexity.content.test.ts` | 14 |
+| `entrypoints/__tests__/deepseek.content.test.ts` | 15 |
+| `entrypoints/__tests__/google-ai-studio.content.test.ts` | 21 |
+
+Coverage highlights:
+
+- DeepSeek — turn-container walk-up (found + not-found paths),
+  sibling-text extraction, `.ds-markdown`-anchored user-assistant
+  pairing, `[data-role]` fallback, noise stripping, the 4-stage
+  model-name ladder.
+- Google AI Studio — each of the 4 noise regex classes fires
+  correctly under `normalizeText`, `dedupeAttachments` composite
+  key, `imageMediaType` data-URL + extension inference,
+  `attachmentOnlyText` labelling, `extractLocalAttachments` per
+  attachment type, `cleanContainerText` + `stripCode` / `stripLinks`
+  flags, `ms-chat-turn` user + model + ambiguous paths,
+  image-only user messages get the `[Attachment]` placeholder.
+- Perplexity — role detection via class keywords + H1.group/query +
+  PRE/not-prose exclusion + data-testid, extraction noise stripping,
+  dedup by 240-char prefix, fallback pairing.
 
 ## What P2.5 Phase 3b batch 1 shipped
 
@@ -262,7 +333,7 @@ pnpm build:firefox              # Firefox bundle       → .output/firefox-mv3/
 pnpm zip                        # Chrome .zip for sideload / store
 pnpm zip:firefox                # Firefox .xpi
 pnpm typecheck                  # strict tsc --noEmit
-pnpm test                       # Vitest — unit tests (229 cases after 3b1)
+pnpm test                       # Vitest — unit tests (279 cases after 3b2)
 pnpm test:watch                 # Vitest watch mode
 ```
 
@@ -303,8 +374,8 @@ Each phase is a separate PR, reviewable and revertable on its own:
 
 ### P2.5 Phase 3b — 13 site extractors (2-3 per PR)
 
-1. ✅ `chatgpt.js` + `claude.js` + `gemini.js` (**this PR**)
-2. ⏳ `deepseek.js` + `google_ai_studio.js` + `perplexity.js`
+1. ✅ `chatgpt.js` + `claude.js` + `gemini.js` (2026-04-18)
+2. ✅ `deepseek.js` + `google_ai_studio.js` + `perplexity.js` (**this PR**)
 3. ⏳ `copilot.js` + `poe.js` + `grok.js`
 4. ⏳ `huggingface.js` + `manus.js` + `zhipu.js`
 5. ⏳ `generic.js` + `universal_extractor.js` +
@@ -321,7 +392,7 @@ and `utils/capture-runtime.ts`.
 - Delete `public/{content_scripts,icons,popup}` staging.
 - Update root README and install docs to point only at this directory.
 
-## File tree (after Phase 3b batch 1)
+## File tree (after Phase 3b batch 2)
 
 ```
 pce_browser_extension_wxt/
@@ -345,6 +416,9 @@ pce_browser_extension_wxt/
 │   ├── chatgpt.content.ts                 # ← P2.5 Phase 3b1
 │   ├── claude.content.ts                  # ← P2.5 Phase 3b1
 │   ├── gemini.content.ts                  # ← P2.5 Phase 3b1
+│   ├── deepseek.content.ts                # ← P2.5 Phase 3b2
+│   ├── google-ai-studio.content.ts        # ← P2.5 Phase 3b2
+│   ├── perplexity.content.ts              # ← P2.5 Phase 3b2
 │   ├── background/
 │   │   ├── capture-queue.ts               # ← P2.5 Phase 1
 │   │   ├── injector.ts                    # ← P2.5 Phase 1
@@ -356,7 +430,10 @@ pce_browser_extension_wxt/
 │       ├── interceptor-ai-patterns.test.ts # ← P2.5 Phase 3a
 │       ├── chatgpt.content.test.ts        # ← P2.5 Phase 3b1
 │       ├── claude.content.test.ts         # ← P2.5 Phase 3b1
-│       └── gemini.content.test.ts         # ← P2.5 Phase 3b1
+│       ├── gemini.content.test.ts         # ← P2.5 Phase 3b1
+│       ├── deepseek.content.test.ts       # ← P2.5 Phase 3b2
+│       ├── google-ai-studio.content.test.ts # ← P2.5 Phase 3b2
+│       └── perplexity.content.test.ts     # ← P2.5 Phase 3b2
 ├── utils/
 │   ├── pce-messages.ts                    # typed PCE message shapes
 │   ├── pce-dom.ts                         # ← P2.5 Phase 3a

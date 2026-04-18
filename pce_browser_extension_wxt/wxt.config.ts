@@ -16,9 +16,12 @@ import { defineConfig } from "wxt";
  *   as `interceptor-<name>.js`, which `bridge.content.ts` injects via
  *   `chrome.runtime.getURL`. `web_accessible_resources` below lists those
  *   new paths.
- * - **ChatGPT / Claude / Gemini site extractors are TypeScript** (P2.5
- *   Phase 3b batch 1): `entrypoints/chatgpt.content.ts`,
- *   `entrypoints/claude.content.ts`, `entrypoints/gemini.content.ts`.
+ * - **Six site extractors are TypeScript** (P2.5 Phase 3b batches 1-2):
+ *     - batch 1: `entrypoints/chatgpt.content.ts`,
+ *       `entrypoints/claude.content.ts`, `entrypoints/gemini.content.ts`.
+ *     - batch 2: `entrypoints/deepseek.content.ts`,
+ *       `entrypoints/google-ai-studio.content.ts`,
+ *       `entrypoints/perplexity.content.ts`.
  *   They register themselves via `defineContentScript` and consume
  *   `utils/*.ts` directly (no window-global handoff). Their sites have
  *   been removed from the imperative `content_scripts` list below; a
@@ -26,12 +29,12 @@ import { defineConfig } from "wxt";
  *   `behavior_tracker.js` + `text_collector.js` + `detector.js` so
  *   the `__PCE_BEHAVIOR` global + "Save snippet" floating button
  *   remain wired.
- * - The remaining 10 site-specific content scripts + shared helpers
+ * - The remaining 7 site-specific content scripts + shared helpers
  *   (`pce_dom_utils.js`, `selector_engine.js`, `site_configs.js`,
  *   `detector.js`, `behavior_tracker.js`, `text_collector.js`) remain
  *   legacy `.js` under `../pce_browser_extension/content_scripts/`. A
  *   prebuild step copies them into `public/content_scripts/` so WXT can
- *   register them without an in-flight rewrite. Phase 3b batches 2–5
+ *   register them without an in-flight rewrite. Phase 3b batches 3–5
  *   migrate the rest 2–3 per PR.
  *
  * Two release flavours are produced via WXT env:
@@ -91,13 +94,18 @@ const LEGACY_SITE_SCRIPT_COMMON = [
 ] as const;
 
 // Sites whose extractor now ships as a TS `defineContentScript`
-// entrypoint (P2.5 Phase 3b). These get ONLY `SITE_INDEPENDENT_HELPERS`
-// via the shared entry below.
+// entrypoint (P2.5 Phase 3b batches 1-2). These get ONLY
+// `SITE_INDEPENDENT_HELPERS` via the shared entry below.
 const TS_EXTRACTOR_SITES = [
+  // Batch 1
   "https://chatgpt.com/*",
   "https://chat.openai.com/*",
   "https://claude.ai/*",
   "https://gemini.google.com/*",
+  // Batch 2
+  "https://chat.deepseek.com/*",
+  "https://aistudio.google.com/*",
+  "https://www.perplexity.ai/*",
 ] as const;
 
 function legacySiteBundle(site: string, extractor: string) {
@@ -155,12 +163,9 @@ export default defineConfig({
           run_at: "document_start",
         },
 
-        // --- Legacy JS extractors (Phase 3b batches 2-5 pending) ---
-        legacySiteBundle("https://aistudio.google.com/*", "google_ai_studio.js"),
+        // --- Legacy JS extractors (Phase 3b batches 3-5 pending) ---
         legacySiteBundle("https://manus.im/*", "manus.js"),
-        legacySiteBundle("https://chat.deepseek.com/*", "deepseek.js"),
         legacySiteBundle("https://chat.z.ai/*", "zhipu.js"),
-        legacySiteBundle("https://www.perplexity.ai/*", "perplexity.js"),
         legacySiteBundle("https://copilot.microsoft.com/*", "copilot.js"),
         legacySiteBundle("https://poe.com/*", "poe.js"),
         legacySiteBundle("https://huggingface.co/chat/*", "huggingface.js"),
