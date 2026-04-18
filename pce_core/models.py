@@ -75,7 +75,15 @@ class CaptureOut(BaseModel):
 # ---------------------------------------------------------------------------
 
 class CaptureRecord(BaseModel):
-    """A single raw_captures row."""
+    """A single raw_captures row.
+
+    The ``source`` / ``agent_*`` / ``capture_time_ns`` / ``quality_tier`` /
+    ``fingerprint`` / ``deduped_by`` / ``form_id`` / ``app_name`` /
+    ``layer_meta_json`` fields are the CaptureEvent v2 native columns added
+    by migration 0006 (UCS §5.5). They are optional so that rows inserted
+    before migration 0006 (or by legacy v1 producers that don't supply
+    them) still round-trip through the Query API.
+    """
 
     id: str
     created_at: float
@@ -96,6 +104,17 @@ class CaptureRecord(BaseModel):
     session_hint: Optional[str] = None
     meta_json: Optional[str] = None
     schema_version: int = 1
+    # ── CaptureEvent v2 native columns (migration 0006) ────────────────────
+    source: Optional[str] = None
+    agent_name: Optional[str] = None
+    agent_version: Optional[str] = None
+    capture_time_ns: Optional[int] = None
+    quality_tier: Optional[str] = None
+    fingerprint: Optional[str] = None
+    deduped_by: Optional[str] = None
+    form_id: Optional[str] = None
+    app_name: Optional[str] = None
+    layer_meta_json: Optional[str] = None
 
 
 class StorageInfo(BaseModel):

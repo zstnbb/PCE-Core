@@ -304,9 +304,29 @@ def insert_capture(
     meta_json: Optional[str] = None,
     schema_version: Optional[int] = None,
     source_id: str = SOURCE_PROXY,
+    # ── CaptureEvent v2 native columns (migration 0006, UCS §5.5) ──────────
+    source: Optional[str] = None,
+    agent_name: Optional[str] = None,
+    agent_version: Optional[str] = None,
+    capture_time_ns: Optional[int] = None,
+    quality_tier: str = "T1_structured",
+    fingerprint: Optional[str] = None,
+    deduped_by: Optional[str] = None,
+    form_id: Optional[str] = None,
+    app_name: Optional[str] = None,
+    layer_meta_json: Optional[str] = None,
     db_path: Optional[Path] = None,
 ) -> Optional[str]:
-    """Insert a raw capture row. Returns the capture id, or None on failure."""
+    """Insert a raw capture row. Returns the capture id, or None on failure.
+
+    The v2 kwargs (``source``, ``agent_name`` … ``layer_meta_json``) correspond
+    to the native columns added by migration 0006; callers that have a
+    ``CaptureEventV2`` in hand should populate them so the Query API can
+    filter by source / app / fingerprint without parsing ``meta_json``.
+    Legacy v1 callers omit them and get ``NULL`` (plus the ``quality_tier``
+    default ``"T1_structured"``) — that behaviour matches how
+    ``raw_captures`` looked before T-1d.
+    """
     capture_id = new_id()
     sv = schema_version if schema_version is not None else CAPTURE_SCHEMA_VERSION
     try:
@@ -318,8 +338,12 @@ def insert_capture(
                     (id, created_at, source_id, direction, pair_id, host, path,
                      method, provider, model_name, status_code, latency_ms,
                      headers_redacted_json, body_text_or_json, body_format,
-                     error, session_hint, meta_json, schema_version)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     error, session_hint, meta_json, schema_version,
+                     source, agent_name, agent_version, capture_time_ns,
+                     quality_tier, fingerprint, deduped_by, form_id, app_name,
+                     layer_meta_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     capture_id,
@@ -341,6 +365,17 @@ def insert_capture(
                     session_hint,
                     meta_json,
                     sv,
+                    # v2 native columns
+                    source,
+                    agent_name,
+                    agent_version,
+                    capture_time_ns,
+                    quality_tier,
+                    fingerprint,
+                    deduped_by,
+                    form_id,
+                    app_name,
+                    layer_meta_json,
                 ),
             )
             conn.commit()
