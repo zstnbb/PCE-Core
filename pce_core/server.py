@@ -890,13 +890,40 @@ def dev_reset():
 # Ingest
 # ---------------------------------------------------------------------------
 
+# v1 source_type → v2 CaptureSource mapping (mirrors from_v1_capture in
+# capture_event.py so v1- and v2-produced rows are indistinguishable on
+# the storage side post-T-1d-b).
+_V1_TO_V2_SOURCE: dict[str, str] = {
+    "proxy": "L1_mitm",
+    "browser_extension": "L3a_browser_ext",
+    "mcp": "L3c_vscode_ext",
+    "ide_plugin": "L3c_vscode_ext",
+    "local_model": "L3e_litellm",
+}
+
+
 @app.post("/api/v1/captures", response_model=CaptureOut, status_code=201)
 def ingest_capture(payload: CaptureIn):
-    """Accept a capture from any frontend (proxy, browser ext, MCP, etc.)."""
+    """Accept a capture from any frontend (proxy, browser ext, MCP, etc.).
+
+    Since T-1d-b this endpoint also populates the CaptureEvent v2 native
+    columns added by migration 0006. Rows produced via v1 are queryable
+    by ``source`` / ``fingerprint`` / ``app_name`` the same way as rows
+    produced via ``/api/v1/captures/v2`` — the storage shape is unified,
+    only the HTTP surface differs. This is the "gateway auto-upgrade"
+    contract from UCS §5.1.
+    """
     source_id = _SOURCE_MAP.get(payload.source_type, SOURCE_PROXY)
     pair_id = payload.pair_id or new_pair_id()
 
     meta_json = json.dumps(payload.meta, ensure_ascii=False) if payload.meta else None
+
+    # Derive v2 native column values from the v1 payload.
+    v2_source = _V1_TO_V2_SOURCE.get(
+        (payload.source_type or "").lower().strip(),
+        "L1_mitm",
+    )
+    v2_fingerprint = compute_fingerprint(pair_id, payload.body_json or "")
 
     capture_id = insert_capture(
         direction=payload.direction,
@@ -916,6 +943,12 @@ def ingest_capture(payload: CaptureIn):
         meta_json=meta_json,
         schema_version=payload.schema_version,
         source_id=source_id,
+        # v2 native columns — populated via v1→v2 mapping
+        source=v2_source,
+        agent_name=payload.source_name or "pce_v1_bridge",
+        agent_version=__version__,
+        capture_time_ns=time.time_ns(),
+        fingerprint=v2_fingerprint,
     )
 
     if capture_id is None:
@@ -1005,15 +1038,17 @@ def ingest_capture(payload: CaptureIn):
 # Pro layers in github.com/zstnbb/pce-pro reach this endpoint via local HTTP
 # — there is no in-process import path (see ADR-010 “dependency direction”).
 #
-# T-1b scope: endpoint + validation + persistence via the v1 ``raw_captures``
-# storage path (v2 fields preserved inside ``meta_json``). T-1c (migration
-# 0006) will add native v2 columns and T-1d will cut the endpoint over to
-# them; the two private helpers below disappear at that point.
+# After T-1d, the endpoint writes CaptureEvent v2 data into the native
+# ``raw_captures`` columns added by migration 0006 (UCS §5.5). Only v2
+# fields without a native column (``streaming``, ``stream_chunks``,
+# ``capture_host``) land in ``meta_json`` as a compact residual.
 
 def _v2_source_to_v1_source_id(source: str) -> str:
-    """Temporary: map a v2 CaptureSource to the closest v1 source_id.
+    """Map a v2 ``CaptureSource`` to the closest v1 ``sources`` FK.
 
-    Removed in T-1c once ``raw_captures.source`` exists natively.
+    ``raw_captures.source_id`` is a foreign key into the ``sources`` table
+    and still uses the v1 vocabulary (proxy / browser_ext / mcp). The new
+    ``raw_captures.source`` column carries the full v2 CaptureSource enum.
     """
     if source == "L3a_browser_ext":
         return SOURCE_BROWSER_EXT
@@ -1043,10 +1078,11 @@ def _extract_host_path(endpoint: Optional[str]) -> tuple[str, str]:
 def _v2_event_to_insert_kwargs(event: CaptureEventV2, pair_id: str) -> dict:
     """Adapt a CaptureEventV2 to the kwargs expected by ``insert_capture``.
 
-    Removed in T-1c once migration 0006 adds native v2 columns.
-    All v2-only fields (source, agent_*, quality_tier, layer_meta, form_id,
-    app_name, stream_chunks, fingerprint) are preserved inside ``meta_json``
-    under a ``v2`` envelope so the later migration can promote them.
+    Most v2 fields land in native columns added by migration 0006. Only
+    ``streaming``, ``stream_chunks`` and ``capture_host`` have no native
+    column yet; they are stashed in ``meta_json`` under stable namespaced
+    keys so a later schema promotion (v3) can move them without breaking
+    readers that already consult these paths.
     """
     host, path = _extract_host_path(event.endpoint)
 
@@ -1063,25 +1099,20 @@ def _v2_event_to_insert_kwargs(event: CaptureEventV2, pair_id: str) -> dict:
         headers_obj = event.response_headers or event.request_headers
         v1_direction = "conversation"
 
-    v2_envelope = {
-        "capture_id": event.capture_id,
-        "source": event.source,
-        "agent_name": event.agent_name,
-        "agent_version": event.agent_version,
-        "capture_time_ns": event.capture_time_ns,
-        "capture_host": event.capture_host,
-        "quality_tier": event.quality_tier,
-        "fingerprint": event.fingerprint,
-        "form_id": event.form_id,
-        "app_name": event.app_name,
-        "streaming": event.streaming,
+    # Minimal residual meta_json: only the v2 fields that still lack a
+    # native column. Everything else is a first-class column now.
+    residual_meta: dict[str, object] = {
+        "v2_capture_host": event.capture_host,
+        "v2_streaming": event.streaming,
     }
     if event.stream_chunks is not None:
-        v2_envelope["stream_chunks"] = event.stream_chunks
+        residual_meta["v2_stream_chunks"] = event.stream_chunks
+    meta_json = json.dumps(residual_meta, ensure_ascii=False)
 
-    meta_json = json.dumps(
-        {"v2": v2_envelope, "layer_meta": event.layer_meta},
-        ensure_ascii=False,
+    layer_meta_json = (
+        json.dumps(event.layer_meta, ensure_ascii=False)
+        if event.layer_meta
+        else None
     )
 
     headers_redacted_json = json.dumps(headers_obj or {}, ensure_ascii=False)
@@ -1090,6 +1121,7 @@ def _v2_event_to_insert_kwargs(event: CaptureEventV2, pair_id: str) -> dict:
     )
 
     return {
+        # v1 columns
         "direction": v1_direction,
         "pair_id": pair_id,
         "host": host,
@@ -1106,6 +1138,16 @@ def _v2_event_to_insert_kwargs(event: CaptureEventV2, pair_id: str) -> dict:
         "session_hint": event.session_hint,
         "meta_json": meta_json,
         "source_id": _v2_source_to_v1_source_id(event.source),
+        # v2 native columns (migration 0006)
+        "source": event.source,
+        "agent_name": event.agent_name,
+        "agent_version": event.agent_version,
+        "capture_time_ns": event.capture_time_ns,
+        "quality_tier": event.quality_tier,
+        "fingerprint": event.fingerprint,
+        "form_id": event.form_id,
+        "app_name": event.app_name,
+        "layer_meta_json": layer_meta_json,
     }
 
 

@@ -163,7 +163,10 @@ def test_v2_event_is_visible_in_v1_list_endpoint(tmp_path, monkeypatch):
         client.__exit__(None, None, None)
 
 
-def test_v2_envelope_preserved_in_meta_json(tmp_path, monkeypatch):
+def test_v2_envelope_exposed_via_native_columns(tmp_path, monkeypatch):
+    """Post-T-1d-b: v2 fields live in native columns (migration 0006),
+    not inside a meta_json envelope. Readers consult them directly via
+    the CaptureRecord response fields."""
     client, _ = _make_client(tmp_path, monkeypatch)
     try:
         pair_id = "pair-meta-1"
@@ -175,6 +178,7 @@ def test_v2_envelope_preserved_in_meta_json(tmp_path, monkeypatch):
                 pair_id=pair_id,
                 source="L3a_browser_ext",
                 agent_name="pce_browser_ext",
+                agent_version="2.1.0",
                 quality_tier="T1_structured",
                 form_id="F1",
                 app_name="chatgpt_web",
@@ -192,18 +196,21 @@ def test_v2_envelope_preserved_in_meta_json(tmp_path, monkeypatch):
         assert len(rows) == 1
         row = rows[0]
 
-        meta = json.loads(row["meta_json"])
-        assert "v2" in meta
-        v2 = meta["v2"]
-        assert v2["capture_id"] == capture_id
-        assert v2["source"] == "L3a_browser_ext"
-        assert v2["agent_name"] == "pce_browser_ext"
-        assert v2["quality_tier"] == "T1_structured"
-        assert v2["form_id"] == "F1"
-        assert v2["app_name"] == "chatgpt_web"
-        assert v2["fingerprint"] is not None  # auto-computed
+        # v2 fields surface as first-class CaptureRecord columns
+        assert row["source"] == "L3a_browser_ext"
+        assert row["agent_name"] == "pce_browser_ext"
+        assert row["agent_version"] == "2.1.0"
+        assert row["quality_tier"] == "T1_structured"
+        assert row["form_id"] == "F1"
+        assert row["app_name"] == "chatgpt_web"
+        assert row["fingerprint"] is not None  # auto-computed
+        assert len(row["fingerprint"]) == 64  # sha256 hex
+        assert row["capture_time_ns"] is not None
 
-        assert meta["layer_meta"] == {
+        # layer_meta escape hatch now lives in its own column as JSON text
+        assert row["layer_meta_json"] is not None
+        layer_meta = json.loads(row["layer_meta_json"])
+        assert layer_meta == {
             "dom.selector": "div.conversation-turn",
             "custom_nested": {"depth": [1, 2]},
         }
@@ -363,9 +370,9 @@ def test_fingerprint_auto_computed_when_client_omits(tmp_path, monkeypatch):
         assert r.status_code == 201
 
         rows = client.get(f"/api/v1/captures/pair/{pair_id}").json()
-        meta = json.loads(rows[0]["meta_json"])
-        assert meta["v2"]["fingerprint"] is not None
-        assert len(meta["v2"]["fingerprint"]) == 64  # sha256 hex
+        # Native column, no meta_json parsing required.
+        assert rows[0]["fingerprint"] is not None
+        assert len(rows[0]["fingerprint"]) == 64  # sha256 hex
     finally:
         client.__exit__(None, None, None)
 
@@ -382,8 +389,7 @@ def test_client_supplied_fingerprint_preserved(tmp_path, monkeypatch):
         assert r.status_code == 201
 
         rows = client.get(f"/api/v1/captures/pair/{pair_id}").json()
-        meta = json.loads(rows[0]["meta_json"])
-        assert meta["v2"]["fingerprint"] == client_fp
+        assert rows[0]["fingerprint"] == client_fp
     finally:
         client.__exit__(None, None, None)
 
@@ -393,6 +399,8 @@ def test_client_supplied_fingerprint_preserved(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_streaming_and_stream_chunks_preserved(tmp_path, monkeypatch):
+    """Post-T-1d-b: streaming + stream_chunks + capture_host have no native
+    columns yet; they live in meta_json under stable namespaced keys."""
     client, _ = _make_client(tmp_path, monkeypatch)
     try:
         pair_id = "pair-stream-1"
@@ -409,8 +417,9 @@ def test_streaming_and_stream_chunks_preserved(tmp_path, monkeypatch):
 
         rows = client.get(f"/api/v1/captures/pair/{pair_id}").json()
         meta = json.loads(rows[0]["meta_json"])
-        assert meta["v2"]["streaming"] is True
-        assert meta["v2"]["stream_chunks"] == chunks
+        assert meta["v2_streaming"] is True
+        assert meta["v2_stream_chunks"] == chunks
+        assert meta["v2_capture_host"] == "test-host#1"
     finally:
         client.__exit__(None, None, None)
 
@@ -429,5 +438,108 @@ def test_session_hint_preserved(tmp_path, monkeypatch):
         assert r.status_code == 201
         rows = client.get(f"/api/v1/captures/pair/{pair_id}").json()
         assert rows[0]["session_hint"] == "conv-abc-123"
+    finally:
+        client.__exit__(None, None, None)
+
+
+# ---------------------------------------------------------------------------
+# v1 gateway auto-upgrade (UCS §5.1 — v1 endpoint populates v2 native cols)
+# ---------------------------------------------------------------------------
+
+def test_v1_endpoint_populates_v2_native_columns(tmp_path, monkeypatch):
+    """Post-T-1d-b2 contract: legacy producers hitting /api/v1/captures now
+    get their rows tagged with v2 native columns (source, agent_*,
+    capture_time_ns, fingerprint) so the Query API treats v1 and v2 rows
+    uniformly. This is the 'gateway auto-upgrade' mentioned in UCS §5.1."""
+    client, _ = _make_client(tmp_path, monkeypatch)
+    try:
+        r = client.post(
+            "/api/v1/captures",
+            json={
+                "source_type": "proxy",
+                "source_name": "mitmproxy-addon",
+                "direction": "request",
+                "provider": "openai",
+                "host": "api.openai.com",
+                "path": "/v1/chat/completions",
+                "method": "POST",
+                "headers_json": "{}",
+                "body_json": '{"model":"gpt-4o"}',
+                "body_format": "json",
+                "pair_id": "pair-v1-upgrade",
+            },
+        )
+        assert r.status_code == 201
+
+        rows = client.get("/api/v1/captures/pair/pair-v1-upgrade").json()
+        assert len(rows) == 1
+        row = rows[0]
+        # v2 native columns populated via v1→v2 mapping
+        assert row["source"] == "L1_mitm"
+        assert row["agent_name"] == "mitmproxy-addon"
+        assert row["agent_version"]  # pce __version__ string
+        assert row["capture_time_ns"] is not None and row["capture_time_ns"] > 0
+        assert row["fingerprint"] is not None
+        assert len(row["fingerprint"]) == 64
+        assert row["quality_tier"] == "T1_structured"
+    finally:
+        client.__exit__(None, None, None)
+
+
+def test_v1_browser_extension_maps_to_l3a(tmp_path, monkeypatch):
+    client, _ = _make_client(tmp_path, monkeypatch)
+    try:
+        r = client.post(
+            "/api/v1/captures",
+            json={
+                "source_type": "browser_extension",
+                "source_name": "chrome-ext",
+                "direction": "conversation",
+                "provider": "anthropic",
+                "host": "claude.ai",
+                "path": "/chat",
+                "method": "GET",
+                "headers_json": "{}",
+                "body_json": "{}",
+                "body_format": "json",
+                "pair_id": "pair-v1-ext-1",
+            },
+        )
+        assert r.status_code == 201
+
+        rows = client.get("/api/v1/captures/pair/pair-v1-ext-1").json()
+        assert rows[0]["source"] == "L3a_browser_ext"
+        assert rows[0]["agent_name"] == "chrome-ext"
+
+
+    finally:
+        client.__exit__(None, None, None)
+
+
+def test_v1_unknown_source_type_falls_back_to_l1(tmp_path, monkeypatch):
+    """Defensive: an unrecognised source_type shouldn't leave the row
+    with a NULL source — it falls back to L1_mitm, matching
+    from_v1_capture's behaviour."""
+    client, _ = _make_client(tmp_path, monkeypatch)
+    try:
+        r = client.post(
+            "/api/v1/captures",
+            json={
+                "source_type": "mystery_source",
+                "direction": "request",
+                "provider": "unknown",
+                "host": "",
+                "path": "",
+                "method": "",
+                "headers_json": "{}",
+                "body_json": "",
+                "body_format": "json",
+                "pair_id": "pair-v1-mystery",
+            },
+        )
+        assert r.status_code == 201
+
+        rows = client.get("/api/v1/captures/pair/pair-v1-mystery").json()
+        assert rows[0]["source"] == "L1_mitm"
     finally:
         client.__exit__(None, None, None)

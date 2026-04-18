@@ -223,9 +223,13 @@ class TestQueryAPIExposesNativeColumns:
             assert row["app_name"] == "chatgpt_web"
             assert row["layer_meta_json"] == '{"mitm.flow_id":"flow-1"}'
 
-    def test_pair_endpoint_omits_v2_fields_or_returns_null_for_v1_rows(
+    def test_pair_endpoint_returns_v2_columns_for_v1_upgraded_rows(
         self, tmp_path, monkeypatch
     ):
+        """Post-T-1d-b2: v1 /api/v1/captures rows are 'auto-upgraded' —
+        source/agent_name/agent_version/capture_time_ns/fingerprint get
+        populated from the v1 payload (see _V1_TO_V2_SOURCE in server.py).
+        Only columns without a v1→v2 mapping stay NULL (form_id, app_name)."""
         monkeypatch.setenv("PCE_DATA_DIR", str(tmp_path))
         monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
 
@@ -244,11 +248,11 @@ class TestQueryAPIExposesNativeColumns:
 
         client = TestClient(_server.app)
         with client:
-            # Insert via the v1 endpoint — no v2 kwargs are passed.
             r = client.post(
                 "/api/v1/captures",
                 json={
                     "source_type": "proxy",
+                    "source_name": "mitmproxy-addon",
                     "direction": "request",
                     "provider": "openai",
                     "host": "api.openai.com",
@@ -265,12 +269,22 @@ class TestQueryAPIExposesNativeColumns:
             rows = client.get("/api/v1/captures/pair/pair-v1-legacy").json()
             assert len(rows) == 1
             row = rows[0]
-            # v1 path writes NULL for source/agent_*/fingerprint/etc.
-            assert row.get("source") is None
-            assert row.get("agent_name") is None
-            assert row.get("fingerprint") is None
-            # quality_tier is the one v2 column with a DB default
+
+            # v2 columns derivable from a v1 payload are populated
+            assert row.get("source") == "L1_mitm"
+            assert row.get("agent_name") == "mitmproxy-addon"
+            assert row.get("agent_version")  # pce __version__
+            assert row.get("capture_time_ns") is not None
+            assert row.get("fingerprint") is not None
+            assert len(row.get("fingerprint")) == 64
             assert row.get("quality_tier") == "T1_structured"
+
+            # Columns a v1 producer has no way of setting remain NULL —
+            # form_id (needs Supervisor) and app_name (needs process hint).
+            assert row.get("form_id") is None
+            assert row.get("app_name") is None
+            # Pure v1 path doesn't use layer_meta either.
+            assert row.get("layer_meta_json") is None
 
 
 # ---------------------------------------------------------------------------
