@@ -2,10 +2,11 @@
 
 P2 skeleton per [TASK-004 §5.1](../Docs/tasks/TASK-004-P2-capture-ux-upgrade.md)
 and [ADR-006](../Docs/docs/engineering/adr/ADR-006-browser-extension-framework-wxt.md).
-P2.5 Phase 3b batch 3 (Copilot + Poe + Grok extractors on TypeScript
-+ `requireBothRoles` runtime option) landed on 2026-04-18, following
-batches 1-2 (ChatGPT + Claude + Gemini + DeepSeek + Google AI Studio
-+ Perplexity + shared capture runtime) the same day.
+P2.5 Phase 3b batch 4 (HuggingFace + Manus + Zhipu extractors on
+TypeScript) landed on 2026-04-18, following batches 1-3 (ChatGPT +
+Claude + Gemini + DeepSeek + Google AI Studio + Perplexity + Copilot +
+Poe + Grok + shared capture runtime with `requireBothRoles` option)
+the same day. **12 of 13 site extractors now on TypeScript**.
 
 ## Status
 
@@ -33,10 +34,13 @@ batches 1-2 (ChatGPT + Claude + Gemini + DeepSeek + Google AI Studio
 | DeepSeek extractor on TypeScript | ✅ landed (P2.5.3b2) |
 | Google AI Studio extractor on TypeScript | ✅ landed (P2.5.3b2) |
 | Perplexity extractor on TypeScript | ✅ landed (P2.5.3b2) |
-| Microsoft Copilot extractor on TypeScript | ✅ **landed (P2.5.3b3)** |
-| Poe extractor on TypeScript | ✅ **landed (P2.5.3b3)** |
-| Grok extractor on TypeScript | ✅ **landed (P2.5.3b3)** |
-| Remaining 4 site extractors rewritten in TypeScript | ⏳ P2.5 Phase 3b batches 4-5 (2-3 per PR) |
+| Microsoft Copilot extractor on TypeScript | ✅ landed (P2.5.3b3) |
+| Poe extractor on TypeScript | ✅ landed (P2.5.3b3) |
+| Grok extractor on TypeScript | ✅ landed (P2.5.3b3) |
+| HuggingFace Chat extractor on TypeScript | ✅ **landed (P2.5.3b4)** |
+| Manus extractor on TypeScript | ✅ **landed (P2.5.3b4)** |
+| Zhipu / Z.ai extractor on TypeScript | ✅ **landed (P2.5.3b4)** |
+| Remaining 1 site extractor (`generic.js` for Mistral + Kimi) | ⏳ P2.5 Phase 3b batch 5 |
 | E2E verified against the new bundle | ⏳ P2.5 Phase 4 |
 
 The step-by-step deferral honours ADR-006's guardrail:
@@ -47,6 +51,90 @@ The step-by-step deferral honours ADR-006's guardrail:
 Every P2.5 phase is a pure 1-for-1 behaviour port. The legacy JS under
 `../pce_browser_extension/` is the frozen source-of-truth for site
 extractors until Phase 3b–3f migrates them.
+
+## What P2.5 Phase 3b batch 4 shipped
+
+Three more site extractors ported — HuggingFace Chat, Manus, Zhipu
+(Z.ai). 12 of 13 site extractors are now on TypeScript; only
+`generic.js` (Mistral + Kimi) remains, and will ship in batch 5.
+
+### New `entrypoints/*.content.ts`
+
+- `entrypoints/huggingface.content.ts` — 4 role-selector strategies
+  (`[class*=message][class*=user|assistant]` pair,
+  `[data-message-role]`, `[class*=ConversationMessage]`,
+  `[class*=chat-message]`) plus an alternating-children fallback
+  for unknown-role pages. Model-name resolution uses three stages:
+  header selector → `/chat/models/<name>` URL (URL-decoded) →
+  title prefix containing `/`.
+- `entrypoints/manus.content.ts` — anchors on `#manus-chat-box`,
+  extracts from `.items-end .u-break-words` / `.whitespace-pre-wrap`
+  (user bubbles) and `.manus-markdown` blocks (assistant). Chinese
+  UI noise stripped byte-for-byte from the legacy regex set (`Lite`
+  / `分享` / `升级` / `任务已完成` / `推荐追问`). Local
+  attachment extractor preserves Manus-specific ``<pre>`` code
+  blocks with sibling ``span.text-sm`` language labels + external
+  citation links. `"Manus"` ultimate model-name fallback.
+- `entrypoints/zhipu.content.ts` — dedicated `chat-user` /
+  `chat-assistant` class markers with union selector across 5
+  alternative patterns (the legacy JS mixed four different class
+  conventions across rendering paths). `GLM-*` body-text regex for
+  model name. `requireBothRoles: true` preserves the legacy
+  "only user visible → defer" guard (see Design Decisions below).
+
+All three use incremental capture mode and URL-polling SPA nav.
+
+### Manifest update (`wxt.config.ts`)
+
+`TS_EXTRACTOR_SITES` grew from 10 to 13 entries. HuggingFace, Manus,
+and Zhipu are removed from `legacySiteBundle()` calls. The imperative
+`content_scripts` list now contains only:
+
+  1. The shared `SITE_INDEPENDENT_HELPERS` entry for the 13 TS
+     extractor sites.
+  2. The `generic.js` entry covering Mistral + Kimi (batch 5
+     migrates this).
+  3. The universal `detector.js` exclude-cover entry for uncovered
+     pages.
+
+The `legacySiteBundle()` helper is no longer called but kept defined
+for clarity (batch 5 will remove it).
+
+### Tests added (45 new cases across 3 files, 367 total)
+
+| File | Test count |
+|---|---|
+| `entrypoints/__tests__/huggingface.content.test.ts` | 15 |
+| `entrypoints/__tests__/manus.content.test.ts` | 15 |
+| `entrypoints/__tests__/zhipu.content.test.ts` | 15 |
+
+Coverage highlights:
+
+- HuggingFace — session-hint hex match (case-insensitive) + fallback,
+  4 container priority levels, role inference (`data-message-role`,
+  class keywords user/human/assistant/bot/model), extractText
+  noise stripping + `.prose`/`.markdown` preference, 5-stage
+  model-name ladder (header → URL-decoded path → title prefix →
+  null).
+- Manus — `normalizeText` Chinese UI noise regex, `getChatBox` /
+  `getContainer` priority, `getModelName` 3-tier ladder with
+  `"Manus"` fallback, `dedupeAttachments` JSON-key dedup, local
+  attachment extraction (pre with language label + citation
+  same-origin skip), extractMessages pair + dedup + no-chatbox.
+- Zhipu — `normalizeText` whitespace collapse + empty-line filter,
+  `/c/<uuid>` case-insensitive session hint, `GLM-*` body-text
+  regex (case-insensitive), role detection (3 paths), extractMessages
+  pair + `.user-message` + skip-unknown + dedup + empty.
+
+### Intentional behaviour deviation from legacy Zhipu
+
+The legacy `zhipu.js` silently dropped ``message_update`` captures
+(content changes on already-sent messages just updated the
+fingerprint without a send). The runtime emits those captures with
+``capture_mode: "message_update"``, so streaming updates to the last
+assistant message ARE captured. Backend dedup + session-hint rollup
+absorb any extra requests. Net effect: richer data, no duplicate
+messages. Documented in the completion note.
 
 ## What P2.5 Phase 3b batch 3 shipped
 
@@ -418,7 +506,7 @@ pnpm build:firefox              # Firefox bundle       → .output/firefox-mv3/
 pnpm zip                        # Chrome .zip for sideload / store
 pnpm zip:firefox                # Firefox .xpi
 pnpm typecheck                  # strict tsc --noEmit
-pnpm test                       # Vitest — unit tests (322 cases after 3b3)
+pnpm test                       # Vitest — unit tests (367 cases after 3b4)
 pnpm test:watch                 # Vitest watch mode
 ```
 
@@ -461,9 +549,9 @@ Each phase is a separate PR, reviewable and revertable on its own:
 
 1. ✅ `chatgpt.js` + `claude.js` + `gemini.js` (2026-04-18)
 2. ✅ `deepseek.js` + `google_ai_studio.js` + `perplexity.js` (2026-04-18)
-3. ✅ `copilot.js` + `poe.js` + `grok.js` (**this PR**)
-4. ⏳ `huggingface.js` + `manus.js` + `zhipu.js`
-5. ⏳ `generic.js` + `universal_extractor.js` +
+3. ✅ `copilot.js` + `poe.js` + `grok.js` (2026-04-18)
+4. ✅ `huggingface.js` + `manus.js` + `zhipu.js` (**this PR**)
+5. ⏳ `generic.js` (Mistral + Kimi) + `universal_extractor.js` +
    `detector.js` / `behavior_tracker.js` / `text_collector.js`
 
 Each site extractor becomes an `entrypoints/<site>.content.ts`
@@ -477,7 +565,7 @@ and `utils/capture-runtime.ts`.
 - Delete `public/{content_scripts,icons,popup}` staging.
 - Update root README and install docs to point only at this directory.
 
-## File tree (after Phase 3b batch 3)
+## File tree (after Phase 3b batch 4)
 
 ```
 pce_browser_extension_wxt/
@@ -507,6 +595,9 @@ pce_browser_extension_wxt/
 │   ├── copilot.content.ts                 # ← P2.5 Phase 3b3
 │   ├── poe.content.ts                     # ← P2.5 Phase 3b3
 │   ├── grok.content.ts                    # ← P2.5 Phase 3b3
+│   ├── huggingface.content.ts             # ← P2.5 Phase 3b4
+│   ├── manus.content.ts                   # ← P2.5 Phase 3b4
+│   ├── zhipu.content.ts                   # ← P2.5 Phase 3b4
 │   ├── background/
 │   │   ├── capture-queue.ts               # ← P2.5 Phase 1
 │   │   ├── injector.ts                    # ← P2.5 Phase 1
@@ -524,7 +615,10 @@ pce_browser_extension_wxt/
 │       ├── perplexity.content.test.ts     # ← P2.5 Phase 3b2
 │       ├── copilot.content.test.ts        # ← P2.5 Phase 3b3
 │       ├── poe.content.test.ts            # ← P2.5 Phase 3b3
-│       └── grok.content.test.ts           # ← P2.5 Phase 3b3
+│       ├── grok.content.test.ts           # ← P2.5 Phase 3b3
+│       ├── huggingface.content.test.ts    # ← P2.5 Phase 3b4
+│       ├── manus.content.test.ts          # ← P2.5 Phase 3b4
+│       └── zhipu.content.test.ts          # ← P2.5 Phase 3b4
 ├── utils/
 │   ├── pce-messages.ts                    # typed PCE message shapes
 │   ├── pce-dom.ts                         # ← P2.5 Phase 3a
