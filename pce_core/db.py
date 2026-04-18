@@ -794,6 +794,184 @@ def prune_pipeline_errors(db_path: Optional[Path] = None) -> int:
 
 
 # ---------------------------------------------------------------------------
+# TLS failures — pinning detection (P5.A-6)
+# ---------------------------------------------------------------------------
+
+# Retention: keep 7 days of TLS failures. Pinning detection operates on a
+# 24h window by default, so a week is enough history for a user to notice
+# a newly-pinned app over a weekend without letting the table grow forever.
+_TLS_FAILURE_RETAIN_SECONDS = 7 * 86400
+# Cap error_message length at write time — mitmproxy occasionally hands
+# us multi-line OpenSSL traces that have no analytical value beyond the
+# first sentence.
+_TLS_FAILURE_MESSAGE_CAP = 500
+
+
+def record_tls_failure(
+    host: str,
+    error_category: str,
+    error_message: str = "",
+    *,
+    db_path: Optional[Path] = None,
+) -> None:
+    """Record a TLS handshake failure for pinning detection.
+
+    Fail-safe: any DB error is swallowed so the proxy stays alive and
+    callers don't need a try/except around every invocation.
+
+    Args:
+        host: The SNI (preferred) or peer IP the failing handshake targeted.
+        error_category: A short stable slug like ``"cert_rejected"`` or
+            ``"handshake_timeout"``. Used by the aggregation endpoint to
+            group similar failures — do not include per-instance detail.
+        error_message: Free-form description from the TLS stack. Capped
+            at ``_TLS_FAILURE_MESSAGE_CAP`` chars at write time.
+    """
+    if not host:
+        return  # nothing to aggregate on
+    try:
+        conn = get_connection(db_path)
+        try:
+            conn.execute(
+                "INSERT INTO tls_failures "
+                "(created_at, host, error_category, error_message) "
+                "VALUES (?, ?, ?, ?)",
+                (
+                    time.time(),
+                    host,
+                    error_category or "unknown",
+                    (error_message or "")[:_TLS_FAILURE_MESSAGE_CAP],
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        logger.exception(
+            "record_tls_failure failed (host=%s) – swallowing to keep proxy alive",
+            host,
+        )
+
+
+def query_pinning_stats(
+    *,
+    window_hours: float = 24.0,
+    min_failures: int = 5,
+    failure_rate_threshold: float = 0.20,
+    db_path: Optional[Path] = None,
+) -> dict[str, Any]:
+    """Aggregate TLS failures + proxy-path captures into per-host pinning stats.
+
+    For every host that has at least one failure in the window, we count:
+
+    - ``failures``: rows in ``tls_failures``
+    - ``successes``: distinct ``pair_id`` values in ``raw_captures`` with
+      ``source_id = SOURCE_PROXY`` for the same host
+
+    A host is flagged ``suspected_pinning=True`` only when **both**
+    ``failures >= min_failures`` *and* ``failure_rate >
+    failure_rate_threshold``. The min-samples guard prevents a single
+    transient glitch from setting off the dashboard red dot.
+
+    Args:
+        window_hours: Look-back window. 24h matches the dashboard cadence.
+        min_failures: Ignore noise — need this many failures before flagging.
+        failure_rate_threshold: Fraction of total handshakes that failed.
+    """
+    now = time.time()
+    cutoff = now - window_hours * 3600
+
+    conn = get_connection(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        try:
+            failure_rows = conn.execute(
+                """
+                SELECT host,
+                       COUNT(*)                                AS failures,
+                       MAX(created_at)                         AS last_failure_ts,
+                       (SELECT error_category FROM tls_failures tf2
+                         WHERE tf2.host = tf.host
+                         ORDER BY created_at DESC LIMIT 1)     AS last_error_category
+                FROM tls_failures tf
+                WHERE created_at >= ?
+                GROUP BY host
+                ORDER BY failures DESC
+                """,
+                (cutoff,),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            # Migration 0007 not yet applied — treat as "no failures yet".
+            failure_rows = []
+
+        hosts_out: list[dict[str, Any]] = []
+        suspected_count = 0
+
+        for row in failure_rows:
+            host = row["host"]
+            failures = int(row["failures"])
+
+            success_row = conn.execute(
+                """
+                SELECT COUNT(DISTINCT pair_id) AS cnt
+                FROM raw_captures
+                WHERE host = ? AND created_at >= ? AND source_id = ?
+                """,
+                (host, cutoff, SOURCE_PROXY),
+            ).fetchone()
+            successes = int(success_row["cnt"]) if success_row else 0
+
+            total = failures + successes
+            failure_rate = (failures / total) if total > 0 else 1.0
+
+            suspected = (
+                failures >= min_failures
+                and failure_rate > failure_rate_threshold
+            )
+            if suspected:
+                suspected_count += 1
+
+            hosts_out.append({
+                "host": host,
+                "failures": failures,
+                "successes": successes,
+                "failure_rate": round(failure_rate, 4),
+                "suspected_pinning": suspected,
+                "last_failure_ts": row["last_failure_ts"],
+                "last_error_category": row["last_error_category"] or "unknown",
+            })
+    finally:
+        conn.close()
+
+    return {
+        "window_hours": window_hours,
+        "min_failures_threshold": min_failures,
+        "failure_rate_threshold": failure_rate_threshold,
+        "suspected_pinning_count": suspected_count,
+        "hosts": hosts_out,
+    }
+
+
+def prune_tls_failures(db_path: Optional[Path] = None) -> int:
+    """Drop ``tls_failures`` rows older than the retention window."""
+    cutoff = time.time() - _TLS_FAILURE_RETAIN_SECONDS
+    try:
+        conn = get_connection(db_path)
+        try:
+            cur = conn.execute(
+                "DELETE FROM tls_failures WHERE created_at < ?", (cutoff,),
+            )
+            deleted = cur.rowcount or 0
+            conn.commit()
+            return deleted
+        finally:
+            conn.close()
+    except Exception:
+        logger.exception("prune_tls_failures failed")
+        return 0
+
+
+# ---------------------------------------------------------------------------
 # Detailed health (P0)
 # ---------------------------------------------------------------------------
 

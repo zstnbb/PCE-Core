@@ -83,7 +83,9 @@ from .models import (
     CaptureOut,
     CaptureRecord,
     HealthOut,
+    HostPinningStats,
     MessageRecord,
+    PinningReport,
     SessionRecord,
     SnippetIn,
     SnippetRecord,
@@ -306,6 +308,42 @@ def migrations_status():
         "ok": current == EXPECTED_SCHEMA_VERSION,
         "history": history,
     }
+
+
+@app.get("/api/v1/health/pinning", response_model=PinningReport)
+def pinning_status(
+    window_hours: float = 24.0,
+    min_failures: int = 5,
+    failure_rate_threshold: float = 0.20,
+):
+    """TLS failure / pinning detection report (P5.A-6, UCS §3.2).
+
+    Aggregates client-side TLS handshake failures written by the proxy
+    addon into a per-host breakdown. The dashboard polls this endpoint
+    to decide whether to show the red-dot indicator + 3-suggestion panel
+    (Frida in v1.2, per-app bypass, Discord feedback).
+
+    Query params let callers tune the thresholds (e.g. stricter rules
+    for release-readiness checks) without changing the defaults used by
+    the UI.
+    """
+    from .db import query_pinning_stats
+
+    try:
+        return query_pinning_stats(
+            window_hours=window_hours,
+            min_failures=min_failures,
+            failure_rate_threshold=failure_rate_threshold,
+        )
+    except Exception:
+        logger.exception("query_pinning_stats failed – returning empty report")
+        return PinningReport(
+            window_hours=window_hours,
+            min_failures_threshold=min_failures,
+            failure_rate_threshold=failure_rate_threshold,
+            suspected_pinning_count=0,
+            hosts=[],
+        )
 
 
 # ---------------------------------------------------------------------------

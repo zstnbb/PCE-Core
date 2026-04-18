@@ -22,7 +22,7 @@ from .config import ALLOWED_HOSTS
 from .db import init_db, insert_capture, new_pair_id
 from .redact import redact_headers_json, safe_body_text
 from pce_core.normalizer.pipeline import try_normalize_pair
-from pce_core.db import SOURCE_PROXY, record_pipeline_error
+from pce_core.db import SOURCE_PROXY, record_pipeline_error, record_tls_failure
 from pce_core.config import CAPTURE_MODE, CaptureMode
 from pce_core.logging_config import configure_logging, log_event
 
@@ -103,6 +103,72 @@ def _extract_model(body_bytes: bytes) -> Optional[str]:
         return data.get("model")
     except Exception:
         return None
+
+
+# ---------------------------------------------------------------------------
+# TLS failure categorisation — pinning detection (P5.A-6, UCS §3.2)
+# ---------------------------------------------------------------------------
+
+def _categorize_tls_error(error: str) -> str:
+    """Map a raw TLS error string to a stable category slug.
+
+    Categories are consumed by ``/api/v1/health/pinning`` to group hosts
+    by failure kind, so the slugs must stay stable even as OpenSSL error
+    text varies across versions. Unknown errors fall through to
+    ``"unknown"`` — the UI treats anything unrecognised as "likely a TLS
+    config issue, investigate the raw message".
+    """
+    if not error:
+        return "unknown"
+    e = error.lower()
+    # Order matters: more specific matches first.
+    if "pinning" in e or "pinned" in e or "pin verification" in e:
+        return "pinning_explicit"
+    if "certificate_unknown" in e or "unknown_ca" in e or "unknown ca" in e:
+        return "cert_unknown_ca"
+    if "certificate" in e and ("reject" in e or "invalid" in e or "verify" in e):
+        return "cert_verify_failed"
+    if "bad certificate" in e or "bad_certificate" in e:
+        return "cert_rejected"
+    if "handshake_failure" in e or "handshake failure" in e:
+        return "handshake_failure"
+    if "timeout" in e or "timed out" in e:
+        return "handshake_timeout"
+    if "protocol" in e and "version" in e:
+        return "protocol_version"
+    if "ssl" in e or "tls" in e:
+        return "tls_other"
+    return "unknown"
+
+
+def _extract_tls_host(tls_data: object) -> str:
+    """Best-effort host extraction from a mitmproxy ``tls.TlsData`` object.
+
+    mitmproxy exposes the SNI on ``data.conn.sni`` (bytes since 10.x,
+    str in 11.x). We defensively decode either shape and fall back to
+    the peer address only if no SNI is available — peer IP is less
+    useful for pinning attribution but better than nothing.
+    """
+    try:
+        conn = getattr(tls_data, "conn", None)
+        if conn is not None:
+            sni = getattr(conn, "sni", None)
+            if isinstance(sni, bytes):
+                try:
+                    sni = sni.decode("ascii", errors="replace")
+                except Exception:
+                    sni = ""
+            if sni:
+                return str(sni)
+        # Fallback: peername may be on conn or on context.client
+        context = getattr(tls_data, "context", None)
+        client = getattr(context, "client", None) if context else None
+        peername = getattr(client, "peername", None) if client else None
+        if peername and len(peername) >= 1:
+            return str(peername[0])
+    except Exception:  # pragma: no cover — defensive
+        pass
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -330,6 +396,65 @@ class PCEAddon:
                 source_id=SOURCE_PROXY, pair_id=pair_id,
                 details={"direction": "response", "host": host},
             )
+
+
+    # ── TLS failure hooks (P5.A-6) ────────────────────────────────────────
+    #
+    # When the proxied application refuses our MITM-injected certificate
+    # mid-handshake, that's the canonical signature of TLS / certificate
+    # pinning. We log the failure to ``tls_failures`` for aggregation via
+    # ``GET /api/v1/health/pinning``.
+    #
+    # mitmproxy fires ``tls_failed_client`` for client-side handshake
+    # failures (the pinning case) and ``tls_failed_server`` for upstream
+    # failures (usually user-side misconfiguration). We track both but
+    # only the client-side failures are treated as pinning evidence by
+    # the aggregation endpoint — the dashboard surfaces the distinction.
+
+    def tls_failed_client(self, data) -> None:
+        """Client refused our MITM cert — the canonical pinning signal."""
+        try:
+            host = _extract_tls_host(data)
+            if not host:
+                return
+            error = ""
+            conn = getattr(data, "conn", None)
+            if conn is not None:
+                err_obj = getattr(conn, "error", None)
+                if err_obj:
+                    error = str(err_obj)
+            category = _categorize_tls_error(error)
+            record_tls_failure(
+                host=host,
+                error_category=category,
+                error_message=error,
+            )
+            log_event(
+                logger, "proxy.tls_client_failed",
+                host=host, error_category=category,
+                error=error[:200] if error else "",
+            )
+        except Exception:
+            logger.exception("tls_failed_client hook error — swallowing")
+
+    def tls_failed_server(self, data) -> None:
+        """Upstream server TLS failed. Logged as diagnostic, not pinning."""
+        try:
+            host = _extract_tls_host(data)
+            if not host:
+                return
+            error = ""
+            conn = getattr(data, "conn", None)
+            if conn is not None:
+                err_obj = getattr(conn, "error", None)
+                if err_obj:
+                    error = str(err_obj)
+            log_event(
+                logger, "proxy.tls_server_failed",
+                host=host, error=error[:200] if error else "",
+            )
+        except Exception:
+            logger.exception("tls_failed_server hook error — swallowing")
 
 
 # mitmproxy picks up addon instances via the `addons` module-level list.

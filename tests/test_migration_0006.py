@@ -67,8 +67,11 @@ def _index_names(conn: sqlite3.Connection, table: str) -> set[str]:
 # ---------------------------------------------------------------------------
 
 class TestSchemaVersion:
-    def test_expected_schema_version_is_6(self):
-        assert EXPECTED_SCHEMA_VERSION == 6
+    def test_expected_schema_version_covers_0006(self):
+        # Kept as a lower-bound check so later migrations (0007+) don't
+        # retroactively "break" this file — its job is to verify 0006's
+        # effects, not to pin the schema head.
+        assert EXPECTED_SCHEMA_VERSION >= 6
 
     def test_migration_0006_discovered(self):
         migrations = list(discover_migrations())
@@ -90,12 +93,12 @@ class TestSchemaVersion:
 # ---------------------------------------------------------------------------
 
 class TestUpgradeFreshDB:
-    def test_apply_migrations_advances_to_version_6(self, tmp_path):
+    def test_apply_migrations_advances_at_least_to_6(self, tmp_path):
         conn = _fresh_conn(tmp_path)
         try:
             final_version = apply_migrations(conn)
-            assert final_version == 6
-            assert get_current_version(conn) == 6
+            assert final_version >= 6
+            assert get_current_version(conn) >= 6
         finally:
             conn.close()
 
@@ -173,7 +176,8 @@ class TestIdempotency:
         try:
             first = apply_migrations(conn)
             second = apply_migrations(conn)
-            assert first == second == 6
+            assert first == second
+            assert first >= 6  # 0006 applied
         finally:
             conn.close()
 
@@ -279,8 +283,11 @@ def test_v2_ingest_endpoint_still_works_end_to_end(tmp_path, monkeypatch):
         # Health should report version 6
         h = client.get("/api/v1/health/migrations")
         assert h.status_code == 200
-        assert h.json()["current_version"] == 6
-        assert h.json()["expected_version"] == 6
+        # Version-agnostic: the head can drift as later migrations land.
+        current = h.json()["current_version"]
+        expected = h.json()["expected_version"]
+        assert current == expected
+        assert current >= 6
 
         # And a v2 ingest should still land
         payload = {

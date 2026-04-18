@@ -117,6 +117,40 @@ class CaptureRecord(BaseModel):
     layer_meta_json: Optional[str] = None
 
 
+class HostPinningStats(BaseModel):
+    """Per-host TLS failure aggregation (P5.A-6).
+
+    One entry per host that has had at least one TLS handshake failure
+    within the report window. ``suspected_pinning`` becomes ``True`` only
+    when both the absolute failure count and the failure rate cross the
+    configured thresholds — see ``pce_core.db.query_pinning_stats``.
+    """
+
+    host: str
+    failures: int
+    successes: int
+    failure_rate: float
+    suspected_pinning: bool
+    last_failure_ts: Optional[float] = None
+    last_error_category: str = "unknown"
+
+
+class PinningReport(BaseModel):
+    """Response body of ``GET /api/v1/health/pinning`` (P5.A-6).
+
+    The dashboard renders the red-dot indicator when
+    ``suspected_pinning_count > 0`` and expands a per-host detail panel
+    using the ``hosts`` array. The threshold fields are echoed so the UI
+    can explain *why* a host is flagged.
+    """
+
+    window_hours: float
+    min_failures_threshold: int
+    failure_rate_threshold: float
+    suspected_pinning_count: int
+    hosts: list[HostPinningStats] = []
+
+
 class StorageInfo(BaseModel):
     """Storage usage statistics."""
 
