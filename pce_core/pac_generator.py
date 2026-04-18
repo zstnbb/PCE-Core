@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Core – PAC (Proxy Auto-Configuration) file generator.
 
 Generates a proxy.pac file that routes only AI traffic through the

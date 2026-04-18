@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Core – OpenInference / OpenTelemetry GenAI attribute mapper.
 
 Converts PCE's own (session, message, raw_capture) records into

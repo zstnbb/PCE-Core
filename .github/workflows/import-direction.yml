@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Enforces the Open Core dependency-direction rule on the `pce` (OSS) repository.
+# See ADR-010 and CONTRIBUTING.md.
+#
+# This workflow runs on every push and pull request to `main`. It fails the
+# build if any Python source file imports a Pro-only module
+# (pce_agent_*, pce_core.capture_supervisor). Those modules live in the
+# separate private repository `github.com/zstnbb/pce-pro` and must be reached
+# via local HTTP `POST /api/v1/captures/v2`, never via in-process import.
+
+name: import-direction
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: import-direction-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: OSS repo must not import Pro modules
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run import-direction check
+        run: python scripts/check_import_direction.py
+
+      - name: Run SPDX header check
+        run: python scripts/add_spdx_headers.py --check

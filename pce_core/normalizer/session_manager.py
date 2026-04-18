@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Core – Session management for the normalization pipeline.
 
 Handles session lookup, creation, metadata upgrades, and title management.

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 import json
 
 from pce_core.rich_content import (

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Cert Wizard — cross-platform CA certificate management.
 
 Wraps platform-native trust store tools behind one API so the Tauri shell,

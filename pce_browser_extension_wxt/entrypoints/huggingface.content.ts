@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * PCE — HuggingFace Chat content script (huggingface.co/chat).
  *

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Cross-platform system-proxy switcher.
 
 Windows:

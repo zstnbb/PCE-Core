@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Core – Local Model Hook.
 
 A lightweight reverse-proxy that sits in front of local AI model servers

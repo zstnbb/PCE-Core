@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Tests for pce_core.normalizer – OpenAI, Anthropic, and pipeline."""
 
 import sys

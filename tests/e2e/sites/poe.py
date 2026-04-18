@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Poe (poe.com) site adapter."""
 
 from .base import BaseSiteAdapter

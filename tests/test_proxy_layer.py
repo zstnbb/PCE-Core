@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Comprehensive tests for Layer 2 (System Network) capture pipeline.
 
 Covers:

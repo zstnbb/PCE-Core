@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Unit tests for ``pce_core.proxy_toggle``.
 
 We never touch real OS proxy state. The Windows path uses an injected

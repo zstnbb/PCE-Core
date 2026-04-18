@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Proxy – Header & body redaction utilities – re-exports from pce_core.redact.
 
 This module exists for backward compatibility. All canonical redaction logic

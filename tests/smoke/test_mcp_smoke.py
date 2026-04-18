@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Smoke: MCP server ``pce_capture`` tool path.
 
 Exercises the underlying tool function end-to-end against an isolated

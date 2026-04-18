@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Smoke tests for PCE Proxy PoC – verifies DB, redaction, and inspect CLI."""
 
 import os

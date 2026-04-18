@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Mistral Le Chat (chat.mistral.ai) site adapter.
 
 Covers the Phase 3b batch 5 generic TypeScript extractor

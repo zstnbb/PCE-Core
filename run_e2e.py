@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Convenience script to run PCE browser E2E capture tests.
 
 Usage:

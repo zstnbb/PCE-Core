@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Core – Normalizer base interface.
 
 A normalizer takes a request/response pair from raw_captures and produces

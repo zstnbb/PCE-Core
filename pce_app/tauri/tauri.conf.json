@@ -1,0 +1,86 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "PCE",
+  "version": "0.1.0",
+  "identifier": "inc.you.pce",
+  "build": {
+    "beforeDevCommand": "python -m pce_app --no-tray --no-browser",
+    "beforeBuildCommand": "",
+    "devUrl": "http://127.0.0.1:9800/",
+    "frontendDist": "../../pce_core/dashboard"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "PCE – Personal Cognitive Engine",
+        "width": 1280,
+        "height": 840,
+        "minWidth": 960,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true,
+        "url": "http://127.0.0.1:9800/",
+        "visible": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' ipc: http://ipc.localhost http://127.0.0.1:9800 ws://127.0.0.1:9800 http://localhost:9800; img-src 'self' data: https: http://127.0.0.1:9800; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; script-src 'self' 'unsafe-inline' http://127.0.0.1:9800; connect-src 'self' http://127.0.0.1:9800 ws://127.0.0.1:9800 http://127.0.0.1:6006 https://*"
+    },
+    "trayIcon": {
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": true,
+      "menuOnLeftClick": false,
+      "tooltip": "PCE – Personal Cognitive Engine"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "category": "DeveloperTool",
+    "shortDescription": "Local, private capture engine for AI conversations.",
+    "longDescription": "PCE captures your conversations with AI tools locally so you can search, export, and reason about them later. Everything stays on your machine.",
+    "resources": [],
+    "externalBin": [
+      "binaries/pce-core"
+    ],
+    "windows": {
+      "wix": {
+        "language": ["en-US"]
+      },
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "installMode": "perMachine"
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    },
+    "linux": {
+      "deb": {
+        "depends": []
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "active": true,
+      "pubkey": "REPLACE_WITH_PUBLIC_KEY",
+      "endpoints": [
+        "https://raw.githubusercontent.com/zstnbb/PCE-Core/main/releases/manifest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Full-System Stress & QA Test.
 
 Simulates a real developer using PCE for an entire workday:

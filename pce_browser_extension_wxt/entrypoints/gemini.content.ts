@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * PCE — Gemini content script (gemini.google.com).
  *

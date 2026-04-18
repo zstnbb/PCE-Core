@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Reload extension + verify Kimi segment selector extraction."""
 import time
 from selenium import webdriver

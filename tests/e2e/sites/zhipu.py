@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """ZhiPu / ChatGLM (chat.z.ai) site adapter."""
 
 import time

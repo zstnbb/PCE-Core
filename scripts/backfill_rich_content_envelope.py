@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Backfill rich_content envelopes for legacy content_json payloads.
 
 Existing rows used ``content_json.attachments`` as the render contract. The

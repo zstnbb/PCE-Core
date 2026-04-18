@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Core – Capture Reconciler.
 
 Merges L2 (DOM-extracted) and L3 (network-intercepted) captures that cover

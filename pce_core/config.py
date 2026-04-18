@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Core – centralised configuration.
 
 Shared by all capture frontends (proxy, browser extension, MCP, etc.).

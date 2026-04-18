@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Local Hook – Port scanner for local model servers.
 
 Probes known ports to detect running local AI model servers (Ollama,

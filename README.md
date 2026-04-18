@@ -1,155 +1,160 @@
-# PCE Core
+# PCE — Personal Capture Environment
 
-本地、私有、可扩展的 AI 交互基础设施。
+**Local-first capture of every conversation you have with AI tools.**
 
-- 状态：工业化阶段 P0（Foundation 已完成）
-- 路线图：`Docs/docs/decisions/2026-04-17-industrialization-roadmap.md`
-- 文档入口：`Docs/README.md`
+> Capture ChatGPT, Claude, Cursor, Copilot, Gemini, and 15+ other AI tools. Everything stored locally. Searchable, replayable, exportable. Zero data leaves your machine.
 
-## PCE 是什么
+[Install](#install) · [Supported tools](#supported-ai-tools) · [OSS vs Pro](#oss-vs-pro) · [Architecture](Docs/docs/engineering/UNIVERSAL-CAPTURE-STACK-DESIGN.md) · [Docs](Docs/README.md) · [Contributing](CONTRIBUTING.md)
 
-PCE（Personal Cognitive Engine，工作名）是一层**本地**的 AI 基础设施，位于你和各种 AI 工具之间，负责把你在这些工具里的交互**捕获 → 归一化 → 本地持久化 → 可回看**。
+---
 
-它不是一个新 AI 产品，也不替代你现在用的 ChatGPT / Claude / Gemini。它的目标是让这些分散的使用痕迹第一次在本地形成可查询的整体。
+## Why PCE
 
-产品路径：`记录 → 看见 → 理解 → 干预`，当前实现聚焦于前两步。
+You use 5+ AI tools every day. Each keeps your history in its own silo. Some let you export; most don't. None of them compare across tools, replay a session, or run on your laptop when the internet is out.
 
-## 三大核心能力
+PCE sits between you and the AI tools you already use. It captures every conversation into one local SQLite database — with full text, metadata, attachments, and tool-calls — and gives you a dashboard to search, filter, and replay them.
 
-| 能力 | 当前状态 | 主要模块 |
-|---|---|---|
-| 抓 (Capture) | 已有浏览器扩展 + 系统代理 + MCP 三条入口 | `pce_browser_extension_wxt/` · `pce_proxy/` · `pce_mcp/` |
-| 存 (Storage) | SQLite + 归一化 + reconciler + 脱敏 | `pce_core/db.py` · `pce_core/normalizer/` |
-| 渲染 (Render) | 本地 FastAPI + 原生 dashboard，桌面壳在 P3 | `pce_core/server.py` · `pce_core/dashboard/` · `pce_app/` |
+Unlike LLM observability products (Langfuse, Helicone, Phoenix), PCE runs entirely on your laptop and requires no code changes in the AI tools. It captures by combining a trusted local proxy, a browser extension, IDE extensions, and optional deeper hooks.
 
-后续演进路径见 `Docs/docs/PROJECT.md` 的阶段划分。
+## Install
 
-## 环境要求
+### Prerequisites
 
 - Python 3.10+
-- mitmproxy 10+
-- Chrome 或兼容 Chromium 浏览器（用扩展时）
+- (Optional, for browser extension) Node.js 18+ and pnpm
 
-## 快速开始
-
-### 1. 安装依赖
+### Clone + install core
 
 ```bash
+git clone https://github.com/zstnbb/pce.git
+cd pce
 pip install -r requirements.txt
 ```
 
-### 2. 启动本地核心服务
+### Launch
 
 ```bash
 python -m pce_core.server
-# 默认监听 127.0.0.1:9800
 ```
 
-这会同时启动 Ingest API 与本地 dashboard。
+Then open `http://127.0.0.1:9800/dashboard`. The onboarding wizard walks you through:
 
-### 3. 启动系统代理（可选，Complete Mode）
+1. Installing the PCE root CA (needed to capture HTTPS traffic)
+2. Enabling the system proxy (one click)
+3. Optionally loading the browser extension
 
-```bash
-mitmdump -s pce_proxy/addon.py -p 8080 --set stream_large_bodies=1m
-```
-
-代理监听 `127.0.0.1:8080`。首次启动后证书会生成在 `~/.mitmproxy/`。
-
-配置客户端走代理：
-
-```bash
-export HTTP_PROXY=http://127.0.0.1:8080
-export HTTPS_PROXY=http://127.0.0.1:8080
-```
-
-后续 P2 阶段会提供一键证书安装 + 系统代理开关，届时不再需要手动配置。
-
-### 4. 安装浏览器扩展（Light Mode）
-
-扩展基于 [WXT](https://wxt.dev/)，使用 TypeScript 编写。首次构建：
+### Browser extension (recommended)
 
 ```bash
 cd pce_browser_extension_wxt
-pnpm install              # 首次需要
-pnpm build                # 输出于 .output/chrome-mv3/
+pnpm install && pnpm build
+# Load .output/chrome-mv3/ in chrome://extensions → Developer mode → Load unpacked
 ```
 
-之后在 Chrome 中加载：
+### Data
 
-```text
-chrome://extensions/
-→ 打开"开发者模式"
-→ "加载已解压的扩展程序"
-→ 选择 pce_browser_extension_wxt/.output/chrome-mv3/
-```
+All data lives at `~/.pce/data/pce.db` (override via `PCE_DATA_DIR`). Sensitive headers (Authorization / Cookie / API keys) are replaced with `REDACTED` before storage. Nothing is uploaded anywhere.
 
-扩展会在你访问支持的 AI 网站（ChatGPT / Claude / Gemini / Copilot 等）时自动工作。
+## Supported AI Tools
 
-Firefox 用户：`pnpm build:firefox` 输出于 `.output/firefox-mv3/`，然后在 `about:debugging` 里满规划加载。
+### Structured capture (body + metadata)
 
-### 5. 挂接 AI Agent（可选）
+- **Web chats**: ChatGPT, Claude.ai, Gemini, Perplexity, DeepSeek, Kimi, Grok, Qwen, Zhipu GLM, Meta AI, Character.AI
+- **Desktop chats**: ChatGPT Desktop (non-pinned versions), Poe Desktop
+- **IDE AI**: GitHub Copilot (VS Code), Windsurf, Cline
+- **CLI AI**: Codex CLI, Claude Code, Aider
+- **Local models**: Ollama, LM Studio, llama.cpp, vLLM server
+- **SDK-instrumented apps**: any LiteLLM / OpenTelemetry-enabled Python app
 
-将 `pce_mcp` 注册为 MCP Server，Claude Desktop / Cursor / Windsurf 可以通过它把会话录入 PCE。
+### UI-level capture (text + DOM)
 
-```bash
-python -m pce_mcp
-```
+- Notion AI, Microsoft 365 Copilot (web), Figma AI, Gmail AI, Jira AI, and any AI-powered SaaS (via browser extension)
 
-### 6. 查看数据
+### Requires PCE Pro
 
-- 浏览器打开 `http://127.0.0.1:9800/dashboard`
-- 或 CLI：`python -m pce_proxy --last 20`
+- **Cursor** (gRPC-web body via Electron preload)
+- **Claude Desktop** / **ChatGPT Desktop** with certificate pinning (defeated via Frida SSL hook)
+- **Kernel-level force capture** for uncooperative apps
+- **JetBrains IDEs** (IntelliJ, PyCharm, WebStorm, etc.)
 
-## 数据存储
+## OSS vs Pro
 
-- 默认路径：`~/.pce/data/pce.db`
-- 可通过 `PCE_DATA_DIR` 环境变量覆盖
-- 所有敏感 header（Authorization / Cookie / API Key 等）在落库前已被替换为 `REDACTED`
-- 数据永远保留在你的本机，PCE 不上传任何内容
+PCE is an **Open Core** project. The table below reflects the v1.0 release scope; see [`ADR-010`](Docs/docs/engineering/adr/ADR-010-open-core-module-boundary.md) for the full module boundary.
 
-## 项目结构
+| Capability | OSS (Apache-2.0) | Pro (Subscription) |
+|---|:-:|:-:|
+| L1 TLS MITM proxy | ✅ | ✅ |
+| L3a Browser extension (15+ sites) | ✅ | ✅ |
+| L3d CDP channel (embedded Chromium) | ✅ | ✅ |
+| L3e LiteLLM SDK capture | ✅ | ✅ |
+| L3f OpenTelemetry export | ✅ | ✅ |
+| L4a Clipboard capture | ✅ | ✅ |
+| L4c OCR capture | ✅ | ✅ |
+| VS Code extension (basic) | ✅ | ✅ |
+| Local SQLite + FTS storage | ✅ | ✅ |
+| DuckDB analytics + Parquet export | ✅ | ✅ |
+| Semantic search (sqlite-vec) | ✅ | ✅ |
+| Basic dashboard | ✅ | ✅ |
+| L0 Kernel redirector (force capture) | — | ✅ |
+| L2 Frida SSL hook (defeats pinning) | — | ✅ |
+| L3b Electron preload injection | — | ✅ |
+| L4b Accessibility bridge (macOS AX / Windows UIA) | — | ✅ |
+| Capture Supervisor (auto scheduling / health / dedup) | — | ✅ |
+| VS Code advanced features | — | ✅ |
+| JetBrains plugin | — | ✅ |
+| Advanced dashboard (search / replay / share / export) | — | ✅ |
 
-```
-PCE Core/
-├── Docs/                    # 完整文档体系（决议 / 架构 / ADR / 任务单）
-│   └── README.md            # 文档导航
-├── pce_core/                # 核心后端
-│   ├── server.py            # FastAPI: Ingest + Query API
-│   ├── db.py                # SQLite schema 与读写
-│   ├── normalizer/          # 归一化 + reconciler + session_manager
-│   ├── dashboard/           # 本地 web dashboard
-│   └── ...
-├── pce_proxy/               # mitmproxy addon
-├── pce_browser_extension_wxt/  # Chrome/Firefox MV3 扩展 (WXT + TypeScript)
-├── pce_mcp/                 # MCP Server
-├── pce_app/                 # 桌面壳（P3 阶段完整化）
-├── tests/                   # 测试集
-├── requirements.txt
-└── README.md                # 本文件
-```
+Pro is developed in a separate private repository and distributed as signed binaries. The OSS edition is fully functional standalone — Pro never replaces OSS, only extends it.
 
-## 设计原则
+## Architecture
 
-- **Local-first**：关键数据默认保存在本地，不依赖外部云端服务
-- **Habit-preserving**：尽量不要求用户改变已有使用习惯
-- **Fail-open**：记录失败可以接受，但绝不阻断用户正常使用 AI 工具
-- **Security by default**：敏感认证信息默认脱敏，不以明文落库
-- **Capture before interpretation**：先忠实记录，再解释，不提前替用户下结论
-- **Open standard alignment**：归一化数据对齐 OpenInference / OTel GenAI，不锁定用户
+PCE follows the **Universal Capture Stack (UCS)** — 10 canonical AI product forms × 5 capture layers × a central supervisor × one unified data contract (`CaptureEvent v2`).
 
-完整原则见 `Docs/docs/PROJECT.md`。
+See the design doc for the full picture:
 
-## 贡献与路线图
+- [`UNIVERSAL-CAPTURE-STACK-DESIGN.md`](Docs/docs/engineering/UNIVERSAL-CAPTURE-STACK-DESIGN.md) — 13 chapters + 3 appendices
+- [`ADR-009`](Docs/docs/engineering/adr/ADR-009-universal-capture-stack.md) — UCS adoption
+- [`ADR-010`](Docs/docs/engineering/adr/ADR-010-open-core-module-boundary.md) — Open Core module boundary
 
-工业化阶段共四步：
+Philosophy (see [`PROJECT.md`](Docs/docs/PROJECT.md)):
 
-- **P0 稳定现状**（当前）：健康指标、migration、冒烟测试
-- **P1 存层工业化**：OpenInference 对齐、OTLP 导出、导入导出
-- **P2 抓层工业化 + UX**：浏览器扩展 WXT 化、证书向导、系统代理开关、SDK 通道
-- **P3 渲染层工业化 + UX**：Tauri 桌面壳、首次引导、托盘、自动更新
+- **Local-first** — all data stays on your machine
+- **Habit-preserving** — no change to how you use AI tools
+- **Record-not-intervention** — PCE never modifies your requests or responses
+- **Fail-open** — capture failure must not block your AI tools
+- **User sovereignty** — pause, export, delete anytime
 
-每个阶段的任务单在 `Docs/tasks/`，可直接交接给本地 agent 执行。
+## Roadmap
+
+| Phase | Version | Slice | Target |
+|---|---|---|---|
+| **P5.A** _(active)_ | **v1.0 Subscription Capture** | L1 finalization + L3a F2 expansion + CaptureEvent v2 + onboarding + pinning diagnostics | ~4 weeks |
+| P5.B | v1.1 IDE & Electron | L3b Electron preload + L3c VS Code native hook | ~5 weeks |
+| P6 | v1.2 Pinning-Proof (Pro) | L2 Frida SSL hook | ~8 weeks |
+| P7 | v1.3 Force Capture + Fallback (Pro) | L0 Kernel + L4b Accessibility + JetBrains | ~10 weeks |
+| P8 | v2.0 Full Supervisor (Pro) | Automatic scheduling / dedup / auto-degradation | ~6 weeks |
+
+Current-phase task list: [`TASK-006`](Docs/tasks/TASK-006-P5A-subscription-capture.md).
+
+## Contributing
+
+We welcome contributions. Please read [`CONTRIBUTING.md`](CONTRIBUTING.md) first. Critical rules:
+
+- **OSS must never import Pro modules** (enforced by CI)
+- **`CaptureEvent v2` schema is a public API** — only additive changes
+- **New AI products must map to one of the 10 UCS forms** before a capture layer is added
+
+Report security issues privately per [`SECURITY.md`](SECURITY.md). Community standards: [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
+
+## Documentation
+
+- Project scope and principles — [`Docs/docs/PROJECT.md`](Docs/docs/PROJECT.md)
+- Architecture — [`Docs/docs/engineering/UNIVERSAL-CAPTURE-STACK-DESIGN.md`](Docs/docs/engineering/UNIVERSAL-CAPTURE-STACK-DESIGN.md)
+- Decision records — [`Docs/docs/engineering/adr/`](Docs/docs/engineering/adr/)
+- Detailed dev guide (Chinese) — [`Docs/README.md`](Docs/README.md)
 
 ## License
 
-待定。
+[Apache-2.0](LICENSE) · Copyright 2026 PCE Contributors.
+
+The Pro edition is proprietary and distributed under a separate commercial license.

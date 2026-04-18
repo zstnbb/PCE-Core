@@ -263,13 +263,20 @@
       <section id="view-search" class="view">
         <div class="view-header">
           <h2>Search</h2>
+          <div id="search-embeddings-status" class="search-embeddings-status" hidden></div>
         </div>
         <div class="search-bar">
           <input type="text" id="search-input" placeholder="Search across all conversations..." autocomplete="off" />
+          <select id="search-mode" title="fts = keyword / semantic = meaning / hybrid = merged">
+            <option value="fts" selected>Keyword (FTS)</option>
+            <option value="semantic">Semantic</option>
+            <option value="hybrid">Hybrid</option>
+          </select>
           <select id="search-provider-filter">
             <option value="">All Providers</option>
           </select>
           <button id="search-btn" class="btn-primary">Search</button>
+          <button id="search-backfill-btn" class="btn-sm" title="Compute embeddings for all messages">Backfill</button>
         </div>
         <div id="search-results" class="search-results"></div>
       </section>

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Rich-content E2E capture tests against real logged-in browser sessions.
 
 These tests are opt-in because they require:

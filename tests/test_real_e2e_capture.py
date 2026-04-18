@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Real-server end-to-end integration test for the capture pipeline.
 
 Requires a running PCE Core server at http://127.0.0.1:9800.

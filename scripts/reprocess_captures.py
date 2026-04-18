@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Re-process existing conversation captures through the updated normalizer.
 
 The dedup logic in _persist_result will:

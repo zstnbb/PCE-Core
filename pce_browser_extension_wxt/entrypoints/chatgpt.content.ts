@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * PCE — ChatGPT content script (chatgpt.com / chat.openai.com).
  *

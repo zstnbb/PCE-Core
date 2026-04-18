@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Local Hook – Multi-hook manager.
 
 Manages multiple hook instances, one per discovered local model server.

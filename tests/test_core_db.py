@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Tests for pce_core.db – verifies Tier 0 + Tier 1 schema and operations."""
 
 import sys

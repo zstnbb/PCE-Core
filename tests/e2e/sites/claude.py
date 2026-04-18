@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Claude (claude.ai) site adapter."""
 
 import time

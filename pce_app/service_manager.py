@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Service Manager – start/stop/monitor all PCE services.
 
 Manages three services:

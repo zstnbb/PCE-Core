@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * PCE — DeepSeek content script (chat.deepseek.com).
  *

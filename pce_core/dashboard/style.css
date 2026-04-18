@@ -1809,6 +1809,25 @@ select:focus { border-color: var(--accent); }
   min-width: 140px;
 }
 
+.search-embeddings-status {
+  margin-left: 12px;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+.search-embeddings-status.ok {
+  color: var(--accent);
+  border-color: var(--accent-glow);
+}
+.search-embeddings-status.warn {
+  color: #e0a54f;
+  border-color: rgba(224, 165, 79, 0.35);
+  background: rgba(224, 165, 79, 0.08);
+}
+
 .search-count {
   color: var(--text-secondary);
   font-size: 13px;

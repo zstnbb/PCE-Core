@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Tests for pce_core FastAPI Ingest & Query API using TestClient."""
 
 import sys

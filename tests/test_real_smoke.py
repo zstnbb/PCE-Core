@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Real-environment smoke tests for PCE Core capture pipeline.
 
 End-to-end tests that exercise the full FastAPI app with real HTTP

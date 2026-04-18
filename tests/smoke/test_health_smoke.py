@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Smoke: /api/v1/health shape and content guarantees.
 
 Verifies:

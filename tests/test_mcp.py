@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Tests for pce_mcp server – tool invocations via direct function calls."""
 
 import sys

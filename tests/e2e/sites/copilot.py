@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Microsoft Copilot (copilot.microsoft.com) site adapter.
 
 Covers the Phase 3b batch 3 TypeScript extractor

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Core – Clipboard monitor for AI conversation capture.
 
 Monitors the system clipboard for text that looks like AI conversations.

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Smoke: P1 storage standardisation — end-to-end through the HTTP API.
 
 Checks the TASK-003 acceptance criteria end-to-end:
@@ -85,8 +86,11 @@ def test_schema_is_at_version_3_with_oi_columns(tmp_path: Path, monkeypatch):
         r = client.get("/api/v1/health/migrations")
         assert r.status_code == 200
         data = r.json()
-        assert data["current_version"] == 3
-        assert data["expected_version"] == 3
+        # OI columns were introduced in migration 0003; assertion is
+        # version-independent so new migrations (0004+) don't break this smoke
+        # test. We still verify current == expected and schema is healthy.
+        assert data["current_version"] == data["expected_version"]
+        assert data["current_version"] >= 3
         assert data["ok"] is True
 
         # New OI columns exist on messages + sessions

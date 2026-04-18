@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // PCE Dashboard — Health view (added in P0, 2026-04-17).
 //
 // Self-contained: does not touch app.js beyond listening for the existing

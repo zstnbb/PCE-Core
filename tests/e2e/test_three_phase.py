@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Three-Phase E2E Validation Suite.
 
 Validates the full capture pipeline across all listed AI sites in three

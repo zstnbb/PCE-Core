@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Migration 0001 – Baseline.
 
 Represents the database layout that existed in PCE just before the

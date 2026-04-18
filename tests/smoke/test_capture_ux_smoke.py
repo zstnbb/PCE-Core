@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """P2 capture-UX smoke — hits the FastAPI TestClient end-to-end.
 
 Covers the /api/v1/cert, /proxy, /supervisor and /sdk routes against a

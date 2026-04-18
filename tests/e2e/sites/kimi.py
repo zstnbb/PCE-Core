@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Kimi (kimi.com) site adapter."""
 
 import time

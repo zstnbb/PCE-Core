@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * PCE — Google AI Studio content script (aistudio.google.com).
  *

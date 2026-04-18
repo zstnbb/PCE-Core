@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Core – SQLite storage engine.
 
 Implements:
@@ -206,11 +207,17 @@ CREATE TABLE IF NOT EXISTS custom_domains (
 SOURCE_PROXY = "proxy-default"
 SOURCE_BROWSER_EXT = "browser-extension-default"
 SOURCE_MCP = "mcp-default"
+# P4.4 — Chrome DevTools Protocol driven embedded browser capture source.
+# Registered here (not in ``pce_core.cdp``) because ``raw_captures.source_id``
+# is a foreign key into ``capture_sources`` and must exist before the first
+# insert, regardless of whether the optional Playwright dep is installed.
+SOURCE_CDP = "cdp-embedded"
 
 _DEFAULT_SOURCES = [
     (SOURCE_PROXY, "proxy", "mitmproxy", "complete", "default proxy source"),
     (SOURCE_BROWSER_EXT, "browser_extension", "chrome", "light", "default browser extension source"),
     (SOURCE_MCP, "mcp", "pce-mcp-server", "light", "default MCP server source"),
+    (SOURCE_CDP, "cdp_embedded", "playwright-chromium", "complete", "embedded Chromium capture via CDP"),
 ]
 
 

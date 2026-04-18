@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Proxy Toggle — cross-platform system proxy on/off switch.
 
 Wraps Windows registry / ``networksetup(8)`` / ``gsettings(1)`` behind one

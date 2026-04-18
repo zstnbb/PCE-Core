@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """End-to-end test for PCE Proxy PoC.
 
 Spins up a mock AI server and a mitmproxy reverse proxy, sends a request

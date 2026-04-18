@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Tests for normalizer confidence scoring and try-fallback chain."""
 
 import sys

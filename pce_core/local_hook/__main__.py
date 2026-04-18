@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Run the PCE Local Model Hook.
 
 Usage:

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE SDK Capture — LiteLLM proxy bridge (P2).
 
 A fourth capture channel alongside browser extension, mitmproxy and MCP.

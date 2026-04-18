@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Core – SSE (Server-Sent Events) parsing utilities.
 
 Streaming AI responses (ChatGPT, DeepSeek, Claude, etc.) are returned as SSE:

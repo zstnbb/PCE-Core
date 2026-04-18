@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Core – Normalizer registry.
 
 Maintains a list of registered normalizers and selects the right one

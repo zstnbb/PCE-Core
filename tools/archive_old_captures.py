@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Archive old raw_captures to gzip files and optionally delete from DB.
 
 Usage:

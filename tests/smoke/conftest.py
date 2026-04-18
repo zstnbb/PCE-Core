@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Shared fixtures for the P0 smoke suite.
 
 Key guarantee: every smoke test runs against a fresh temp database.

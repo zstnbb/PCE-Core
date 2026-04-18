@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome to PCE · Setup</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/dashboard/onboarding.css?v=1">
+</head>
+<body>
+  <div id="wizard-shell">
+    <header class="wz-header">
+      <div class="wz-brand">
+        <div class="wz-logo">P</div>
+        <div>
+          <div class="wz-brand-title">Personal Cognitive Engine</div>
+          <div class="wz-brand-sub">First-run setup</div>
+        </div>
+      </div>
+      <button class="wz-skip" id="btn-skip-all" type="button"
+              title="Skip the wizard and open the dashboard">
+        Skip setup
+      </button>
+    </header>
+
+    <ol class="wz-stepper" id="stepper"></ol>
+
+    <main class="wz-stage" id="wz-stage"></main>
+
+    <footer class="wz-footer">
+      <div class="wz-footer-status" id="footer-status"></div>
+      <div class="wz-footer-btns">
+        <button class="wz-btn wz-btn-ghost" id="btn-back" type="button">
+          &larr; Back
+        </button>
+        <button class="wz-btn wz-btn-ghost" id="btn-step-skip" type="button">
+          Skip this step
+        </button>
+        <button class="wz-btn wz-btn-primary" id="btn-next" type="button">
+          Next &rarr;
+        </button>
+      </div>
+    </footer>
+  </div>
+
+  <!-- ═════════════════════════════ STEP TEMPLATES ═════════════════════════ -->
+
+  <template id="tpl-welcome">
+    <div class="wz-panel">
+      <h2 class="wz-title">Welcome to PCE</h2>
+      <p class="wz-lead">
+        PCE captures your conversations with AI tools locally, so you can
+        search, export, and reason about them later. Everything stays on
+        your machine.
+      </p>
+      <div class="wz-grid">
+        <div class="wz-card">
+          <div class="wz-card-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v8M8 12h8"/></svg>
+          </div>
+          <div class="wz-card-title">HTTPS Proxy</div>
+          <div class="wz-card-desc">
+            Intercepts traffic to AI APIs (OpenAI, Anthropic, Gemini, …)
+            through a local mitmproxy listener.
+          </div>
+        </div>
+        <div class="wz-card">
+          <div class="wz-card-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18"/></svg>
+          </div>
+          <div class="wz-card-title">Browser Extension</div>
+          <div class="wz-card-desc">
+            Captures conversations directly from ChatGPT, Claude, Gemini
+            and 20+ other AI chat sites — even the ones without public APIs.
+          </div>
+        </div>
+        <div class="wz-card">
+          <div class="wz-card-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7" y2="7"/></svg>
+          </div>
+          <div class="wz-card-title">MCP &amp; SDK</div>
+          <div class="wz-card-desc">
+            IDE plugins (Cursor, Windsurf) and Python SDKs pipe their
+            traffic in too — one database, every source.
+          </div>
+        </div>
+      </div>
+      <p class="wz-note">
+        Takes about 3 minutes. You can return to any step from the tray
+        menu later.
+      </p>
+    </div>
+  </template>
+
+  <template id="tpl-certificate">
+    <div class="wz-panel">
+      <h2 class="wz-title">Install the capture certificate</h2>
+      <p class="wz-lead">
+        PCE's proxy is signed by <strong>mitmproxy</strong>. To let your
+        browser trust the intercepted traffic, we need to install its
+        root CA into your OS trust store.
+      </p>
+
+      <div class="wz-status-card" id="cert-status-card">
+        <div class="wz-status-line">
+          <span class="wz-status-dot" id="cert-dot"></span>
+          <span id="cert-summary">Checking certificate state…</span>
+        </div>
+        <div class="wz-kv" id="cert-kv"></div>
+      </div>
+
+      <div class="wz-actions">
+        <button class="wz-btn wz-btn-primary" id="btn-cert-install">
+          Install certificate
+        </button>
+        <button class="wz-btn wz-btn-ghost" id="btn-cert-refresh">
+          Refresh status
+        </button>
+        <button class="wz-btn wz-btn-ghost" id="btn-cert-export">
+          Export CA&hellip;
+        </button>
+      </div>
+
+      <div class="wz-hint" id="cert-hint" hidden></div>
+      <pre class="wz-cmd" id="cert-cmd" hidden></pre>
+    </div>
+  </template>
+
+  <template id="tpl-extension">
+    <div class="wz-panel">
+      <h2 class="wz-title">Install the browser extension</h2>
+      <p class="wz-lead">
+        The extension captures chat UIs directly so we don't depend on
+        brittle HTTPS interception. It also works on sites that don't have
+        a public API.
+      </p>
+      <div class="wz-ext-grid">
+        <div class="wz-ext-card">
+          <div class="wz-ext-head">
+            <div class="wz-ext-logo">Chrome / Edge</div>
+            <span class="wz-badge wz-badge-blue">Developer mode</span>
+          </div>
+          <ol class="wz-steps-inner">
+            <li>Run <code>pnpm install</code> then <code>pnpm build</code>
+                inside <code>pce_browser_extension_wxt/</code>.</li>
+            <li>Open <code>chrome://extensions</code>.</li>
+            <li>Toggle <strong>Developer mode</strong> (top-right).</li>
+            <li>Click <strong>Load unpacked</strong> and pick
+                <code>pce_browser_extension_wxt/.output/chrome-mv3/</code>.</li>
+          </ol>
+          <button class="wz-btn wz-btn-ghost wz-btn-sm" data-open="chrome://extensions">
+            Copy URL
+          </button>
+        </div>
+        <div class="wz-ext-card">
+          <div class="wz-ext-head">
+            <div class="wz-ext-logo">Firefox</div>
+            <span class="wz-badge wz-badge-orange">Temporary add-on</span>
+          </div>
+          <ol class="wz-steps-inner">
+            <li>Run <code>pnpm build:firefox</code>.</li>
+            <li>Open <code>about:debugging#/runtime/this-firefox</code>.</li>
+            <li>Click <strong>Load Temporary Add-on…</strong>.</li>
+            <li>Pick the <code>manifest.json</code> inside
+                <code>.output/firefox-mv3/</code>.</li>
+          </ol>
+          <button class="wz-btn wz-btn-ghost wz-btn-sm" data-open="about:debugging#/runtime/this-firefox">
+            Copy URL
+          </button>
+        </div>
+      </div>
+      <div class="wz-status-card" id="ext-status-card">
+        <div class="wz-status-line">
+          <span class="wz-status-dot" id="ext-dot"></span>
+          <span id="ext-summary">Waiting for first extension capture…</span>
+        </div>
+        <div class="wz-hint">
+          Open a covered site (e.g. <a href="https://chatgpt.com" target="_blank" rel="noopener">chatgpt.com</a>)
+          and send a message. The indicator will flip to
+          <strong>active</strong> within a few seconds.
+        </div>
+      </div>
+      <div class="wz-actions">
+        <button class="wz-btn wz-btn-ghost" id="btn-ext-refresh">Check now</button>
+      </div>
+    </div>
+  </template>
+
+  <template id="tpl-proxy">
+    <div class="wz-panel">
+      <h2 class="wz-title">Enable the system proxy</h2>
+      <p class="wz-lead">
+        Point your OS at PCE so HTTPS requests to AI endpoints flow
+        through the local proxy. Nothing else on the allowlist leaves
+        untouched.
+      </p>
+      <div class="wz-status-card" id="proxy-status-card">
+        <div class="wz-status-line">
+          <span class="wz-status-dot" id="proxy-dot"></span>
+          <span id="proxy-summary">Checking current state&hellip;</span>
+        </div>
+        <div class="wz-kv" id="proxy-kv"></div>
+      </div>
+      <div class="wz-actions">
+        <button class="wz-btn wz-btn-primary" id="btn-proxy-enable">
+          Enable PCE proxy
+        </button>
+        <button class="wz-btn wz-btn-ghost" id="btn-proxy-disable">
+          Disable
+        </button>
+        <button class="wz-btn wz-btn-ghost" id="btn-proxy-refresh">
+          Refresh
+        </button>
+      </div>
+      <div class="wz-hint" id="proxy-hint" hidden></div>
+      <pre class="wz-cmd" id="proxy-cmd" hidden></pre>
+      <p class="wz-note">
+        Tip: this is reversible at any time from the tray menu, or by
+        running <code>python -m pce_core.proxy_toggle --disable</code>.
+      </p>
+    </div>
+  </template>
+
+  <template id="tpl-privacy">
+    <div class="wz-panel">
+      <h2 class="wz-title">Privacy preferences</h2>
+      <p class="wz-lead">
+        These toggles are stored locally in
+        <code>~/.pce/data/state.json</code> and can be changed any time
+        from the Services view.
+      </p>
+      <div class="wz-prefs">
+        <label class="wz-pref">
+          <input type="checkbox" data-pref="redact_tokens" />
+          <div>
+            <div class="wz-pref-title">Redact auth headers</div>
+            <div class="wz-pref-desc">
+              Keep the default: strip <code>Authorization</code>,
+              <code>x-api-key</code>, cookies, etc. before persistence.
+            </div>
+          </div>
+        </label>
+        <label class="wz-pref">
+          <input type="checkbox" data-pref="check_for_updates" />
+          <div>
+            <div class="wz-pref-title">Check for PCE updates</div>
+            <div class="wz-pref-desc">
+              Once an hour, ask the release manifest if a newer version
+              is available. No analytics, just a version check.
+            </div>
+          </div>
+        </label>
+        <label class="wz-pref">
+          <input type="checkbox" data-pref="auto_start_core" />
+          <div>
+            <div class="wz-pref-title">Auto-start core service on launch</div>
+            <div class="wz-pref-desc">
+              Start the ingest server whenever the tray app launches.
+            </div>
+          </div>
+        </label>
+        <label class="wz-pref">
+          <input type="checkbox" data-pref="auto_open_dashboard" />
+          <div>
+            <div class="wz-pref-title">Open dashboard on launch</div>
+            <div class="wz-pref-desc">
+              Open this dashboard in your default browser every time PCE starts.
+            </div>
+          </div>
+        </label>
+        <label class="wz-pref">
+          <span class="wz-pref-label">Retention window (days)</span>
+          <input type="number" min="0" max="3650" step="1"
+                 data-pref="retention_days" class="wz-pref-num" />
+          <div class="wz-pref-desc" style="grid-column: 2 / -1;">
+            Delete raw captures older than this many days. <strong>0</strong>
+            means keep forever. Favorited sessions are always preserved.
+          </div>
+        </label>
+        <label class="wz-pref">
+          <input type="checkbox" data-pref="phoenix_auto_start" />
+          <div>
+            <div class="wz-pref-title">Start Phoenix on launch <span class="wz-badge wz-badge-neutral">optional</span></div>
+            <div class="wz-pref-desc">
+              If you've <code>pip install arize-phoenix</code>'d, auto-launch it
+              whenever PCE starts. You can still toggle it from the Services view.
+            </div>
+          </div>
+        </label>
+        <label class="wz-pref">
+          <input type="checkbox" data-pref="send_anonymous_telemetry" />
+          <div>
+            <div class="wz-pref-title">Anonymous telemetry <span class="wz-badge wz-badge-neutral">off by default</span></div>
+            <div class="wz-pref-desc">
+              Reserved for a future opt-in channel. Off until you enable it
+              here, even in future PCE versions.
+            </div>
+          </div>
+        </label>
+      </div>
+    </div>
+  </template>
+
+  <template id="tpl-done">
+    <div class="wz-panel wz-panel-done">
+      <div class="wz-done-hero">
+        <div class="wz-done-check">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <h2 class="wz-title">You're all set</h2>
+        <p class="wz-lead">
+          PCE is ready. Here's what we set up and what to do next.
+        </p>
+      </div>
+      <div class="wz-done-summary" id="done-summary"></div>
+      <div class="wz-actions wz-actions-center">
+        <button class="wz-btn wz-btn-primary" id="btn-open-dashboard">
+          Open Dashboard &rarr;
+        </button>
+        <button class="wz-btn wz-btn-ghost" id="btn-download-diag">
+          Save diagnostics bundle
+        </button>
+      </div>
+      <p class="wz-note">
+        Want to re-run the wizard later?
+        <code>POST /api/v1/onboarding/reset</code> or use the tray menu.
+      </p>
+    </div>
+  </template>
+
+  <script src="/dashboard/onboarding.js?v=1"></script>
+</body>
+</html>

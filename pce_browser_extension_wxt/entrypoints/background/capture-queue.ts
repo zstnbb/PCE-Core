@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * PCE — Capture Queue (IndexedDB-backed offline buffer).
  *

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Core – Local Model Hook server.
 
 A FastAPI reverse-proxy that:

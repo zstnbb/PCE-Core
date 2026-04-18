@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Smoke: mitmproxy addon path.
 
 Exercises the PCE proxy addon against a synthetic HTTPFlow and verifies:

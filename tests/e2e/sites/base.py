@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Base site adapter for E2E capture testing (Selenium).
 
 Each AI chat site gets an adapter that knows:

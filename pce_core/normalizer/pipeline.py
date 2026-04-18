@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Core – Normalization pipeline.
 
 Watches for completed request/response pairs and auto-normalizes them

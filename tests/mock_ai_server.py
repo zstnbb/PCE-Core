@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Mock AI API Servers for PCE E2E testing.
 
 Provides three FastAPI apps that faithfully mimic the real API schemas:

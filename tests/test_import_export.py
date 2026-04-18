@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Tests for export (P1 §5.3) + import (P1 §5.3) round-trip.
 
 Coverage:

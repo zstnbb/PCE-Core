@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Proxy – Heuristic AI traffic detection.
 
 Used in CaptureMode.SMART to identify AI API calls that are NOT on the

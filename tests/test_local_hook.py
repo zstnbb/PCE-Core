@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Tests for pce_core.local_hook – local model capture proxy."""
 
 import sys

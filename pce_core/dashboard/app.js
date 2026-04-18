@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * PCE Dashboard – Single-page application
  *
@@ -47,6 +48,18 @@ async function api(path) {
   const resp = await fetch(`${API}${path}`);
   if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
   return resp.json();
+}
+
+async function apiPost(path, body) {
+  const resp = await fetch(`${API}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+  // Tolerate endpoints that return an empty body.
+  const text = await resp.text();
+  return text ? JSON.parse(text) : {};
 }
 
 function formatTime(ts) {
@@ -1471,7 +1484,19 @@ function initSearchView() {
 
   const input = document.getElementById("search-input");
   const btn = document.getElementById("search-btn");
+  const modeSel = document.getElementById("search-mode");
+  const backfillBtn = document.getElementById("search-backfill-btn");
   const provFilter = document.getElementById("search-provider-filter");
+
+  // Surface embedding backend / coverage so users know whether
+  // "Semantic" and "Hybrid" are ready, and can trigger a backfill.
+  refreshEmbeddingsStatus();
+  if (modeSel) {
+    modeSel.addEventListener("change", refreshEmbeddingsStatus);
+  }
+  if (backfillBtn) {
+    backfillBtn.addEventListener("click", runEmbeddingsBackfill);
+  }
 
   // Populate provider filter from stats
   api("/stats").then((stats) => {
@@ -1501,16 +1526,71 @@ async function performSearch() {
   if (!q) return;
 
   const provider = document.getElementById("search-provider-filter").value;
+  const mode = (document.getElementById("search-mode") || {}).value || "fts";
   const container = document.getElementById("search-results");
   container.innerHTML = '<div class="empty-state">Searching...</div>';
 
   try {
-    let url = `/search?q=${encodeURIComponent(q)}&limit=50`;
+    let url = `/search?q=${encodeURIComponent(q)}&limit=50&mode=${encodeURIComponent(mode)}`;
     if (provider) url += `&provider=${encodeURIComponent(provider)}`;
     const results = await api(url);
     renderSearchResults(results, q);
   } catch (e) {
     container.innerHTML = `<div class="empty-state">Search failed: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function refreshEmbeddingsStatus() {
+  const banner = document.getElementById("search-embeddings-status");
+  const mode = (document.getElementById("search-mode") || {}).value || "fts";
+  if (!banner) return;
+  // Only show the banner when the user is actually using the semantic
+  // path — FTS works regardless of embedding backend state.
+  if (mode === "fts") {
+    banner.hidden = true;
+    banner.textContent = "";
+    return;
+  }
+  try {
+    const status = await api("/embeddings/status");
+    const b = status.backend || {};
+    if (!b.available) {
+      banner.hidden = false;
+      banner.classList.remove("ok");
+      banner.classList.add("warn");
+      banner.textContent = `Semantic search is disabled (${b.reason || "no backend"}). Falling back to keyword search. Set PCE_EMBEDDINGS_BACKEND to enable.`;
+      return;
+    }
+    banner.hidden = false;
+    banner.classList.remove("warn");
+    banner.classList.add("ok");
+    banner.textContent = `Backend: ${b.name}:${b.model} · ${status.messages_covered}/${status.messages_total} embedded (${status.coverage_pct}%)`;
+  } catch (e) {
+    banner.hidden = true;
+  }
+}
+
+async function runEmbeddingsBackfill() {
+  const btn = document.getElementById("search-backfill-btn");
+  if (!btn) return;
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Backfilling…";
+  try {
+    const result = await apiPost("/embeddings/backfill?limit=500", {});
+    if (!result.ok) {
+      btn.textContent = result.reason || "Unavailable";
+    } else {
+      btn.textContent = `+${result.backfilled} (${result.remaining} left)`;
+    }
+  } catch (e) {
+    btn.textContent = "Failed";
+  } finally {
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = orig;
+      refreshEmbeddingsStatus();
+    }, 1800);
   }
 }
 

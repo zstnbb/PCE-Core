@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Manual Capture Test Suite.
 
 Run each test function independently to verify a specific capture channel.

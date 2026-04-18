@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """HuggingFace Chat (huggingface.co/chat) site adapter.
 
 Covers the Phase 3b batch 4 TypeScript extractor

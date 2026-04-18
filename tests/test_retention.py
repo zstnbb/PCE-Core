@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Tests for the P1 retention sweeper (``pce_core.retention``).
 
 Requirements (TASK-003 §5.4):

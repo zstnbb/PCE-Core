@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Data Export
 
 Converts sessions and messages into portable formats (Markdown, JSON, JSONL).

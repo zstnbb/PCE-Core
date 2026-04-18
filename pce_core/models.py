@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Core – Pydantic models for the Ingest & Query API."""
 
 from typing import Optional

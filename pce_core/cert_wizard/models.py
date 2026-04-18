@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Shared dataclasses for the cert wizard."""
 
 from __future__ import annotations

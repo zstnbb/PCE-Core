@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Grok (grok.com) site adapter."""
 
 from .base import BaseSiteAdapter

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Core – Electron App Auto-Proxy for AI Capture.
 
 Provides utilities to route AI API traffic from Electron-based desktop apps

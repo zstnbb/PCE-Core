@@ -1,0 +1,21 @@
+PCE — Personal Capture Environment
+Copyright 2026 PCE Contributors
+
+This product is licensed under the Apache License, Version 2.0.
+See the LICENSE file for the full license text.
+
+This product depends on several third-party open-source libraries. Their
+licenses apply to the respective components:
+
+- mitmproxy (MIT License) — https://mitmproxy.org/
+- FastAPI (MIT License) — https://fastapi.tiangolo.com/
+- Pydantic (MIT License) — https://docs.pydantic.dev/
+- httpx (BSD-3-Clause) — https://www.python-httpx.org/
+- WXT Framework (MIT License) — https://wxt.dev/
+- DuckDB (MIT License) — https://duckdb.org/
+- sqlite-vec (Apache-2.0) — https://github.com/asg017/sqlite-vec
+- Playwright (Apache-2.0) — https://playwright.dev/
+- OpenTelemetry SDK (Apache-2.0) — https://opentelemetry.io/
+
+The Pro edition of PCE (github.com/zstnbb/pce-pro) is a separate,
+proprietary product and is NOT covered by this license or this repository.

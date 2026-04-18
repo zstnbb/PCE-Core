@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Generate a current-state report for live-site rich-content capture.
 
 This is a Phase 0 evidence tool. It does not prove support by itself; it

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Core – FastAPI server providing Ingest & Query APIs.
 
 Start with:
@@ -8,13 +9,14 @@ Start with:
 
 import json
 import logging
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import __version__
@@ -158,6 +160,23 @@ async def lifespan(app: FastAPI):
     # guarantees clean teardown even if the user never hits the stop endpoint.
     app.state.supervisor = None
     app.state.litellm_bridge = None
+    # P3 — Phoenix is opt-in; slot starts empty, populated on first /start call.
+    app.state.phoenix_manager = None
+
+    # P3 — honour the user's persisted "phoenix_auto_start" preference.
+    try:
+        from . import app_state as _app_state
+        from . import phoenix_integration as _phoenix
+        prefs = _app_state.load_state().get("preferences", {}) or {}
+        if prefs.get("phoenix_auto_start") and _phoenix.PHOENIX_AVAILABLE:
+            mgr = _phoenix.PhoenixManager()
+            app.state.phoenix_manager = mgr
+            try:
+                await mgr.start()
+            except Exception:
+                logger.exception("phoenix auto-start failed (non-fatal)")
+    except Exception:
+        logger.exception("phoenix auto-start probe failed (non-fatal)")
 
     log_event(
         logger, "server.ready",
@@ -198,6 +217,14 @@ async def lifespan(app: FastAPI):
             await sup.stop_all()
         except Exception:
             logger.exception("supervisor.stop_all failed (non-fatal)")
+
+    # P3 — stop Phoenix if we spawned it so the subprocess doesn't outlive us.
+    phoenix_mgr = getattr(app.state, "phoenix_manager", None)
+    if phoenix_mgr is not None:
+        try:
+            await phoenix_mgr.stop()
+        except Exception:
+            logger.exception("phoenix_manager.stop failed (non-fatal)")
 
     try:
         shutdown_otlp_exporter()
@@ -274,6 +301,147 @@ def migrations_status():
         "ok": current == EXPECTED_SCHEMA_VERSION,
         "history": history,
     }
+
+
+# ---------------------------------------------------------------------------
+# Onboarding (P3.2 — TASK-005 §5.2)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/onboarding/state")
+def onboarding_state():
+    """Return the persisted wizard state (used by the first-run UI)."""
+    from . import app_state as _app_state
+
+    state = _app_state.load_state()
+    return {
+        "needs_onboarding": _app_state.needs_onboarding(state=state),
+        "current_version": _app_state.CURRENT_ONBOARDING_VERSION,
+        "steps": _app_state.ONBOARDING_STEPS,
+        "state": state,
+    }
+
+
+@app.post("/api/v1/onboarding/state")
+def onboarding_state_patch(payload: dict):
+    """Patch arbitrary top-level state fields (used for preferences / marking steps).
+
+    Body (any of):
+        {"preferences": {"retention_days": 14}}
+        {"onboarding_steps": {"certificate": {"status": "done"}}}
+    """
+    from . import app_state as _app_state
+
+    if not isinstance(payload, dict):
+        raise HTTPException(400, "body must be a JSON object")
+    new_state = _app_state.update_state(payload)
+    log_event(logger, "onboarding.state_patched", keys=sorted(payload.keys()))
+    return {"ok": True, "state": new_state}
+
+
+@app.post("/api/v1/onboarding/step")
+def onboarding_step(payload: dict):
+    """Mark a single onboarding step complete / skipped / failed.
+
+    Body::
+
+        {"step": "certificate", "status": "done"}
+    """
+    from . import app_state as _app_state
+
+    step = (payload or {}).get("step")
+    status = (payload or {}).get("status", "done")
+    if not step:
+        raise HTTPException(400, "step is required")
+    try:
+        new_state = _app_state.mark_step(step, status=status)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    log_event(logger, "onboarding.step", step=step, status=status)
+    return {"ok": True, "state": new_state}
+
+
+@app.post("/api/v1/onboarding/complete")
+def onboarding_complete():
+    """Mark the wizard as fully completed at the current version."""
+    from . import app_state as _app_state
+
+    new_state = _app_state.complete_onboarding()
+    log_event(logger, "onboarding.completed",
+              version=_app_state.CURRENT_ONBOARDING_VERSION)
+    return {"ok": True, "state": new_state}
+
+
+@app.post("/api/v1/onboarding/reset")
+def onboarding_reset():
+    """Dev helper: clear wizard progress so the UI reappears on next launch."""
+    from . import app_state as _app_state
+
+    new_state = _app_state.reset_onboarding()
+    log_event(logger, "onboarding.reset")
+    return {"ok": True, "state": new_state}
+
+
+# ---------------------------------------------------------------------------
+# Updates (P3.6 — TASK-005 §5.6)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/updates/check")
+def updates_check(
+    force: bool = Query(False, description="Bypass the in-process cache."),
+    manifest_url: Optional[str] = Query(None, description="Override PCE_UPDATE_MANIFEST_URL."),
+):
+    """Fetch the release manifest and report whether a newer PCE is available.
+
+    Never raises: network failures are captured in the response's
+    ``error`` field so the tray / dashboard can show a readable message.
+    """
+    from . import updates as _updates
+
+    result = _updates.check_for_updates(
+        manifest_url=manifest_url,
+        force_refresh=bool(force),
+    )
+    log_event(
+        logger, "updates.check.served",
+        update_available=result.update_available,
+        current=result.current_version, latest=result.latest_version,
+        error=result.error,
+    )
+    return result.as_dict()
+
+
+# ---------------------------------------------------------------------------
+# Diagnose (P3.7 — TASK-005 §5.7)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/diagnose")
+def diagnose_endpoint(include_logs: bool = Query(True, description="Include tail of recent log files.")):
+    """Return a redacted diagnostics zip (OS / config / health / schema / logs).
+
+    The bundle is built in memory and streamed back with a filename that
+    embeds the PCE version and UTC timestamp so users can just save the
+    download and attach it to a bug report.
+    """
+    import io as _io
+
+    from . import diagnose as _diagnose
+
+    data = _diagnose.collect_diagnostics_bytes(include_logs=bool(include_logs))
+    ts = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
+    filename = f"pce-diag-{__version__}-{ts}.zip"
+    log_event(
+        logger, "diagnose.served",
+        size_bytes=len(data), include_logs=bool(include_logs),
+    )
+    return StreamingResponse(
+        _io.BytesIO(data),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f"attachment; filename={filename}",
+            "Content-Length": str(len(data)),
+            "X-PCE-Diagnose-Version": __version__,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -627,6 +795,77 @@ async def sdk_litellm_stop():
     result = await bridge.stop()
     app.state.litellm_bridge = None
     log_event(logger, "litellm.stop.result", ok=True)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Phoenix integration (P3.5 — TASK-005 §5.5)
+# ---------------------------------------------------------------------------
+
+def _get_or_create_phoenix_manager(payload: Optional[dict] = None):
+    """Lazily attach a :class:`PhoenixManager` to ``app.state``."""
+    from .phoenix_integration import PhoenixManager, DEFAULT_PHOENIX_HOST, DEFAULT_PHOENIX_PORT
+
+    mgr = getattr(app.state, "phoenix_manager", None)
+    payload = payload or {}
+    host = payload.get("host") or DEFAULT_PHOENIX_HOST
+    port_raw = payload.get("port")
+    port = int(port_raw) if port_raw is not None else DEFAULT_PHOENIX_PORT
+    if mgr is None or mgr.host != host or mgr.port != port:
+        mgr = PhoenixManager(host=host, port=port)
+        app.state.phoenix_manager = mgr
+    return mgr
+
+
+@app.get("/api/v1/phoenix")
+def phoenix_status():
+    """Report whether Phoenix is available / running and how OTLP is wired."""
+    from .phoenix_integration import PHOENIX_AVAILABLE, DEFAULT_PHOENIX_HOST, DEFAULT_PHOENIX_PORT
+
+    mgr = getattr(app.state, "phoenix_manager", None)
+    if mgr is None:
+        return {
+            "running": False,
+            "phoenix_available": PHOENIX_AVAILABLE,
+            "host": DEFAULT_PHOENIX_HOST,
+            "port": DEFAULT_PHOENIX_PORT,
+            "otlp_wired": False,
+            "ui_url": f"http://{DEFAULT_PHOENIX_HOST}:{DEFAULT_PHOENIX_PORT}/",
+            "otlp_endpoint": f"http://{DEFAULT_PHOENIX_HOST}:{DEFAULT_PHOENIX_PORT}/v1/traces",
+            "pid": None,
+            "last_error": None,
+        }
+    return mgr.get_status()
+
+
+@app.post("/api/v1/phoenix/start")
+async def phoenix_start(payload: Optional[dict] = None):
+    """Spawn Phoenix (if installed) and auto-wire PCE's OTLP exporter at it.
+
+    Body (optional)::
+
+        {"host": "127.0.0.1", "port": 6006}
+    """
+    mgr = _get_or_create_phoenix_manager(payload)
+    result = await mgr.start()
+    log_event(
+        logger, "phoenix.start.result",
+        ok=bool(result.get("ok")),
+        running=bool(result.get("running")),
+        port=mgr.port,
+        otlp_wired=bool(result.get("otlp_wired")),
+    )
+    return result
+
+
+@app.post("/api/v1/phoenix/stop")
+async def phoenix_stop():
+    """Stop the Phoenix subprocess (if we spawned one) and unwire OTLP."""
+    mgr = getattr(app.state, "phoenix_manager", None)
+    if mgr is None:
+        return {"ok": True, "running": False, "message": "phoenix not started"}
+    result = await mgr.stop()
+    log_event(logger, "phoenix.stop.result", ok=True)
     return result
 
 
@@ -990,7 +1229,7 @@ def get_session_messages(session_id: str):
 
 
 # ---------------------------------------------------------------------------
-# Full-text search
+# Search (FTS + semantic + hybrid — P4.1)
 # ---------------------------------------------------------------------------
 
 @app.get("/api/v1/search")
@@ -998,11 +1237,229 @@ def search(
     q: str = Query(..., min_length=1, description="Search query"),
     provider: Optional[str] = None,
     limit: int = Query(20, ge=1, le=100),
+    mode: str = Query(
+        "fts",
+        pattern="^(fts|semantic|hybrid)$",
+        description=(
+            "fts = FTS5 / LIKE (default, always works). "
+            "semantic = vector KNN (requires an embeddings backend). "
+            "hybrid = RRF(fts, semantic). "
+            "When a semantic backend is unavailable the server silently "
+            "falls back to fts so the UI is never empty."
+        ),
+    ),
 ):
-    """Full-text search across all message content."""
-    from .db import search_messages
-    results = search_messages(q, provider=provider, limit=limit)
-    return results
+    """Unified message search.
+
+    Delegates to :mod:`pce_core.semantic_search` which knows how to
+    combine FTS and embedding-based ranking.
+    """
+    from .semantic_search import search as _search
+    return _search(q, mode=mode, provider=provider, limit=limit)
+
+
+@app.get("/api/v1/embeddings/status")
+def embeddings_status_endpoint():
+    """Report the configured embedding backend + coverage stats."""
+    from .semantic_search import embeddings_status
+    return embeddings_status()
+
+
+@app.post("/api/v1/embeddings/backfill")
+def embeddings_backfill_endpoint(
+    limit: int = Query(500, ge=1, le=5000,
+                       description="Maximum messages to embed in this call."),
+):
+    """Embed up to ``limit`` messages that don't yet have a vector.
+
+    Returns immediately once the batch finishes. Safe to call repeatedly
+    until ``remaining == 0``.
+    """
+    from .semantic_search import backfill_embeddings
+    report = backfill_embeddings(limit=limit)
+    log_event(
+        logger, "embeddings.backfill",
+        backend=report.get("backend"), model=report.get("model"),
+        backfilled=report.get("backfilled"), remaining=report.get("remaining"),
+        ok=report.get("ok"),
+    )
+    return report
+
+
+# ---------------------------------------------------------------------------
+# Analytics (DuckDB — P4.2)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/analytics/status")
+def analytics_status_endpoint():
+    """Report whether the DuckDB analytics backend is installed."""
+    from . import analytics
+    return analytics.status()
+
+
+@app.get("/api/v1/analytics/timeseries")
+def analytics_timeseries_endpoint(
+    by: str = Query("day", pattern="^(hour|day|week|month)$"),
+    days: int = Query(30, ge=1, le=365),
+    provider: Optional[str] = Query(None),
+):
+    """Captures / sessions / messages per time bucket."""
+    from . import analytics
+    result = analytics.timeseries(by=by, days=days, provider=provider)
+    if not result.get("ok") and result.get("error") == "duckdb_not_installed":
+        raise HTTPException(status_code=503, detail=result)
+    return result
+
+
+@app.get("/api/v1/analytics/top_models")
+def analytics_top_models_endpoint(
+    limit: int = Query(10, ge=1, le=1000),
+    days: int = Query(30, ge=1, le=365),
+):
+    from . import analytics
+    result = analytics.top_models(limit=limit, days=days)
+    if not result.get("ok") and result.get("error") == "duckdb_not_installed":
+        raise HTTPException(status_code=503, detail=result)
+    return result
+
+
+@app.get("/api/v1/analytics/top_hosts")
+def analytics_top_hosts_endpoint(
+    limit: int = Query(10, ge=1, le=1000),
+    days: int = Query(30, ge=1, le=365),
+):
+    from . import analytics
+    result = analytics.top_hosts(limit=limit, days=days)
+    if not result.get("ok") and result.get("error") == "duckdb_not_installed":
+        raise HTTPException(status_code=503, detail=result)
+    return result
+
+
+@app.get("/api/v1/analytics/token_usage")
+def analytics_token_usage_endpoint(
+    by: str = Query("day", pattern="^(hour|day|week|month)$"),
+    days: int = Query(30, ge=1, le=365),
+):
+    from . import analytics
+    result = analytics.token_usage(by=by, days=days)
+    if not result.get("ok") and result.get("error") == "duckdb_not_installed":
+        raise HTTPException(status_code=503, detail=result)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# CDP embedded-browser capture (P4.4)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/cdp/status")
+def cdp_status_endpoint():
+    """Report Playwright availability + current CDP driver state."""
+    from . import cdp
+    return cdp.status()
+
+
+@app.post("/api/v1/cdp/start")
+def cdp_start_endpoint(
+    start_url: str = Query("https://chat.openai.com"),
+    headless: bool = Query(False),
+):
+    """Launch the singleton :class:`CDPDriver` with default patterns.
+
+    Returns 503 when Playwright isn't installed so the UI can surface an
+    actionable message. Safe to call repeatedly; a running driver is a
+    no-op (the response just reflects the current state).
+    """
+    from . import cdp
+    result = cdp.start_default(start_url=start_url, headless=headless)
+    if not result.get("ok"):
+        code = 503 if result.get("error") == "playwright_not_installed" else 500
+        raise HTTPException(status_code=code, detail=result)
+    return result
+
+
+@app.post("/api/v1/cdp/stop")
+def cdp_stop_endpoint():
+    """Stop the singleton CDP driver."""
+    from . import cdp
+    return cdp.stop_default()
+
+
+# ---------------------------------------------------------------------------
+# Mobile onboarding (P4.5)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/mobile_wizard/info")
+def mobile_wizard_info_endpoint(
+    ip: Optional[str] = Query(None, description="Override auto-detected LAN IP."),
+    port: Optional[int] = Query(None, ge=1, le=65535),
+):
+    """Return the JSON payload a phone needs to configure HTTP proxy +
+    download the mitmproxy CA cert.
+    """
+    from . import mobile_wizard
+    return mobile_wizard.get_setup_info(lan_ip=ip, port=port)
+
+
+@app.get("/api/v1/mobile_wizard/qr.png")
+def mobile_wizard_qr_png_endpoint(
+    ip: Optional[str] = Query(None),
+    port: Optional[int] = Query(None, ge=1, le=65535),
+):
+    """Render the setup QR as a PNG. 503 when ``qrcode``/``pillow`` missing."""
+    from . import mobile_wizard
+    info = mobile_wizard.get_setup_info(lan_ip=ip, port=port)
+    out = mobile_wizard.render_qr_png(info)
+    if not out.get("ok"):
+        raise HTTPException(status_code=503, detail=out)
+    return Response(
+        content=out["png_bytes"],
+        media_type=out["content_type"],
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/api/v1/mobile_wizard/qr.txt", response_class=PlainTextResponse)
+def mobile_wizard_qr_ascii_endpoint(
+    ip: Optional[str] = Query(None),
+    port: Optional[int] = Query(None, ge=1, le=65535),
+):
+    """ASCII-art QR suitable for a terminal. Never fails — renders a
+    plain-text banner when ``qrcode`` isn't installed.
+    """
+    from . import mobile_wizard
+    info = mobile_wizard.get_setup_info(lan_ip=ip, port=port)
+    return mobile_wizard.render_qr_ascii(info)
+
+
+@app.get("/api/v1/analytics/export.parquet")
+def analytics_export_parquet_endpoint(
+    table: str = Query(..., pattern="^(raw_captures|sessions|messages|message_embeddings)$"),
+    days: Optional[int] = Query(None, ge=1, le=365),
+):
+    """Dump a whitelisted table into Parquet and stream it back.
+
+    The file is materialised under ``tempfile.gettempdir()`` so the
+    response can ``FileResponse`` it without holding the whole dataset
+    in memory. Client is expected to save the bytes locally.
+    """
+    from fastapi.responses import FileResponse
+    from . import analytics
+    result = analytics.export_parquet(table=table, days=days)
+    if not result.get("ok"):
+        code = 503 if result.get("error") == "duckdb_not_installed" else 500
+        raise HTTPException(status_code=code, detail=result)
+
+    path = Path(result["path"])
+    stem = f"pce-{table}-{int(time.time())}.parquet"
+    log_event(
+        logger, "analytics.export.served",
+        table=table, rows=result.get("rows"), size_bytes=result.get("size_bytes"),
+    )
+    return FileResponse(
+        path=str(path),
+        filename=stem,
+        media_type="application/vnd.apache.parquet",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1446,7 +1903,21 @@ if _DASHBOARD_DIR.is_dir():
 
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
     def dashboard_root():
+        # Auto-redirect first-time users to the wizard. Existing users land
+        # on the dashboard as usual.
+        try:
+            from . import app_state as _app_state
+            if _app_state.needs_onboarding():
+                from fastapi.responses import RedirectResponse
+                return RedirectResponse(url="/onboarding", status_code=303)
+        except Exception:
+            logger.debug("onboarding probe failed (non-fatal)", exc_info=True)
         return FileResponse(str(_DASHBOARD_DIR / "index.html"))
+
+    @app.get("/onboarding", response_class=HTMLResponse, include_in_schema=False)
+    def onboarding_root():
+        """Serve the first-run setup wizard."""
+        return FileResponse(str(_DASHBOARD_DIR / "onboarding.html"))
 
 
 # ---------------------------------------------------------------------------

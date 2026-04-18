@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Launch the E2E test browser (managed profile + PCE extension) and open all sites for login.
 
 Usage:

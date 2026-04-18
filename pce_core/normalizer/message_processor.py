@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Core – Message processing for the normalization pipeline.
 
 Handles message hashing, deduplication, enrichment, content merging,

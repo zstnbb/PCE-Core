@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Tests for Gemini rich content capture through the full pipeline.
 
 Verifies that Gemini conversation captures with various rich content types

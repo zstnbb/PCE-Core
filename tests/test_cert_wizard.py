@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Unit tests for ``pce_core.cert_wizard``.
 
 We never touch the real host trust store: all platform backends are

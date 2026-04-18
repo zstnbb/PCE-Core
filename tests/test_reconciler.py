@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Tests for pce_core.normalizer.reconciler — capture quality scoring and merging."""
 
 import sys

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE smoke tests.
 
 Each module in this package exercises one end-to-end capture path

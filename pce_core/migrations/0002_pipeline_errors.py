@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Migration 0002 – pipeline_errors table.
 
 P0 introduces a lightweight error log used by the health API to compute

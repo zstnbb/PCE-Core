@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Perplexity (www.perplexity.ai) site adapter."""
 
 import time

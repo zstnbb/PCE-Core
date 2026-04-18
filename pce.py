@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE – One-click launcher.
 
 Double-click this file (or run `python pce.py`) to start PCE as a

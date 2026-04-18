@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE L1 Data Fix — One-time migration script.
 
 Fixes identified by audit_l1_quality.py:

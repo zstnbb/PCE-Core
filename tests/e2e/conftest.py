@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Selenium-based fixtures for PCE E2E capture tests.
 
 Launches Chrome with:

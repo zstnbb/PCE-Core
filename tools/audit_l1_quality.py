@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE L1 Data Quality Audit
 
 Reads the live PCE database and produces a per-provider quality report

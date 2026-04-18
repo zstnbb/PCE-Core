@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Core – Normalizer package.
 
 Transforms raw_captures (Tier 0) into sessions + messages (Tier 1).

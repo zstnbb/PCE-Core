@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Tests for rich content extraction in normalizers.
 
 Verifies that image_url, tool_calls, audio, citations, and other

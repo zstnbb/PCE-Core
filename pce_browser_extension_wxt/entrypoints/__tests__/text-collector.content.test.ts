@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Tests for `entrypoints/text-collector.content.ts` pure helpers.
  *

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * PCE — Perplexity content script (www.perplexity.ai).
  *

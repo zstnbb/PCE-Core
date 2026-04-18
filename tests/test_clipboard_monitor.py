@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Unit tests for pce_core.clipboard_monitor – AI conversation detection & parsing."""
 
 import pytest

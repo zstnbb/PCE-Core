@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Session Auto-Tagger
 
 Automatically tags sessions with language, topics, total_tokens, and model_names

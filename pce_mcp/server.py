@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE MCP Server – Exposes PCE capture and query tools via MCP.
 
 AI assistants (Claude Desktop, Cursor, Windsurf, etc.) can use these

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Core – Idempotent import of previously-exported data.
 
 Accepts either format emitted by :mod:`pce_core.export`:

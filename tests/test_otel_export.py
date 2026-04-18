@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Tests for the opt-in OTLP exporter (P1, ADR-007).
 
 We intentionally test the safe-when-disabled path first because that's

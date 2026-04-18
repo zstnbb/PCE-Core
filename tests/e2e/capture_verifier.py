@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Verify that PCE Core actually captured data from browser interactions.
 
 Queries the PCE API to check if captures/sessions arrived after a test

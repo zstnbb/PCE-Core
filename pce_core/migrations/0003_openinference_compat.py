@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Migration 0003 – OpenInference / OpenTelemetry GenAI compatibility.
 
 Adds additive columns to ``messages`` and ``sessions`` so PCE can emit

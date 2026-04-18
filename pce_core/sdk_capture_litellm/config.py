@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """LiteLLM config-file generator.
 
 PCE owns the config: we pick the port, declare our custom callback, and

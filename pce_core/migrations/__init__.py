@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Core – Schema migration framework.
 
 Migrations are numbered Python modules (``0001_*.py``, ``0002_*.py``, …)
@@ -40,7 +41,7 @@ logger = logging.getLogger("pce.migrations")
 
 # Version that the code expects the database to be at after
 # ``apply_migrations`` completes. Bumped when a new migration is added.
-EXPECTED_SCHEMA_VERSION = 3
+EXPECTED_SCHEMA_VERSION = 5
 
 
 class Migration(NamedTuple):

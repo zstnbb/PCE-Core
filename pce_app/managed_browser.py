@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Managed Browser – launch a pre-configured Chrome for AI capture.
 
 Launches a dedicated Chrome instance with:

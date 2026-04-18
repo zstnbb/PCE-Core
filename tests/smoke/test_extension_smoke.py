@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Smoke: browser-extension ingest path.
 
 Uses the FastAPI TestClient to POST captures the way the browser

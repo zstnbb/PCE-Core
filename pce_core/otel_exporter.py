@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Core – OpenTelemetry OTLP exporter (opt-in, fail-open).
 
 Per ADR-007:
@@ -192,18 +193,28 @@ def emit_pair_span(span_record: Mapping[str, Any]) -> bool:
     ``pce_core.normalizer.openinference_mapper.pair_to_oi_span``. Returns
     True if the span was queued, False if the exporter is disabled or
     the SDK rejected the payload. Never raises.
+
+    Before hitting the wire we run the attribute dict through
+    :func:`pce_core.normalizer.genai_semconv.apply_mode` which optionally
+    adds OpenTelemetry GenAI / OpenLLMetry ``gen_ai.*`` aliases. The mode
+    is governed by ``PCE_OTEL_GENAI_SEMCONV`` (see that module); default
+    is ``both`` so Phoenix keeps working AND Langfuse/Datadog/OTel-native
+    backends get the semconv they expect.
     """
     if not _enabled or _tracer_business is None:
         return False
     try:
         import time
+        from .normalizer.genai_semconv import apply_mode as _genai_apply_mode
+
         start_ns = int(span_record.get("start_time_ns") or time.time_ns())
         end_ns = int(span_record.get("end_time_ns") or start_ns)
+        attributes = _genai_apply_mode(span_record.get("attributes") or {})
         with _tracer_business.start_as_current_span(
             name=span_record.get("name") or "pce.pair",
             start_time=start_ns,
         ) as span:
-            _apply_attributes(span, span_record.get("attributes") or {})
+            _apply_attributes(span, attributes)
             status_str = str(span_record.get("status") or "OK")
             if status_str == "ERROR":
                 _set_status_error(span)

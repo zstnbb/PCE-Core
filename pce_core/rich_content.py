@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Rich content envelope helpers.
 
 The legacy storage contract is ``content_json.attachments``. Keep that field

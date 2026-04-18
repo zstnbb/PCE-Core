@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Manus (manus.im) site adapter."""
 
 import time

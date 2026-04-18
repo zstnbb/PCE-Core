@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """LiteLLM → PCE callback.
 
 LiteLLM loads callbacks by dotted path from the config file. We expose

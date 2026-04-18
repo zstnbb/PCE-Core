@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Core – Browser Extension Conversation normalizer.
 
 Handles conversation-direction captures from browser extension DOM extractors.

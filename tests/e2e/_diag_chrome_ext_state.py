@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Diagnostic: launch the managed Chrome profile via Selenium (as the
 probe does) and enumerate which extensions Chrome actually loaded.
 

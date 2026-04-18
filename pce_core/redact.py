@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Core – Header & body redaction utilities.
 
 Ensures sensitive authentication material never reaches the database in

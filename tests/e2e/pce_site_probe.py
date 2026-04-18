@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Agent-driven PCE site probe — iterate AI sites one at a time.
 
 This is the **Phase 4d** iteration driver. It reuses the existing

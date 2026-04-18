@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Async subprocess supervisor.
 
 One :class:`asyncio.Task` per managed process runs a loop::

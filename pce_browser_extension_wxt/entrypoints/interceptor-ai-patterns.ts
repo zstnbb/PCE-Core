@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * PCE — AI Traffic Pattern Matching (page-context).
  *

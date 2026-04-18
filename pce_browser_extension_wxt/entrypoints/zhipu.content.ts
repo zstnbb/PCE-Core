@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * PCE — Zhipu / Z.ai content script (chat.z.ai).
  *

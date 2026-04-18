@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Core – Data retention / pruning.
 
 User-facing knobs (all optional, see ``pce_core/config.py``):

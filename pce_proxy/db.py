@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Proxy – SQLite storage engine – re-exports from pce_core.db.
 
 This module exists for backward compatibility. All canonical DB logic

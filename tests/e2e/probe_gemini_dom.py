@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """
 Quick Gemini DOM probe - launches Chrome, navigates to Gemini,
 and dumps the DOM structure of response elements for analysis.

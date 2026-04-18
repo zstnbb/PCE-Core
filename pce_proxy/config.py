@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Proxy configuration – re-exports from pce_core.config.
 
 This module exists for backward compatibility. All canonical config

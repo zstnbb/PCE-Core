@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Diagnostic — launch Chrome directly and check if the WXT extension loads.
 
 Bypasses Selenium's Chromedriver to rule out arg-manipulation issues.

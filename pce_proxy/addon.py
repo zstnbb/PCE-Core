@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Proxy – mitmproxy addon.
 
 This addon sits inside the mitmproxy pipeline and:

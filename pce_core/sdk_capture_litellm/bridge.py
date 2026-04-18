@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """LiteLLM proxy lifecycle manager.
 
 Writes a PCE-owned config, spawns ``litellm --config <path> --port <port>``

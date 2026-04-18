@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Full End-to-End Verification Suite.
 
 Spins up a complete isolated environment with:

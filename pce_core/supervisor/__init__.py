@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PCE Supervisor — async subprocess health guardian.
 
 Keeps a small set of long-running child processes alive with exponential

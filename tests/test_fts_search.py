@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Tests for FTS5 full-text search functionality."""
 
 import sqlite3

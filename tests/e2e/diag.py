@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """E2E Smoke: Chrome subprocess + Selenium + addScriptToEvaluateOnNewDocument.
 
 Strategy:

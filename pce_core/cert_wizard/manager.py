@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Cross-platform CA wizard for PCE.
 
 The public helpers (:func:`install_ca`, :func:`uninstall_ca`, etc.) dispatch

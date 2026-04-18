@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Rebuild the FTS5 index for the messages table.
 
 Usage:

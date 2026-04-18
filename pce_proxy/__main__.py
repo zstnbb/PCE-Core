@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Allow running inspect CLI via: python -m pce_proxy"""
 
 from .inspect_cli import main
