@@ -25,6 +25,7 @@ from pce_core.normalizer.pipeline import try_normalize_pair
 from pce_core.db import SOURCE_PROXY, record_pipeline_error, record_tls_failure
 from pce_core.config import CAPTURE_MODE, CaptureMode
 from pce_core.logging_config import configure_logging, log_event
+from pce_core.redact import redact_body_secrets
 
 # Install PCE's structured logger. Idempotent – a no-op if the server
 # process has already configured logging.
@@ -252,7 +253,12 @@ class PCEAddon:
             headers_json = redact_headers_json(dict(flow.request.headers))
             body_raw = flow.request.content or b""
             body_text, body_fmt = safe_body_text(body_raw)
+            # P5.A-10: scrub in-body secrets (Bearer, JWT, sk-*, etc.) on
+            # top of header redaction. Model extraction runs against the
+            # *pre-scrub* bytes so we don't accidentally match inside a
+            # literal redaction token.
             model = _extract_model(body_raw)
+            body_text = redact_body_secrets(body_text)
 
             rid = insert_capture(
                 direction="request",
@@ -318,6 +324,7 @@ class PCEAddon:
                 req_body_raw = flow.request.content or b""
                 req_body_text, req_fmt = safe_body_text(req_body_raw)
                 model = _extract_model(req_body_raw)
+                req_body_text = redact_body_secrets(req_body_text)
 
                 insert_capture(
                     direction="request",
@@ -349,6 +356,7 @@ class PCEAddon:
             headers_json = redact_headers_json(dict(flow.response.headers))
             body_raw = flow.response.content or b""
             body_text, body_fmt = safe_body_text(body_raw)
+            body_text = redact_body_secrets(body_text)
 
             rid = insert_capture(
                 direction="response",

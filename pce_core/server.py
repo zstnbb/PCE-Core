@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -99,6 +99,7 @@ from .capture_event import (
     CaptureEventV2,
     compute_fingerprint,
 )
+from .redact import PrivacyGuard, get_privacy_guard
 from .normalizer.pipeline import normalize_conversation, try_normalize_pair
 
 # Configure root logging before creating the server logger so subsequent
@@ -999,7 +1000,10 @@ _V1_TO_V2_SOURCE: dict[str, str] = {
 
 
 @app.post("/api/v1/captures", response_model=CaptureOut, status_code=201)
-def ingest_capture(payload: CaptureIn):
+def ingest_capture(
+    payload: CaptureIn,
+    guard: PrivacyGuard = Depends(get_privacy_guard),
+):
     """Accept a capture from any frontend (proxy, browser ext, MCP, etc.).
 
     Since T-1d-b this endpoint also populates the CaptureEvent v2 native
@@ -1008,10 +1012,16 @@ def ingest_capture(payload: CaptureIn):
     produced via ``/api/v1/captures/v2`` — the storage shape is unified,
     only the HTTP surface differs. This is the "gateway auto-upgrade"
     contract from UCS §5.1.
+
+    Privacy (P5.A-10): ``guard`` redacts header values (``Authorization``,
+    ``Cookie``, …) and scrubs body-level secrets (Bearer / JWT / OpenAI
+    / Anthropic / Google / GitHub / Stripe / AWS / Slack shapes) before
+    anything lands in the DB.
     """
     source_id = _SOURCE_MAP.get(payload.source_type, SOURCE_PROXY)
     pair_id = payload.pair_id or new_pair_id()
 
+    headers_safe, body_safe = guard.apply(payload.headers_json, payload.body_json)
     meta_json = json.dumps(payload.meta, ensure_ascii=False) if payload.meta else None
 
     # Derive v2 native column values from the v1 payload.
@@ -1019,7 +1029,7 @@ def ingest_capture(payload: CaptureIn):
         (payload.source_type or "").lower().strip(),
         "L1_mitm",
     )
-    v2_fingerprint = compute_fingerprint(pair_id, payload.body_json or "")
+    v2_fingerprint = compute_fingerprint(pair_id, body_safe or "")
 
     capture_id = insert_capture(
         direction=payload.direction,
@@ -1031,8 +1041,8 @@ def ingest_capture(payload: CaptureIn):
         model_name=payload.model_name,
         status_code=payload.status_code,
         latency_ms=payload.latency_ms,
-        headers_redacted_json=payload.headers_json,
-        body_text_or_json=payload.body_json,
+        headers_redacted_json=headers_safe,
+        body_text_or_json=body_safe,
         body_format=payload.body_format,
         error=payload.error,
         session_hint=payload.session_hint,
@@ -1171,7 +1181,11 @@ def _extract_host_path(endpoint: Optional[str]) -> tuple[str, str]:
     return "", endpoint
 
 
-def _v2_event_to_insert_kwargs(event: CaptureEventV2, pair_id: str) -> dict:
+def _v2_event_to_insert_kwargs(
+    event: CaptureEventV2,
+    pair_id: str,
+    guard: Optional[PrivacyGuard] = None,
+) -> dict:
     """Adapt a CaptureEventV2 to the kwargs expected by ``insert_capture``.
 
     Most v2 fields land in native columns added by migration 0006. Only
@@ -1179,6 +1193,11 @@ def _v2_event_to_insert_kwargs(event: CaptureEventV2, pair_id: str) -> dict:
     column yet; they are stashed in ``meta_json`` under stable namespaced
     keys so a later schema promotion (v3) can move them without breaking
     readers that already consult these paths.
+
+    ``guard`` applies the P5.A-10 privacy scrubbing to the serialised
+    header / body strings. ``None`` → use the process-wide default.
+    ``stream_chunks`` inside ``residual_meta`` is also scrubbed, since a
+    producer may leak tokens in delta chunks.
     """
     host, path = _extract_host_path(event.endpoint)
 
@@ -1195,14 +1214,30 @@ def _v2_event_to_insert_kwargs(event: CaptureEventV2, pair_id: str) -> dict:
         headers_obj = event.response_headers or event.request_headers
         v1_direction = "conversation"
 
+    pg = guard if guard is not None else get_privacy_guard()
+
     # Minimal residual meta_json: only the v2 fields that still lack a
-    # native column. Everything else is a first-class column now.
+    # native column. Everything else is a first-class column now. Chunks
+    # are scrubbed in-place so a JWT leaked in a delta doesn't reach disk.
     residual_meta: dict[str, object] = {
         "v2_capture_host": event.capture_host,
         "v2_streaming": event.streaming,
     }
     if event.stream_chunks is not None:
-        residual_meta["v2_stream_chunks"] = event.stream_chunks
+        scrubbed_chunks: list[object] = []
+        for chunk in event.stream_chunks:
+            if isinstance(chunk, str):
+                scrubbed_chunks.append(pg.scrub_body(chunk))
+            else:
+                try:
+                    as_json = json.dumps(chunk, ensure_ascii=False)
+                    scrubbed = pg.scrub_body(as_json)
+                    scrubbed_chunks.append(json.loads(scrubbed))
+                except (TypeError, ValueError):
+                    # Chunk not JSON-roundtrippable — keep as-is rather
+                    # than lose the frame.
+                    scrubbed_chunks.append(chunk)
+        residual_meta["v2_stream_chunks"] = scrubbed_chunks
     meta_json = json.dumps(residual_meta, ensure_ascii=False)
 
     layer_meta_json = (
@@ -1211,10 +1246,12 @@ def _v2_event_to_insert_kwargs(event: CaptureEventV2, pair_id: str) -> dict:
         else None
     )
 
-    headers_redacted_json = json.dumps(headers_obj or {}, ensure_ascii=False)
-    body_text_or_json = (
+    headers_json_raw = json.dumps(headers_obj or {}, ensure_ascii=False)
+    body_json_raw = (
         json.dumps(body_obj, ensure_ascii=False) if body_obj else ""
     )
+
+    headers_redacted_json, body_text_or_json = pg.apply(headers_json_raw, body_json_raw)
 
     return {
         # v1 columns
