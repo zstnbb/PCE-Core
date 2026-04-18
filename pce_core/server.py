@@ -89,6 +89,11 @@ from .models import (
     SnippetRecord,
     StatsOut,
 )
+from .capture_event import (
+    CaptureEventIngestResponse,
+    CaptureEventV2,
+    compute_fingerprint,
+)
 from .normalizer.pipeline import normalize_conversation, try_normalize_pair
 
 # Configure root logging before creating the server logger so subsequent
@@ -990,6 +995,212 @@ def ingest_capture(payload: CaptureIn):
             )
 
     return CaptureOut(id=capture_id, pair_id=pair_id, source_id=source_id)
+
+
+# ---------------------------------------------------------------------------
+# Ingest v2 (CaptureEvent v2 — UCS unified contract, see ADR-009 + ADR-010)
+# ---------------------------------------------------------------------------
+#
+# This is the single entry point every capture layer (OSS + Pro) submits to.
+# Pro layers in github.com/zstnbb/pce-pro reach this endpoint via local HTTP
+# — there is no in-process import path (see ADR-010 “dependency direction”).
+#
+# T-1b scope: endpoint + validation + persistence via the v1 ``raw_captures``
+# storage path (v2 fields preserved inside ``meta_json``). T-1c (migration
+# 0006) will add native v2 columns and T-1d will cut the endpoint over to
+# them; the two private helpers below disappear at that point.
+
+def _v2_source_to_v1_source_id(source: str) -> str:
+    """Temporary: map a v2 CaptureSource to the closest v1 source_id.
+
+    Removed in T-1c once ``raw_captures.source`` exists natively.
+    """
+    if source == "L3a_browser_ext":
+        return SOURCE_BROWSER_EXT
+    if source in ("L3c_vscode_ext", "L4a_clipboard",
+                  "L4b_accessibility", "L4c_ocr"):
+        return SOURCE_MCP
+    # L0_kernel / L1_mitm / L2_frida / L3b_electron_preload /
+    # L3d_cdp / L3e_litellm / L3f_otel → proxy-adjacent.
+    return SOURCE_PROXY
+
+
+def _extract_host_path(endpoint: Optional[str]) -> tuple[str, str]:
+    """Best-effort split of a URL / endpoint path into (host, path)."""
+    if not endpoint:
+        return "", ""
+    try:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(endpoint)
+        if parsed.scheme and parsed.netloc:
+            return parsed.netloc, (parsed.path or "/")
+    except Exception:  # pragma: no cover — urlparse is very permissive
+        pass
+    return "", endpoint
+
+
+def _v2_event_to_insert_kwargs(event: CaptureEventV2, pair_id: str) -> dict:
+    """Adapt a CaptureEventV2 to the kwargs expected by ``insert_capture``.
+
+    Removed in T-1c once migration 0006 adds native v2 columns.
+    All v2-only fields (source, agent_*, quality_tier, layer_meta, form_id,
+    app_name, stream_chunks, fingerprint) are preserved inside ``meta_json``
+    under a ``v2`` envelope so the later migration can promote them.
+    """
+    host, path = _extract_host_path(event.endpoint)
+
+    if event.direction == "request":
+        body_obj = event.request_body
+        headers_obj = event.request_headers
+        v1_direction = "request"
+    elif event.direction == "response":
+        body_obj = event.response_body
+        headers_obj = event.response_headers
+        v1_direction = "response"
+    else:  # "pair" — legacy v1 equivalent is "conversation" (normalizer picks up)
+        body_obj = event.response_body or event.request_body
+        headers_obj = event.response_headers or event.request_headers
+        v1_direction = "conversation"
+
+    v2_envelope = {
+        "capture_id": event.capture_id,
+        "source": event.source,
+        "agent_name": event.agent_name,
+        "agent_version": event.agent_version,
+        "capture_time_ns": event.capture_time_ns,
+        "capture_host": event.capture_host,
+        "quality_tier": event.quality_tier,
+        "fingerprint": event.fingerprint,
+        "form_id": event.form_id,
+        "app_name": event.app_name,
+        "streaming": event.streaming,
+    }
+    if event.stream_chunks is not None:
+        v2_envelope["stream_chunks"] = event.stream_chunks
+
+    meta_json = json.dumps(
+        {"v2": v2_envelope, "layer_meta": event.layer_meta},
+        ensure_ascii=False,
+    )
+
+    headers_redacted_json = json.dumps(headers_obj or {}, ensure_ascii=False)
+    body_text_or_json = (
+        json.dumps(body_obj, ensure_ascii=False) if body_obj else ""
+    )
+
+    return {
+        "direction": v1_direction,
+        "pair_id": pair_id,
+        "host": host,
+        "path": path,
+        "method": "",
+        "provider": event.provider or "unknown",
+        "model_name": event.model,
+        "status_code": None,
+        "latency_ms": None,
+        "headers_redacted_json": headers_redacted_json,
+        "body_text_or_json": body_text_or_json,
+        "body_format": "json",
+        "error": None,
+        "session_hint": event.session_hint,
+        "meta_json": meta_json,
+        "source_id": _v2_source_to_v1_source_id(event.source),
+    }
+
+
+@app.post(
+    "/api/v1/captures/v2",
+    response_model=CaptureEventIngestResponse,
+    status_code=201,
+)
+def ingest_capture_v2(event: CaptureEventV2) -> CaptureEventIngestResponse:
+    """Ingest a CaptureEvent v2 payload (UCS §5).
+
+    This is the unified contract endpoint for all capture layers. Pydantic
+    rejects unknown top-level fields (schema is frozen per UCS §5.6) and
+    unknown ``source`` enum values, returning 422. Persistence failures
+    return 500 with a recorded pipeline error so ``GET /api/v1/health``
+    surfaces them.
+    """
+    ingested_at_ns = time.time_ns()
+    pair_id = event.pair_id or new_pair_id()
+
+    # Auto-compute a dedup fingerprint when the producer didn't supply one.
+    # TODO(T-1c): once raw_captures.fingerprint exists, consult it here and
+    #             short-circuit with a 409/deduped_of response for collisions.
+    if event.fingerprint is None:
+        body_obj = event.response_body or event.request_body or {}
+        body_prefix = (
+            json.dumps(body_obj, ensure_ascii=False) if body_obj else ""
+        )
+        event.fingerprint = compute_fingerprint(pair_id, body_prefix)
+
+    insert_kwargs = _v2_event_to_insert_kwargs(event, pair_id)
+    storage_id = insert_capture(**insert_kwargs)
+
+    if storage_id is None:
+        record_pipeline_error(
+            "ingest_v2",
+            "insert_capture returned None",
+            source_id=insert_kwargs["source_id"],
+            pair_id=pair_id,
+            details={
+                "source": event.source,
+                "direction": event.direction,
+                "endpoint": event.endpoint,
+                "provider": event.provider,
+            },
+        )
+        log_event(
+            logger, "capture_v2.ingest_failed", level=logging.ERROR,
+            source=event.source, direction=event.direction,
+            endpoint=event.endpoint, provider=event.provider,
+        )
+        raise HTTPException(status_code=500, detail="Failed to persist v2 event")
+
+    log_event(
+        logger, "capture_v2.ingested",
+        capture_id=event.capture_id[:8], storage_id=storage_id[:8],
+        pair_id=pair_id[:8], source=event.source, direction=event.direction,
+        provider=event.provider, model=event.model,
+        quality_tier=event.quality_tier,
+    )
+
+    normalized = False
+    try:
+        if event.direction == "response":
+            normalized = bool(try_normalize_pair(
+                pair_id,
+                source_id=insert_kwargs["source_id"],
+                created_via=f"v2:{event.source}",
+            ))
+        elif event.direction == "pair":
+            from .db import query_by_pair
+
+            rows = query_by_pair(pair_id)
+            if rows:
+                normalize_conversation(
+                    rows[0],
+                    source_id=insert_kwargs["source_id"],
+                    created_via=f"v2:{event.source}",
+                )
+                normalized = True
+    except Exception as exc:
+        logger.exception(
+            "v2 auto-normalization failed for %s — non-fatal", pair_id[:8]
+        )
+        record_pipeline_error(
+            "normalize_v2", f"{type(exc).__name__}: {exc}",
+            source_id=insert_kwargs["source_id"], pair_id=pair_id,
+            details={"direction": event.direction, "source": event.source},
+        )
+
+    return CaptureEventIngestResponse(
+        capture_id=event.capture_id,
+        ingested_at_ns=ingested_at_ns,
+        normalized=normalized,
+    )
 
 
 # ---------------------------------------------------------------------------
