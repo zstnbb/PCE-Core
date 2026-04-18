@@ -102,6 +102,44 @@ KNOWN_APPS: list[ElectronApp] = [
         linux_paths=[],
         ai_domains=["api.anthropic.com", "claude.ai"],
     ),
+    # ── P5.A-2: Tier-1 subscription targets (UCS §10.1) ────────────────
+    # ChatGPT Desktop ships as an Electron bundle on Windows/macOS; Linux
+    # is unsupported. Its background WebView hits the same ``chatgpt.com``
+    # endpoints as the browser version, so the proxy allowlist already
+    # covers it (see pce_core/config.py::ALLOWED_HOSTS).
+    ElectronApp(
+        name="chatgpt-desktop",
+        display_name="ChatGPT Desktop",
+        exe_names=["ChatGPT.exe", "ChatGPT"],
+        win_paths=[
+            r"AppData\Local\Programs\ChatGPT\ChatGPT.exe",
+            r"AppData\Local\OpenAI\ChatGPT\ChatGPT.exe",
+        ],
+        mac_paths=["/Applications/ChatGPT.app/Contents/MacOS/ChatGPT"],
+        linux_paths=[],
+        ai_domains=["chatgpt.com", "chat.openai.com", "api.openai.com"],
+    ),
+    # Codex CLI is a Node.js binary installed via ``npm i -g @openai/codex``.
+    # It isn't Electron, but the KNOWN_APPS launcher works for any child
+    # process since it just exports HTTP(S)_PROXY + NODE_EXTRA_CA_CERTS
+    # before exec — which is exactly what a Node CLI needs. The install
+    # paths below cover the two npm global prefixes seen in the wild;
+    # ``exe_names`` is sufficient for the PATH-based detection fallback.
+    ElectronApp(
+        name="codex-cli",
+        display_name="Codex CLI",
+        exe_names=["codex.cmd", "codex.exe", "codex"],
+        win_paths=[
+            r"AppData\Roaming\npm\codex.cmd",
+            r"AppData\Local\Programs\nodejs\codex.cmd",
+        ],
+        mac_paths=[
+            "/usr/local/bin/codex",
+            "/opt/homebrew/bin/codex",
+        ],
+        linux_paths=["/usr/bin/codex", "/usr/local/bin/codex"],
+        ai_domains=["api.openai.com"],
+    ),
 ]
 
 

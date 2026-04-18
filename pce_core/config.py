@@ -57,6 +57,18 @@ ALLOWED_HOSTS: set[str] = {
     "chat.zhipuai.cn",
     "open.bigmodel.cn",
     "maas.aminer.cn",
+    # ── Subscription-tier Web / Desktop (P5.A-1, UCS Tier-1) ──
+    # These are the user-facing domains that logged-in subscribers hit
+    # through ChatGPT Web/Desktop, Claude Web/Desktop, Microsoft Copilot,
+    # Gemini Web, etc. The proxy needs them in the allowlist so L1
+    # (mitmproxy) can capture subscription traffic — API-key endpoints
+    # alone (``api.openai.com``) don't cover the paid-tier flows.
+    "chatgpt.com",
+    "chat.openai.com",
+    "claude.ai",
+    "api.githubcopilot.com",
+    "gemini.google.com",
+    "copilot.microsoft.com",
     # ── Vendor Relay / IDE ────────────────────────────────
     "api2.cursor.sh",
     "api.codeium.com",
