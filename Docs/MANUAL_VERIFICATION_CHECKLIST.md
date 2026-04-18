@@ -27,10 +27,17 @@
 
 ### V0.3 — 浏览器扩展已加载
 - **操作**：
-  1. 打开 Chrome，地址栏输入 `chrome://extensions/`
-  2. 打开右上角「开发者模式」
-  3. 点「加载已解压的扩展程序」，选择 `F:\INVENTION\You.Inc\PCE Core\pce_browser_extension`
-  4. 如果已经加载过，点扩展卡片上的 🔄 刷新按钮
+  1. 先构建扩展（一次即可，改完 TS 代码再跑）：
+     ```bash
+     cd pce_browser_extension_wxt
+     pnpm install      # 首次
+     pnpm build        # 每次 TS 改动后
+     ```
+  2. 打开 Chrome，地址栏输入 `chrome://extensions/`
+  3. 打开右上角「开发者模式」
+  4. 点「加载已解压的扩展程序」，选择
+     `F:\INVENTION\You.Inc\PCE Core\pce_browser_extension_wxt\.output\chrome-mv3`
+  5. 如果已经加载过，点扩展卡片上的 🔄 刷新按钮
 - **预期**：扩展出现在列表中，无错误标红
 - **排障**：如果有红色错误，点「错误」按钮截图给我
 

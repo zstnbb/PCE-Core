@@ -154,8 +154,38 @@ def find_chrome() -> Optional[Path]:
 # Where we keep the isolated Chrome profile
 _DEFAULT_PROFILE_DIR = Path.home() / ".pce" / "chrome_profile"
 
-# The extension source lives in the project tree
-_EXTENSION_DIR = Path(__file__).resolve().parent.parent / "pce_browser_extension"
+# Post-P2.5 Phase 4: the extension is built by WXT into
+# ``pce_browser_extension_wxt/.output/{chrome,firefox}-mv3/``. The old
+# ``pce_browser_extension/`` source directory no longer exists; Chrome
+# loads the built bundle from the WXT output root.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_WXT_ROOT = _PROJECT_ROOT / "pce_browser_extension_wxt"
+_WXT_CHROME_OUTPUT = _WXT_ROOT / ".output" / "chrome-mv3"
+_WXT_FIREFOX_OUTPUT = _WXT_ROOT / ".output" / "firefox-mv3"
+
+
+def _find_extension_dir() -> Path:
+    """Resolve the bundled extension directory.
+
+    Resolution order:
+      1. ``PCE_EXTENSION_DIR`` environment override (absolute or
+         repo-relative path).
+      2. The WXT Chrome MV3 build output.
+      3. The WXT Firefox MV3 build output.
+      4. The Chrome output path as a default (triggers a clear error
+         downstream when the directory is missing).
+    """
+    override = os.environ.get("PCE_EXTENSION_DIR")
+    if override:
+        return Path(override).expanduser().resolve()
+    if _WXT_CHROME_OUTPUT.exists():
+        return _WXT_CHROME_OUTPUT
+    if _WXT_FIREFOX_OUTPUT.exists():
+        return _WXT_FIREFOX_OUTPUT
+    return _WXT_CHROME_OUTPUT
+
+
+_EXTENSION_DIR = _find_extension_dir()
 
 
 class ManagedBrowser:

@@ -52,9 +52,26 @@ without Python installed. Double-click `PCE.exe` to start.
 
 ## Browser Extension
 
+The extension is built by [WXT](https://wxt.dev/) from TypeScript
+entrypoints under `pce_browser_extension_wxt/entrypoints/`. Build
+first, then load the bundle:
+
+```bash
+cd pce_browser_extension_wxt
+pnpm install       # first time only
+pnpm build         # Chrome MV3 output → .output/chrome-mv3/
+pnpm build:firefox # Firefox MV3 output → .output/firefox-mv3/
+```
+
+Then load in Chrome:
+
 1. Open Chrome → `chrome://extensions/`
 2. Enable **Developer mode**
-3. Click **Load unpacked** → select `pce_browser_extension/`
+3. Click **Load unpacked** → select
+   `pce_browser_extension_wxt/.output/chrome-mv3/`
+
+Firefox: use `about:debugging` → "Load Temporary Add-on" and point
+at the `.output/firefox-mv3/manifest.json`.
 
 ## MCP Integration (Claude Desktop / Cursor)
 
@@ -95,6 +112,6 @@ PCE Core/
 │   └── local_hook/            # Local model capture proxy
 ├── pce_proxy/                 # mitmproxy addon
 ├── pce_mcp/                   # MCP server (6 tools)
-├── pce_browser_extension/     # Chrome Manifest V3
+├── pce_browser_extension_wxt/ # Chrome/Firefox MV3 (WXT + TypeScript)
 └── tests/                     # 7 test suites
 ```

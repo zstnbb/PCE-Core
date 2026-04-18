@@ -13,7 +13,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 
 # ---------- Config ----------
-EXT_DIR = Path("pce_browser_extension").resolve()
+EXT_DIR = Path("pce_browser_extension_wxt/.output/chrome-mv3").resolve()
 PROFILE = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Google", "Chrome", "User Data")
 CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 PORT = 9224

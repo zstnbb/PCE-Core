@@ -12,7 +12,11 @@ import urllib.request
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-EXTENSION_DIR = PROJECT_ROOT / "pce_browser_extension"
+# Post-P2.5 Phase 4: load the WXT build output, not the removed
+# legacy source directory.
+EXTENSION_DIR = (
+    PROJECT_ROOT / "pce_browser_extension_wxt" / ".output" / "chrome-mv3"
+)
 MANAGED_PROFILE = Path.home() / ".pce" / "chrome_profile"
 
 SITES = [

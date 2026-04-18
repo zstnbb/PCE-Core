@@ -41,7 +41,12 @@ from selenium.webdriver.chrome.service import Service
 logger = logging.getLogger("pce.e2e")
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-EXTENSION_DIR = PROJECT_ROOT / "pce_browser_extension"
+# Post-P2.5 Phase 4: the built extension lives at
+# `pce_browser_extension_wxt/.output/chrome-mv3/`. The legacy source
+# directory was removed in 2026-04-18's Phase 4b.
+EXTENSION_DIR = (
+    PROJECT_ROOT / "pce_browser_extension_wxt" / ".output" / "chrome-mv3"
+)
 SCREENSHOTS_DIR = PROJECT_ROOT / "tests" / "e2e" / "screenshots"
 
 

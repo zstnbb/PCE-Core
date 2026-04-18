@@ -258,7 +258,13 @@ def main():
         profile_dir = os.path.expanduser("~/.config/google-chrome")
 
     profile_dir = os.environ.get("PCE_CHROME_PROFILE", profile_dir)
-    ext_dir = str(Path(__file__).resolve().parent.parent.parent / "pce_browser_extension")
+    # Post-P2.5 Phase 4: WXT build output path.
+    ext_dir = str(
+        Path(__file__).resolve().parent.parent.parent
+        / "pce_browser_extension_wxt"
+        / ".output"
+        / "chrome-mv3"
+    )
 
     print(f"Chrome profile: {profile_dir}")
     print(f"Extension: {ext_dir}")

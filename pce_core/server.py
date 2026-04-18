@@ -1322,11 +1322,12 @@ def get_capabilities():
             "capture_count": ext_info["capture_count"],
             "last_seen": ext_info["last_seen"],
             "port": None,
-            "setup": "Load unpacked extension from pce_browser_extension/ in Chrome → chrome://extensions",
+            "setup": "Build with `pnpm --dir pce_browser_extension_wxt build`, then load the `pce_browser_extension_wxt/.output/chrome-mv3/` directory in Chrome → chrome://extensions",
             "setup_detail": {
+                "step0": "Run `pnpm install && pnpm build` in `pce_browser_extension_wxt/`",
                 "step1": "Open Chrome → chrome://extensions",
                 "step2": "Enable Developer mode",
-                "step3": "Click 'Load unpacked' → select pce_browser_extension/ folder",
+                "step3": "Click 'Load unpacked' → select `pce_browser_extension_wxt/.output/chrome-mv3/`",
             },
         },
         {

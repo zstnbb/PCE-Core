@@ -33,7 +33,15 @@ USER_DATA_DIR = os.path.expanduser(r"~\AppData\Local\Google\Chrome\User Data")
 PROFILE = "Default"
 DEBUG_PORT = 9234
 
-EXT_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "pce_browser_extension")
+# Post-P2.5 Phase 4: WXT build output.
+EXT_PATH = os.path.join(
+    os.path.dirname(__file__),
+    "..",
+    "..",
+    "pce_browser_extension_wxt",
+    ".output",
+    "chrome-mv3",
+)
 EXT_PATH = os.path.abspath(EXT_PATH)
 
 OUTPUT_FILE = os.path.join(os.path.dirname(__file__), "gemini_rich_dom_probe.json")
