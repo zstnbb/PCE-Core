@@ -187,20 +187,67 @@ HTTP:
 - `GET /api/v1/mobile_wizard/qr.txt`
 - `GET /api/v1/mobile_wizard/qr.png`  *(503 without `qrcode[pil]`)*
 
-## Building Executable (Windows)
+## Building Executable (cross-platform, P5.A-11)
+
+The `pce.spec` PyInstaller spec now produces a platform-correct bundle
+from the same source on all three OSes — no manual tweaking required.
 
 ```bash
-# Install PyInstaller
-pip install pyinstaller
+# One-time per machine
+pip install -r requirements.txt
+pip install pyinstaller>=6.0
 
-# Build
-pyinstaller pce.spec
-
-# Output: dist/PCE/PCE.exe
+# Build (picks the right flags based on sys.platform)
+pyinstaller --clean pce.spec
 ```
 
-The built `dist/PCE/` folder contains everything needed to run PCE
-without Python installed. Double-click `PCE.exe` to start.
+Outputs:
+
+| Platform | Artifact | Launch |
+|---|---|---|
+| Windows | `dist/PCE/PCE.exe` | Double-click (tray app, `console=False`) |
+| macOS   | `dist/PCE.app`     | Drag to /Applications, tray-only via `LSUIElement` |
+| Linux   | `dist/PCE/PCE`     | `./PCE` from terminal (console stays visible) |
+
+The bundle ships `mitmproxy` (~90 MB) so L1 network capture works out
+of the box. Icons are optional — drop `assets/icons/pce.ico` (Win) or
+`assets/icons/pce.icns` (macOS) before building to embed them; a
+missing file just yields a no-icon build instead of failing.
+
+### Post-build self-check
+
+```bash
+python scripts/verify_build.py --platform Windows   # or macOS / Linux
+```
+
+Verifies: executable exists + is the right size, dashboard + migrations
+are bundled under `_internal/`, and on Windows/Linux the binary can
+launch without an import-error exit. Returns non-zero on any failure,
+so CI gates artifact upload on it.
+
+### Release pipeline
+
+Tag-triggered GitHub Actions workflow at `.github/workflows/release.yml`:
+
+```bash
+git tag v1.0.0 && git push origin v1.0.0
+```
+
+That produces a draft GitHub Release with five assets:
+
+- `PCE-v1.0.0-windows-x64.zip`
+- `PCE-v1.0.0-macos-universal.zip`
+- `PCE-v1.0.0-linux-x64.tar.gz`
+- `pce-extension-chrome-v1.0.0.zip` (webstore mode, explicit host_permissions)
+- `pce-extension-firefox-v1.0.0.zip`
+
+Pre-release naming (`v1.0.0-rc1`, `v1.0.0-beta`) automatically flips
+the release to `prerelease: true`. Gate jobs (import-direction, SPDX,
+full non-e2e pytest) run first so a tainted commit can't ship.
+
+`workflow_dispatch` runs skip the release-creation step and just
+upload artifacts to the workflow run — useful for validating the
+pipeline between tags without burning a version bump.
 
 ## Building Native Installer (Tauri, cross-platform)
 

@@ -1,0 +1,272 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Tag-triggered tri-platform release pipeline (P5.A-11).
+#
+# Trigger: push a tag matching ``v*`` (e.g. ``v1.0.0``, ``v1.0.0-rc1``).
+# Output: a GitHub Release with five attached artifacts:
+#
+#   - PCE-v<version>-windows-x64.zip     (PyInstaller COLLECT folder)
+#   - PCE-v<version>-macos-universal.zip (PyInstaller .app bundle)
+#   - PCE-v<version>-linux-x64.tar.gz    (PyInstaller COLLECT folder)
+#   - pce-extension-chrome-v<version>.zip  (WXT Chrome MV3 build)
+#   - pce-extension-firefox-v<version>.zip (WXT Firefox MV3 build)
+#
+# The workflow also runs the import-direction + SPDX + non-e2e pytest
+# gates before packaging so a tainted commit can't ship a release.
+#
+# Manual runs (``workflow_dispatch``) skip the release creation step
+# and just upload the artifacts to the workflow run — useful for
+# validating the pipeline between tags without burning a version bump.
+
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write  # needed for softprops/action-gh-release
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false  # never cancel a release build mid-way
+
+jobs:
+  # ------------------------------------------------------------------
+  # Gate: repo-wide invariants that must hold before we spend compute
+  # on 3 parallel PyInstaller runs.
+  # ------------------------------------------------------------------
+  gate:
+    name: release gate (lint + tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Import-direction check (ADR-010)
+        run: python scripts/check_import_direction.py
+
+      - name: SPDX header check
+        run: python scripts/add_spdx_headers.py --check
+
+      - name: Run non-e2e pytest
+        env:
+          PCE_LOG_JSON: "1"
+        run: |
+          python -m pytest tests/ -q --tb=short \
+            --ignore=tests/e2e \
+            --deselect tests/test_e2e_full.py \
+            --deselect tests/manual_capture_test.py \
+            --deselect tests/test_real_e2e_capture.py
+
+  # ------------------------------------------------------------------
+  # Desktop binaries: one job per platform, each uploads its bundle
+  # ------------------------------------------------------------------
+  desktop:
+    name: desktop build (${{ matrix.os }})
+    needs: gate
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_name: PCE-windows-x64
+            archive_ext: zip
+            archive_cmd: '7z a -tzip'
+          - os: macos-latest
+            artifact_name: PCE-macos-universal
+            archive_ext: zip
+            archive_cmd: 'ditto -c -k --keepParent'
+          - os: ubuntu-latest
+            artifact_name: PCE-linux-x64
+            archive_ext: tar.gz
+            archive_cmd: 'tar -czf'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pyinstaller>=6.0
+
+      - name: Linux — system libs for tray icon support
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgirepository1.0-dev \
+            libayatana-appindicator3-dev \
+            gir1.2-appindicator3-0.1 \
+            libx11-dev \
+            xvfb
+
+      - name: Derive version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION="0.0.0-dev.${GITHUB_SHA::7}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "archive=${{ matrix.artifact_name }}-v${VERSION}.${{ matrix.archive_ext }}" >> "$GITHUB_OUTPUT"
+
+      - name: PyInstaller build
+        run: pyinstaller --clean pce.spec
+
+      - name: Post-build self-check
+        shell: bash
+        run: python scripts/verify_build.py --platform ${{ runner.os }}
+
+      - name: Package — Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Set-Location dist
+          7z a -tzip ../${{ steps.version.outputs.archive }} PCE
+
+      - name: Package — macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          cd dist
+          ditto -c -k --keepParent PCE.app "../${{ steps.version.outputs.archive }}"
+
+      - name: Package — Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          cd dist
+          tar -czf "../${{ steps.version.outputs.archive }}" PCE
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ steps.version.outputs.archive }}
+          if-no-files-found: error
+
+  # ------------------------------------------------------------------
+  # Browser extension: two builds (chrome-mv3, firefox-mv3), webstore
+  # host_permissions mode so Chrome review accepts the manifest.
+  # ------------------------------------------------------------------
+  extension:
+    name: browser extension build
+    needs: gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+          cache-dependency-path: pce_browser_extension_wxt/pnpm-lock.yaml
+
+      - name: Install extension deps
+        working-directory: pce_browser_extension_wxt
+        run: pnpm install --frozen-lockfile
+
+      - name: Derive version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION="0.0.0-dev.${GITHUB_SHA::7}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Chrome build (webstore mode, explicit host_permissions)
+        working-directory: pce_browser_extension_wxt
+        run: pnpm build --mode webstore
+
+      - name: Firefox build
+        working-directory: pce_browser_extension_wxt
+        run: pnpm build:firefox
+
+      - name: Zip Chrome bundle
+        working-directory: pce_browser_extension_wxt
+        shell: bash
+        run: |
+          cd .output/chrome-mv3
+          zip -r "../../../pce-extension-chrome-v${{ steps.version.outputs.version }}.zip" .
+
+      - name: Zip Firefox bundle
+        working-directory: pce_browser_extension_wxt
+        shell: bash
+        run: |
+          cd .output/firefox-mv3
+          zip -r "../../../pce-extension-firefox-v${{ steps.version.outputs.version }}.zip" .
+
+      - name: Upload Chrome extension
+        uses: actions/upload-artifact@v4
+        with:
+          name: pce-extension-chrome
+          path: pce-extension-chrome-v*.zip
+          if-no-files-found: error
+
+      - name: Upload Firefox extension
+        uses: actions/upload-artifact@v4
+        with:
+          name: pce-extension-firefox
+          path: pce-extension-firefox-v*.zip
+          if-no-files-found: error
+
+  # ------------------------------------------------------------------
+  # Final step: assemble all artifacts into a GitHub Release.
+  # Skipped on ``workflow_dispatch`` runs (no tag to attach to).
+  # ------------------------------------------------------------------
+  publish:
+    name: publish GitHub Release
+    needs: [desktop, extension]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Flatten artifact tree
+        shell: bash
+        run: |
+          mkdir -p release-flat
+          find release-assets -type f \( -name "*.zip" -o -name "*.tar.gz" \) \
+            -exec cp {} release-flat/ \;
+          ls -la release-flat/
+
+      - name: Create Release + attach assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-flat/*
+          generate_release_notes: true
+          draft: true
+          prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') }}

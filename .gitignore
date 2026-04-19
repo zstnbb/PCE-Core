@@ -6,6 +6,7 @@ dist/
 build/
 .eggs/
 *.egg
+.cache/
 
 # Virtual environments
 .venv/
