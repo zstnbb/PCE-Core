@@ -51,6 +51,7 @@ import { defineConfig } from "wxt";
  */
 
 const COVERED_SITES = [
+  // F1 — dedicated AI chat / coding tools (13 sites).
   "https://chatgpt.com/*",
   "https://chat.openai.com/*",
   "https://claude.ai/*",
@@ -68,6 +69,16 @@ const COVERED_SITES = [
   "https://kimi.moonshot.cn/*",
   "https://www.kimi.com/*",
   "https://kimi.com/*",
+  // F2 — AI features embedded in productivity / collaboration tools
+  // (P5.A-8/9 scaffolding; selectors need live-page validation).
+  "https://www.notion.so/*",
+  "https://notion.so/*",
+  "https://m365.cloud.microsoft/*",
+  "https://*.cloud.microsoft/*",
+  "https://*.officeapps.live.com/*",
+  "https://www.figma.com/*",
+  "https://figma.com/*",
+  "https://mail.google.com/*",
 ] as const;
 
 // All site extractors + site-independent helpers now ship as TS
