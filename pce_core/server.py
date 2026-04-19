@@ -88,6 +88,7 @@ from .models import (
     HealthOut,
     HostPinningStats,
     MessageRecord,
+    OnboardingCaptureVerify,
     PinningReport,
     SessionRecord,
     SnippetIn,
@@ -421,6 +422,53 @@ def onboarding_state():
         "steps": _app_state.ONBOARDING_STEPS,
         "state": state,
     }
+
+
+@app.get("/api/v1/onboarding/status")
+def onboarding_status(
+    pinning_window_hours: float = Query(1.0, gt=0, le=168.0),
+    pinning_min_failures: int = Query(3, ge=1, le=100),
+):
+    """Aggregated first-run snapshot (P5.A-5, UCS §3.3).
+
+    Collapses five previously-separate polls into one read: CA trust,
+    system proxy toggle, Electron apps + bypass flags, recent captures,
+    and a short-window pinning-warning count. Used as the step router
+    for ``pce_core/dashboard/onboarding.js`` — ``ready==True`` means CA
+    and proxy are both green and the user can hit "verify" next.
+
+    Deliberately returns a free-form dict: each section carries its own
+    ``ok`` / ``error`` field so a partial failure (e.g. an unreadable
+    macOS trust store) still yields a useful response instead of a 500.
+    """
+    from . import onboarding as _onboarding
+
+    return _onboarding.build_status(
+        pinning_window_hours=pinning_window_hours,
+        pinning_min_failures=pinning_min_failures,
+    )
+
+
+@app.get("/api/v1/onboarding/verify", response_model=OnboardingCaptureVerify)
+def onboarding_verify_capture(
+    since_epoch: float = Query(
+        ...,
+        ge=0,
+        description="Seconds-since-epoch; only rows with created_at > this are counted.",
+    ),
+) -> OnboardingCaptureVerify:
+    """Return ``captured=True`` once PCE records a capture after ``since_epoch``.
+
+    Intended for the wizard's "send a test ChatGPT prompt" verification
+    step. The UI grabs ``generated_at_epoch`` from ``/status``, prompts
+    the user to trigger traffic in the target app, then polls this
+    endpoint in a tight loop (say every 750 ms) until ``captured`` flips
+    true. Runs one indexed SQL count — cheap to poll.
+    """
+    from . import onboarding as _onboarding
+
+    result = _onboarding.verify_capture_since(since_epoch)
+    return OnboardingCaptureVerify(**result)
 
 
 @app.post("/api/v1/onboarding/state")

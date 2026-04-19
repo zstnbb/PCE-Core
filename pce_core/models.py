@@ -184,6 +184,21 @@ class AppBypassUpdate(BaseModel):
     bypassed: list[str] = []
 
 
+class OnboardingCaptureVerify(BaseModel):
+    """Response body for ``GET /api/v1/onboarding/verify`` (P5.A-5).
+
+    ``captured=True`` flips as soon as any new capture row is recorded
+    after ``since_epoch``. The wizard polls this while prompting the
+    user to send a test message through ChatGPT / Claude / etc.
+    """
+
+    captured: bool = False
+    count: int = 0
+    since_epoch: float = 0.0
+    latest_ts_epoch: Optional[float] = None
+    error: Optional[str] = None
+
+
 class StorageInfo(BaseModel):
     """Storage usage statistics."""
 
