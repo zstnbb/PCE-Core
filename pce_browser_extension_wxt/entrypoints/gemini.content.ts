@@ -21,6 +21,7 @@ import {
 import {
   extractAttachments,
   extractReplyContent,
+  isStreaming as sharedIsStreaming,
 } from "../utils/pce-dom";
 
 declare global {
@@ -44,6 +45,26 @@ export function getSessionHint(
 
 export function getContainer(doc: Document = document): Element | null {
   return doc.querySelector("main") || doc.body;
+}
+
+/**
+ * Streaming check (closes P5.B gap **G2**): shared DOM helper OR a
+ * Stop/Cancel-generation button by text/aria-label.
+ *
+ * Passed to ``createCaptureRuntime`` as the ``isStreaming`` gate so
+ * mid-stream debounce ticks DON'T fire a partial capture — matches
+ * the pattern in ``chatgpt.content.ts`` and ``google-ai-studio.content.ts``.
+ */
+export function isStreaming(doc: Document = document): boolean {
+  if (sharedIsStreaming(doc)) return true;
+  const buttons = doc.querySelectorAll("button");
+  for (const btn of Array.from(buttons)) {
+    const label = `${safeInnerText(btn) || ""} ${
+      btn.getAttribute("aria-label") || ""
+    }`.trim();
+    if (/stop generating|stop response|cancel/i.test(label)) return true;
+  }
+  return false;
 }
 
 export function getModelName(doc: Document = document): string | null {
@@ -212,6 +233,7 @@ export default defineContentScript({
       pollIntervalMs: 5000,
 
       getContainer: () => getContainer(document),
+      isStreaming: () => isStreaming(document),
       extractMessages: () => extractMessages(document),
       getSessionHint: () => getSessionHint(),
       getModelName: () => getModelName(document),

@@ -13,6 +13,7 @@ import {
   extractMessages,
   getContainer,
   getSessionHint,
+  isStreaming,
 } from "../claude.content";
 
 beforeEach(() => {
@@ -54,6 +55,37 @@ describe("getContainer", () => {
   it("falls back to main when nothing else matches", () => {
     document.body.innerHTML = `<main id="m">x</main>`;
     expect(getContainer(document)!.id).toBe("m");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isStreaming (P5.B gap C2 regression)
+// ---------------------------------------------------------------------------
+
+describe("isStreaming", () => {
+  it("true when the dedicated stop-button testid is present", () => {
+    document.body.innerHTML = `<button data-testid="stop-button">Stop</button>`;
+    expect(isStreaming(document)).toBe(true);
+  });
+
+  it("true when a Stop-response button aria-label is present", () => {
+    document.body.innerHTML = `<button aria-label="Stop response">X</button>`;
+    expect(isStreaming(document)).toBe(true);
+  });
+
+  it("true when a Cancel button text is present", () => {
+    document.body.innerHTML = `<button>Cancel</button>`;
+    expect(isStreaming(document)).toBe(true);
+  });
+
+  it("false when the page is idle", () => {
+    document.body.innerHTML = `<p>quiet page</p>`;
+    expect(isStreaming(document)).toBe(false);
+  });
+
+  it("false when buttons are present but none match stop/cancel", () => {
+    document.body.innerHTML = `<button aria-label="Send message">Send</button>`;
+    expect(isStreaming(document)).toBe(false);
   });
 });
 

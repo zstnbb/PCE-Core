@@ -33,6 +33,7 @@ import {
 import {
   extractAttachments,
   extractThinking,
+  isStreaming as sharedIsStreaming,
 } from "../utils/pce-dom";
 
 declare global {
@@ -63,6 +64,29 @@ export function getContainer(doc: Document = document): Element | null {
     doc.querySelector("main .flex.flex-col") ||
     doc.querySelector("main")
   );
+}
+
+/**
+ * Streaming check (closes P5.B gap **C2**): shared DOM helper OR a
+ * dedicated `[data-testid="stop-button"]` OR an aria-label/text regex
+ * on any button.
+ *
+ * Passed to ``createCaptureRuntime`` as the ``isStreaming`` gate so
+ * mid-stream debounce ticks DON'T fire a partial capture — matches
+ * the pattern in ``chatgpt.content.ts`` and ``google-ai-studio.content.ts``.
+ */
+export function isStreaming(doc: Document = document): boolean {
+  if (sharedIsStreaming(doc)) return true;
+  // Dedicated Claude UI testid (2024+ layout)
+  if (doc.querySelector('[data-testid="stop-button"]')) return true;
+  const buttons = doc.querySelectorAll("button");
+  for (const btn of Array.from(buttons)) {
+    const label = `${safeInnerText(btn) || ""} ${
+      btn.getAttribute("aria-label") || ""
+    }`.trim();
+    if (/stop response|stop generating|cancel/i.test(label)) return true;
+  }
+  return false;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -252,6 +276,7 @@ export default defineContentScript({
       pollIntervalMs: 3000,
 
       getContainer: () => getContainer(document),
+      isStreaming: () => isStreaming(document),
       extractMessages: () => extractMessages(document),
       getSessionHint: () => getSessionHint(),
       hookHistoryApi: false,
