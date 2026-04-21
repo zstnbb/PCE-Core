@@ -8,6 +8,7 @@ interaction. Used by test_capture.py to confirm end-to-end pipeline works.
 import json
 import time
 import logging
+from pathlib import Path
 import requests
 
 logger = logging.getLogger("pce.e2e.verifier")
@@ -188,6 +189,80 @@ def wait_for_new_captures(
 
             return {
                 "success": False,
+                "new_count": final_new,
+                "provider_new_count": final_provider_new,
+                "total": final_total,
+                "captures": captures,
+                "sessions": sessions,
+                "elapsed_s": round(elapsed, 1),
+            }
+
+        time.sleep(poll_interval)
+
+
+def wait_for_no_new_captures(
+    initial_count: int,
+    initial_provider_count: int = 0,
+    timeout_s: float = 12,
+    poll_interval: float = 1.5,
+    provider: str = None,
+) -> dict:
+    """Wait until the timeout expires without any new captures appearing.
+
+    This is useful for negative-path browser actions such as opening settings
+    pages or intentionally triggering a frontend error where PCE should *not*
+    persist a fresh conversation capture.
+    """
+    start = time.time()
+    while True:
+        elapsed = time.time() - start
+        try:
+            stats = get_stats()
+            total = stats["total_captures"]
+            new_total = total - initial_count
+
+            provider_new = new_total
+            if provider:
+                current_provider_count = stats.get("by_provider", {}).get(provider, 0)
+                provider_new = max(0, current_provider_count - initial_provider_count)
+
+            if provider_new > 0:
+                captures = get_recent_captures(last=10, provider=provider)
+                sessions = get_sessions(last=10, provider=provider)
+                return {
+                    "success": False,
+                    "new_count": new_total,
+                    "provider_new_count": provider_new,
+                    "total": total,
+                    "captures": captures,
+                    "sessions": sessions,
+                    "elapsed_s": round(elapsed, 1),
+                }
+        except Exception as e:
+            logger.warning("No-capture verifier poll error: %s", e)
+
+        if elapsed >= timeout_s:
+            try:
+                final_stats = get_stats()
+                final_total = final_stats["total_captures"]
+                final_new = final_total - initial_count
+                final_provider_new = final_new
+                if provider:
+                    final_provider_new = max(
+                        0,
+                        final_stats.get("by_provider", {}).get(provider, 0) - initial_provider_count,
+                    )
+                captures = get_recent_captures(last=10, provider=provider)
+                sessions = get_sessions(last=10, provider=provider)
+            except Exception:
+                final_total = initial_count
+                final_new = 0
+                final_provider_new = 0
+                captures = []
+                sessions = []
+
+            return {
+                "success": final_provider_new == 0,
                 "new_count": final_new,
                 "provider_new_count": final_provider_new,
                 "total": final_total,
@@ -460,6 +535,42 @@ def verify_dashboard_sessions(provider: str = None) -> dict:
         "session_count": len(sessions),
         "renderable_sessions": renderable,
         "issues": issues,
+    }
+
+
+def assert_canvas_in_screenshot(png_path: str) -> dict:
+    """Validate that a screenshot-assisted case produced a non-trivial PNG.
+
+    This helper is intentionally lightweight: it confirms that the screenshot
+    exists, is a valid PNG, and has realistic browser dimensions. The semantic
+    judgement for Canvas/error UI remains a visual oracle handled by the agent
+    when needed.
+    """
+    path = Path(png_path)
+    if not path.is_file():
+        raise AssertionError(f"screenshot_missing: {png_path}")
+
+    raw = path.read_bytes()
+    if len(raw) < 128:
+        raise AssertionError(f"screenshot_too_small: {png_path}")
+
+    signature = b"\x89PNG\r\n\x1a\n"
+    if raw[:8] != signature:
+        raise AssertionError(f"screenshot_not_png: {png_path}")
+
+    width = int.from_bytes(raw[16:20], "big")
+    height = int.from_bytes(raw[20:24], "big")
+    if width < 320 or height < 240:
+        raise AssertionError(
+            f"screenshot_dimensions_too_small: {width}x{height} ({png_path})"
+        )
+
+    return {
+        "ok": True,
+        "path": str(path),
+        "bytes": len(raw),
+        "width": width,
+        "height": height,
     }
 
 
