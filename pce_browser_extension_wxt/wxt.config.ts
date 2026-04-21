@@ -162,4 +162,28 @@ export default defineConfig({
       minify: false,
     },
   }),
+  // In `webstore` mode, strip the `detector` content script from the
+  // generated manifest. Its `matches: ["<all_urls>"]` (needed in the
+  // sideload build to discover NEW AI sites the user browses to) would
+  // otherwise force Chrome to request the "Read and change all your
+  // data on all websites" permission at install time — which directly
+  // contradicts the Chrome Web Store submission claim (see
+  // Docs/store/justification.md §3) that the webstore build limits
+  // itself to the explicit COVERED_SITES host list.
+  //
+  // The webstore build intentionally covers only the 17 pre-audited AI
+  // hosts, so the detector's "discover new AI site" capability is out
+  // of scope here. detector.js itself still ships in the zip (~10 KB,
+  // negligible) but is never activated because it's not registered as
+  // a content script.
+  hooks: {
+    "build:manifestGenerated": (wxt, manifest) => {
+      if (wxt.config.mode !== "webstore") return;
+      if (!manifest.content_scripts) return;
+      manifest.content_scripts = manifest.content_scripts.filter((cs) => {
+        const js = cs.js ?? [];
+        return !js.includes("content-scripts/detector.js");
+      });
+    },
+  },
 });
