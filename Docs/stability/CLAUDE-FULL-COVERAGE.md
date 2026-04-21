@@ -124,7 +124,8 @@ Three-tier ladder. First non-empty result wins.
 | **C3** Projects URL | 🔸 CLARIFIED | `11f4da0` — unanchored regex already matches `/project/<id>/chat/<uuid>` via substring; tests lock behaviour |
 | **C5** `getModelName` | ✅ CLOSED | `8d7c1df` — Haiku/Sonnet/Opus family regex + 3-tier fallback |
 | **C6** manual-capture bridge | ✅ CLOSED | `db55169` — `installManualCaptureBridge` + listener added |
-| C1, C4, C7, C8, C9, C10, C11, C12 | ⬜ OPEN | Need live DOM probe (C4 Artifacts is biggest) / autopilot |
+| **C9** `/share/` URL not skipped | ✅ CLOSED | `702bf0e` — `extractMessages` returns `[]` for `/share/...` paths + regression tests |
+| C1, C4, C7, C8, C10, C11, C12 | ⬜ OPEN | Need live DOM probe (C4 Artifacts is biggest) / autopilot |
 
 - **C1. No pushState hook.** `/chat/A` → `/chat/B` within 3s escapes URL polling. Claude navigates via client-side router for most transitions.
 - **C2. No streaming gate.** `isStreaming` is not passed to `createCaptureRuntime`. Partial captures mid-stream are possible when the 2s debounce fires before streaming ends. Same problem as Gemini G2 — likely the same one-line fix.
