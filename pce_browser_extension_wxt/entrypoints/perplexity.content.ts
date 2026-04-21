@@ -22,7 +22,10 @@ import {
   createCaptureRuntime,
   type ExtractedMessage,
 } from "../utils/capture-runtime";
-import { extractAttachments } from "../utils/pce-dom";
+import {
+  extractAttachments,
+  isStreaming as sharedIsStreaming,
+} from "../utils/pce-dom";
 
 declare global {
   interface Window {
@@ -49,6 +52,24 @@ export function getContainer(doc: Document = document): Element | null {
       "main, [class*='thread'], [class*='search-results']",
     ) || doc.body
   );
+}
+
+/**
+ * Streaming check (closes P5.B gap **PX2**, mirrors G2/C2): shared
+ * DOM helper OR a Stop/Cancel button by text/aria-label. Passed as
+ * ``isStreaming`` to ``createCaptureRuntime`` so mid-stream debounce
+ * ticks DON'T fire a partial capture.
+ */
+export function isStreaming(doc: Document = document): boolean {
+  if (sharedIsStreaming(doc)) return true;
+  const buttons = doc.querySelectorAll("button");
+  for (const btn of Array.from(buttons)) {
+    const label = `${safeInnerText(btn) || ""} ${
+      btn.getAttribute("aria-label") || ""
+    }`.trim();
+    if (/stop generating|stop response|cancel/i.test(label)) return true;
+  }
+  return false;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -115,7 +136,10 @@ function dedupeMessages(messages: ExtractedMessage[]): ExtractedMessage[] {
   const seen = new Set<string>();
   for (const msg of messages) {
     if (!msg || !msg.role || msg.role === "unknown" || !msg.content) continue;
-    const key = `${msg.role}:${msg.content.slice(0, 240)}`;
+    // Closes P5.B gap **PX1** (mirrors Gemini G10): the previous
+    // ``slice(0, 240)`` key collapsed two user queries that shared a
+    // long preamble. Full content is the only correct dedupe signal.
+    const key = `${msg.role}:${msg.content}`;
     if (seen.has(key)) continue;
     seen.add(key);
     deduped.push(msg);
@@ -221,6 +245,7 @@ export default defineContentScript({
       pollIntervalMs: 5000,
 
       getContainer: () => getContainer(document),
+      isStreaming: () => isStreaming(document),
       extractMessages: () => extractMessages(document),
       getSessionHint: () => getSessionHint(),
       // Perplexity legacy always reports null model_name.

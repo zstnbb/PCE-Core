@@ -11,6 +11,7 @@ import {
   extractText,
   getContainer,
   getSessionHint,
+  isStreaming,
 } from "../perplexity.content";
 
 beforeEach(() => {
@@ -131,6 +132,30 @@ describe("extractText", () => {
   });
 });
 
+// P5.B gap PX2 regression: isStreaming gate must detect Perplexity's
+// Stop/Cancel button so mid-stream capture is deferred.
+describe("isStreaming", () => {
+  it("true when a Stop-generating button is present", () => {
+    document.body.innerHTML = `<button aria-label="Stop generating">X</button>`;
+    expect(isStreaming(document)).toBe(true);
+  });
+
+  it("true when a Cancel button text is present", () => {
+    document.body.innerHTML = `<button>Cancel</button>`;
+    expect(isStreaming(document)).toBe(true);
+  });
+
+  it("false when the page is idle", () => {
+    document.body.innerHTML = `<p>quiet page</p>`;
+    expect(isStreaming(document)).toBe(false);
+  });
+
+  it("false when buttons are present but none match stop/cancel", () => {
+    document.body.innerHTML = `<button aria-label="Search">Search</button>`;
+    expect(isStreaming(document)).toBe(false);
+  });
+});
+
 describe("extractMessages", () => {
   it("captures user + assistant from ThreadMessage selectors", () => {
     document.body.innerHTML = `
@@ -148,7 +173,7 @@ describe("extractMessages", () => {
     expect(msgs[1].content).toBe("the assistant reply");
   });
 
-  it("dedupes messages with identical 240-char prefix", () => {
+  it("dedupes messages with identical content", () => {
     document.body.innerHTML = `
       <main>
         <div class="ThreadMessage query-1">dup question</div>
@@ -158,6 +183,25 @@ describe("extractMessages", () => {
     const msgs = extractMessages(document);
     const users = msgs.filter((m) => m.role === "user");
     expect(users).toHaveLength(1);
+  });
+
+  // P5.B gap PX1 regression (mirrors Gemini G10): long common
+  // preamble with different tail must NOT collapse.
+  it("does NOT dedupe queries with 240+ char common prefix but different tail (PX1)", () => {
+    const commonPrefix = "Please research the following topic in detail: ".repeat(6);
+    // commonPrefix is ~288 chars, well over the old 240-char slice.
+    document.body.innerHTML = `
+      <main>
+        <div class="ThreadMessage query-1">${commonPrefix} First question.</div>
+        <div class="ThreadMessage answer-1"><div class="prose">reply 1</div></div>
+        <div class="ThreadMessage query-2">${commonPrefix} Second question.</div>
+        <div class="ThreadMessage answer-2"><div class="prose">reply 2</div></div>
+      </main>`;
+    const msgs = extractMessages(document);
+    const users = msgs.filter((m) => m.role === "user");
+    expect(users.length).toBe(2);
+    expect(users[0].content).toContain("First question");
+    expect(users[1].content).toContain("Second question");
   });
 
   it("returns empty when no parseable turns exist", () => {
