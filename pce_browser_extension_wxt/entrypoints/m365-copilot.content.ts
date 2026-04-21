@@ -24,7 +24,10 @@ import {
   createCaptureRuntime,
   type ExtractedMessage,
 } from "../utils/capture-runtime";
-import { extractReplyContent } from "../utils/pce-dom";
+import {
+  extractReplyContent,
+  isStreaming as sharedIsStreaming,
+} from "../utils/pce-dom";
 
 declare global {
   interface Window {
@@ -98,6 +101,25 @@ export function getContainer(doc: Document = document): Element | null {
     if (el) return el;
   }
   return doc.querySelector("main") || doc.body || null;
+}
+
+/**
+ * Streaming check (closes P5.B gap **M365-P1**, mirrors G2/C2/MCP1/
+ * PX2/DS1): shared DOM helper OR a Stop/Cancel button by text/
+ * aria-label. Passed as ``isStreaming`` to ``createCaptureRuntime``
+ * so mid-stream debounce ticks DON'T fire a partial capture when the
+ * user closes the Copilot panel while a reply is still streaming.
+ */
+export function isStreaming(doc: Document = document): boolean {
+  if (sharedIsStreaming(doc)) return true;
+  const buttons = doc.querySelectorAll("button");
+  for (const btn of Array.from(buttons)) {
+    const label = `${safeInnerText(btn) || ""} ${
+      btn.getAttribute("aria-label") || ""
+    }`.trim();
+    if (/stop generating|stop response|cancel|stop/i.test(label)) return true;
+  }
+  return false;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -204,6 +226,7 @@ export default defineContentScript({
       pollIntervalMs: 5000,
 
       getContainer: () => getContainer(document),
+      isStreaming: () => isStreaming(document),
       extractMessages: () => extractMessages(document),
       getSessionHint: () => getSessionHint(),
       hookHistoryApi: false,

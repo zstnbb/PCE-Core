@@ -22,6 +22,7 @@ import {
   extractMessages,
   getContainer,
   getSessionHint,
+  isStreaming,
   normalizeText,
 } from "../m365-copilot.content";
 
@@ -43,6 +44,31 @@ describe("normalizeText", () => {
   it("handles null/empty", () => {
     expect(normalizeText(null)).toBe("");
     expect(normalizeText("")).toBe("");
+  });
+});
+
+// P5.B gap M365-P1 regression: isStreaming gate must detect M365
+// Copilot's Stop button so mid-stream capture is deferred when the
+// user closes the panel during a reply.
+describe("isStreaming", () => {
+  it("true when a Stop-generating button is present", () => {
+    document.body.innerHTML = `<button aria-label="Stop generating">X</button>`;
+    expect(isStreaming(document)).toBe(true);
+  });
+
+  it("true when a Cancel button text is present", () => {
+    document.body.innerHTML = `<button>Cancel</button>`;
+    expect(isStreaming(document)).toBe(true);
+  });
+
+  it("false when the page is idle", () => {
+    document.body.innerHTML = `<p>quiet page</p>`;
+    expect(isStreaming(document)).toBe(false);
+  });
+
+  it("false when buttons are present but none match stop/cancel", () => {
+    document.body.innerHTML = `<button aria-label="Send">Send</button>`;
+    expect(isStreaming(document)).toBe(false);
   });
 });
 
