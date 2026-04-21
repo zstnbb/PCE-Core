@@ -154,6 +154,32 @@ describe("isStreaming", () => {
 });
 
 // ---------------------------------------------------------------------------
+// extractMessages — /share/ URL skip (P5.B gap C9 regression)
+// ---------------------------------------------------------------------------
+
+describe("extractMessages — /share/ URL skip (C9)", () => {
+  it("returns [] on /share/<uuid> paths regardless of DOM content", () => {
+    document.body.innerHTML = `
+      <main>
+        <div data-testid="human-turn">someone else's question</div>
+        <div data-testid="assistant-turn">someone else's answer</div>
+      </main>`;
+    expect(extractMessages(document, "/share/abcd1234-uuid")).toEqual([]);
+  });
+
+  it("still captures on normal /chat/<uuid> with the same DOM", () => {
+    document.body.innerHTML = `
+      <main>
+        <div data-testid="human-turn">my question</div>
+        <div data-testid="assistant-turn">my answer</div>
+      </main>`;
+    expect(
+      extractMessages(document, "/chat/abcd1234-uuid").length,
+    ).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // extractMessages — Strategy 1 (dedicated selectors, sorted)
 // ---------------------------------------------------------------------------
 

@@ -178,7 +178,13 @@ const ASSISTANT_TURN_SELECTORS = [
  */
 export function extractMessages(
   doc: Document = document,
+  pathname: string = typeof location !== "undefined" ? location.pathname : "/",
 ): ExtractedMessage[] {
+  // Closes P5.B gap **C9**: read-only shared conversations
+  // (`claude.ai/share/<uuid>`) must NOT be captured as if authored by
+  // the current user.
+  if (/^\/share\//i.test(pathname)) return [];
+
   // Strategy 1
   const humanTurns = doc.querySelectorAll(HUMAN_TURN_SELECTORS);
   const assistantTurns = doc.querySelectorAll(ASSISTANT_TURN_SELECTORS);

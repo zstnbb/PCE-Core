@@ -179,7 +179,13 @@ function dedupeMessages(messages: ExtractedMessage[]): ExtractedMessage[] {
  */
 export function extractMessages(
   doc: Document = document,
+  pathname: string = typeof location !== "undefined" ? location.pathname : "/",
 ): ExtractedMessage[] {
+  // Closes P5.B gap **G8**: read-only shared conversations
+  // (`gemini.google.com/share/<hex>`) must NOT be captured as if
+  // authored by the current user.
+  if (/^\/share\//i.test(pathname)) return [];
+
   const turnSelectors = [
     "model-response, user-query",
     '[class*="query-text"], [class*="response-container"]',

@@ -290,6 +290,33 @@ describe("extractMessages — Gemini turn selectors", () => {
 // future Angular DOM churn.
 // ---------------------------------------------------------------------------
 
+// P5.B gap G8 regression: shared URLs must return [] even when the
+// DOM has valid-looking turns (because the current user didn't author
+// them). Additive safety check; no regression on non-share paths.
+describe("extractMessages — /share/ URL skip (G8)", () => {
+  it("returns [] on /share/<hex> paths regardless of DOM content", () => {
+    document.body.innerHTML = `
+      <main>
+        <user-query>someone else's question</user-query>
+        <model-response>
+          <div class="markdown">someone else's answer</div>
+        </model-response>
+      </main>`;
+    expect(extractMessages(document, "/share/abc123def")).toEqual([]);
+  });
+
+  it("still captures on non-share paths with the same DOM", () => {
+    document.body.innerHTML = `
+      <main>
+        <user-query>my question</user-query>
+        <model-response>
+          <div class="markdown">my answer</div>
+        </model-response>
+      </main>`;
+    expect(extractMessages(document, "/app/xyz").length).toBeGreaterThan(0);
+  });
+});
+
 describe("extractMessages — Strategy 2 (class keyword fallback)", () => {
   it("fires for [class*='query-text'] / [class*='response-container']", () => {
     // No <user-query>/<model-response> tags + no data-turn-role, so
