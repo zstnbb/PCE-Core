@@ -35,6 +35,20 @@ describe("getSessionHint", () => {
     expect(getSessionHint("/projects")).toBeNull();
     expect(getSessionHint("/")).toBeNull();
   });
+
+  // P5.B spec C3 clarification: the unanchored regex matches the
+  // `/chat/<uuid>` substring anywhere in the path. Projects chats
+  // therefore ALREADY work correctly and don't need a regex change.
+  // Lock in that behaviour so a future "tightening" doesn't regress it.
+  it("extracts chat UUID from /project/<id>/chat/<uuid> (Projects chats)", () => {
+    expect(
+      getSessionHint("/project/proj-xyz/chat/abcd1234-ef56-7890"),
+    ).toBe("abcd1234-ef56-7890");
+  });
+
+  it("returns null for /project/<id> alone — not a chat surface", () => {
+    expect(getSessionHint("/project/proj-xyz")).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------

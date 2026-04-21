@@ -40,6 +40,20 @@ describe("getSessionHint", () => {
   it("falls back to the whole pathname when no match", () => {
     expect(getSessionHint("/settings")).toBe("/settings");
   });
+
+  // P5.B spec G6 clarification: the unanchored regex matches the
+  // `/chat/<hex>` substring anywhere in the path. Gem conversations
+  // therefore ALREADY work correctly and don't need a regex change.
+  // Lock in that behaviour so a future "tightening" doesn't regress it.
+  it("extracts chat hex from /gem/<id>/chat/<hex> (Gem conversations)", () => {
+    expect(getSessionHint("/gem/gem-slug/chat/abc123def")).toBe("abc123def");
+  });
+
+  it("falls back to pathname for /gem/<id> alone — overview page", () => {
+    // Acceptable: the Gem overview has no chat content to capture,
+    // so the session_hint string just feeds the fingerprint.
+    expect(getSessionHint("/gem/gem-slug")).toBe("/gem/gem-slug");
+  });
 });
 
 // ---------------------------------------------------------------------------
