@@ -16,6 +16,7 @@ import {
   createCaptureRuntime,
   type ExtractedMessage,
 } from "../utils/capture-runtime";
+import { isStreaming as sharedIsStreaming } from "../utils/pce-dom";
 
 declare global {
   interface Window {
@@ -40,6 +41,24 @@ export function getContainer(doc: Document = document): Element | null {
   return (
     doc.querySelector("main, [class*='chat-container'], #app") || doc.body
   );
+}
+
+/**
+ * Streaming check (closes P5.B gap **MCP1**, mirrors G2/C2/PX2): shared
+ * DOM helper OR a Stop/Cancel button by text/aria-label. Passed as
+ * ``isStreaming`` to ``createCaptureRuntime`` so mid-stream debounce
+ * ticks DON'T fire a partial capture.
+ */
+export function isStreaming(doc: Document = document): boolean {
+  if (sharedIsStreaming(doc)) return true;
+  const buttons = doc.querySelectorAll("button");
+  for (const btn of Array.from(buttons)) {
+    const label = `${safeInnerText(btn) || ""} ${
+      btn.getAttribute("aria-label") || ""
+    }`.trim();
+    if (/stop generating|stop response|cancel/i.test(label)) return true;
+  }
+  return false;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -158,6 +177,7 @@ export default defineContentScript({
       pollIntervalMs: 5000,
 
       getContainer: () => getContainer(document),
+      isStreaming: () => isStreaming(document),
       extractMessages: () => extractMessages(document),
       getSessionHint: () => getSessionHint(),
       getModelName: () => getModelName(document),
