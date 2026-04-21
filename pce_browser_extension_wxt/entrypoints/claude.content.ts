@@ -33,6 +33,7 @@ import {
 import {
   extractAttachments,
   extractThinking,
+  installManualCaptureBridge,
   isStreaming as sharedIsStreaming,
 } from "../utils/pce-dom";
 
@@ -317,6 +318,15 @@ export default defineContentScript({
       getSessionHint: () => getSessionHint(),
       getModelName: () => getModelName(document),
       hookHistoryApi: false,
+    });
+
+    // Closes P5.B gap **C6**: wire the shared ``pce-manual-capture`` DOM
+    // event so the tray / shortcut can force a capture. Matches the
+    // pattern in ``chatgpt.content.ts`` / ``gemini.content.ts`` /
+    // ``google-ai-studio.content.ts``.
+    installManualCaptureBridge(document);
+    document.addEventListener("pce-manual-capture", () => {
+      runtime.triggerCapture();
     });
 
     if (
