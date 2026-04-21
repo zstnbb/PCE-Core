@@ -48,11 +48,47 @@ declare global {
 
 const SESSION_HINT_RE = /\/chat\/([a-f0-9-]+)/;
 
+// Claude model families (matches "Claude 3.5 Sonnet", "Claude Opus 4",
+// "Haiku 3", etc.). Case-insensitive.
+const MODEL_NAME_RE = /claude\s+(?:[\d.]+\s+)?(haiku|sonnet|opus)(?:\s+[\d.]+)?/i;
+
 export function getSessionHint(
   pathname: string = location.pathname,
 ): string | null {
   const m = pathname.match(SESSION_HINT_RE);
   return m ? m[1] : null;
+}
+
+/**
+ * Resolve the active model name (closes P5.B gap **C5**).
+ *
+ * Claude's top-right model selector renders as a button with a
+ * data-testid and the full model name as its text content. Falls
+ * back to any element with a ``model``-containing class, then to a
+ * body-text regex matching the Claude Haiku/Sonnet/Opus family.
+ *
+ * Matches the pattern in ``chatgpt.content.ts`` and ``gemini.content.ts``.
+ */
+export function getModelName(doc: Document = document): string | null {
+  const selectorEl = doc.querySelector(
+    '[data-testid="model-selector-button"], [data-testid*="model-selector"], [aria-label*="Model" i]',
+  );
+  if (selectorEl) {
+    const text = safeInnerText(selectorEl).trim();
+    if (text && text.length < 120) return text;
+  }
+
+  const classEl = doc.querySelector('[class*="model" i]');
+  if (classEl) {
+    const text = safeInnerText(classEl).trim();
+    if (text && text.length < 120 && MODEL_NAME_RE.test(text)) {
+      return text;
+    }
+  }
+
+  const bodyText = doc.body ? safeInnerText(doc.body) : "";
+  const match = bodyText.match(MODEL_NAME_RE);
+  return match ? match[0] : null;
 }
 
 export function getContainer(doc: Document = document): Element | null {
@@ -279,6 +315,7 @@ export default defineContentScript({
       isStreaming: () => isStreaming(document),
       extractMessages: () => extractMessages(document),
       getSessionHint: () => getSessionHint(),
+      getModelName: () => getModelName(document),
       hookHistoryApi: false,
     });
 

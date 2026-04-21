@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   extractMessages,
   getContainer,
+  getModelName,
   getSessionHint,
   isStreaming,
 } from "../claude.content";
@@ -69,6 +70,55 @@ describe("getContainer", () => {
   it("falls back to main when nothing else matches", () => {
     document.body.innerHTML = `<main id="m">x</main>`;
     expect(getContainer(document)!.id).toBe("m");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getModelName (P5.B gap C5 regression)
+// ---------------------------------------------------------------------------
+
+describe("getModelName", () => {
+  it("reads from the dedicated model-selector testid", () => {
+    document.body.innerHTML = `
+      <button data-testid="model-selector-button">
+        <span>Claude 3.5 Sonnet</span>
+      </button>`;
+    expect(getModelName(document)).toBe("Claude 3.5 Sonnet");
+  });
+
+  it("reads from a partial testid match", () => {
+    document.body.innerHTML = `
+      <div data-testid="header-model-selector-btn">
+        Claude Opus 4
+      </div>`;
+    expect(getModelName(document)).toBe("Claude Opus 4");
+  });
+
+  it("reads from aria-label", () => {
+    document.body.innerHTML = `
+      <button aria-label="Model selector">Claude Haiku 3</button>`;
+    expect(getModelName(document)).toBe("Claude Haiku 3");
+  });
+
+  it("falls back to [class*=model] + family regex", () => {
+    document.body.innerHTML = `
+      <div class="model-badge">Claude 3.7 Sonnet</div>`;
+    expect(getModelName(document)).toBe("Claude 3.7 Sonnet");
+  });
+
+  it("falls back to body-text regex when no dedicated element present", () => {
+    document.body.innerHTML = `<p>running on Claude 3.5 Sonnet today</p>`;
+    expect(getModelName(document)).toBe("Claude 3.5 Sonnet");
+  });
+
+  it("returns null when no model reference exists", () => {
+    document.body.innerHTML = `<p>nothing about models here</p>`;
+    expect(getModelName(document)).toBeNull();
+  });
+
+  it("skips model-named classes that contain no valid family", () => {
+    document.body.innerHTML = `<div class="model-icon">icon</div>`;
+    expect(getModelName(document)).toBeNull();
   });
 });
 
