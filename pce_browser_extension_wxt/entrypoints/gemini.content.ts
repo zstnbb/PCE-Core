@@ -21,6 +21,7 @@ import {
 import {
   extractAttachments,
   extractReplyContent,
+  extractThinking,
   isStreaming as sharedIsStreaming,
 } from "../utils/pce-dom";
 
@@ -112,14 +113,28 @@ export function detectRole(el: Element): "user" | "assistant" | "unknown" {
 export function extractText(el: Element): string {
   const tag = (el.tagName || "").toLowerCase();
   const cls = ((el as Element).className || "").toString().toLowerCase();
-  if (
+  const isAssistantTurn =
     tag === "model-response" ||
     tag === "message-content" ||
     cls.includes("model-response-text") ||
-    cls.includes("response-container")
-  ) {
-    const reply = extractReplyContent(el);
-    if (reply) return reply.trim();
+    cls.includes("response-container");
+
+  if (isAssistantTurn) {
+    // Closes P5.B gap **G3**: wrap the Gemini 2.5 Pro "Thinking" panel
+    // (which renders inside a <details> collapsible) in a <thinking> block
+    // ahead of the reply body. Matches the pattern in ChatGPT / Claude / GAS.
+    const thinking = extractThinking(el);
+    // Clone + strip <details> subtrees so ``extractReplyContent`` doesn't
+    // pick the first <.markdown> *inside* the Thinking panel as the reply.
+    const replyRoot = el.cloneNode(true) as Element;
+    replyRoot.querySelectorAll("details").forEach((d) => d.remove());
+    const reply = extractReplyContent(replyRoot);
+    if (thinking || reply) {
+      let content = "";
+      if (thinking) content += "<thinking>\n" + thinking + "\n</thinking>\n\n";
+      if (reply) content += reply;
+      return content.trim();
+    }
   }
 
   const clone = el.cloneNode(true) as Element;

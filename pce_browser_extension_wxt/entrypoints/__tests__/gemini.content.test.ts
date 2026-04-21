@@ -123,6 +123,39 @@ describe("extractText", () => {
     );
   });
 
+  // P5.B gap G3 regression: Gemini 2.5 Pro Thinking wraps reasoning in a
+  // <details> panel above the reply. The extractor must surface that as
+  // <thinking>...</thinking> before the reply body.
+  it("wraps 2.5 Pro Thinking panels around the reply text", () => {
+    document.body.innerHTML = `
+      <model-response id="m">
+        <details>
+          <summary>Thinking</summary>
+          <div class="markdown">step-by-step reasoning</div>
+        </details>
+        <div class="markdown">the final reply body</div>
+      </model-response>`;
+    const text = extractText(document.getElementById("m")!);
+    expect(text).toContain("<thinking>");
+    expect(text).toContain("step-by-step reasoning");
+    expect(text).toContain("</thinking>");
+    expect(text).toContain("the final reply body");
+    // Thinking must precede the reply
+    expect(text.indexOf("<thinking>")).toBeLessThan(
+      text.indexOf("the final reply body"),
+    );
+  });
+
+  it("does not wrap in <thinking> when no Thinking panel is present", () => {
+    document.body.innerHTML = `
+      <model-response id="m">
+        <div class="markdown">just a plain reply</div>
+      </model-response>`;
+    const text = extractText(document.getElementById("m")!);
+    expect(text).not.toContain("<thinking>");
+    expect(text).toContain("just a plain reply");
+  });
+
   it("strips hidden / chip / action elements in the generic branch", () => {
     document.body.innerHTML = `
       <div id="u">
