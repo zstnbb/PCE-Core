@@ -126,6 +126,13 @@ No selector ladder. If `<ms-chat-turn>` is renamed, capture = 0.
 
 ### II.4 Known gaps
 
+**Status snapshot** — updated after P5.B static-analysis sweep:
+
+| Gap | Status | Commit |
+|---|---|---|
+| **A3** ambiguous-turn ghost | ✅ CLOSED | `196a59b` — skip turns without `.user` / `.model` containers + 4 regression tests |
+| A1, A2, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, A14 | ⬜ OPEN | A4 (structured prompts) + A1 (single-strategy) are highest-value; need live DOM probe |
+
 - **A1. Single-strategy fragility.** If `<ms-chat-turn>` is renamed (common in Angular rewrites), capture drops to 0 with no fallback.
 - **A2. No pushState hook.** `hookHistoryApi: false`; Angular router transitions detected only after 4s polling. Switching /prompts ↔ /tune ↔ /stream within 4s escapes notice.
 - **A3. Ambiguous-turn "try both" produces ghost turns.** If `<ms-chat-turn>` has no `.user` / `.model` marker (observed on some empty/loading turns), both `extractUserText` AND `extractAssistantText` run. With the model container absent, `extractUserText` returns the whole turn HTML as user text — producing a ghost user turn with duplicated content.

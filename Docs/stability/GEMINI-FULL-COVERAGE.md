@@ -105,7 +105,7 @@ Gemini uses a 5-tier selector ladder with a class-keyword fallback.
 | Behaviour | Implemented | Effective for |
 |---|---|---|
 | Debounced MutationObserver (2500ms) | ✅ | All |
-| Streaming defer | ❌ **NOT WIRED** — `isStreaming` not passed to runtime | Surface 4 (**G2**) |
+| Streaming defer | ✅ WIRED (c49d3de, closes **G2**) | Surface 4 |
 | Fingerprint dedup | ✅ | Idle honesty, no dupes |
 | SPA pushState/replaceState hook | ❌ `hookHistoryApi: false` | Surface 2, 5, 6 (**G1**) |
 | URL polling (5000ms) | ✅ | SPA nav fallback |
@@ -114,6 +114,15 @@ Gemini uses a 5-tier selector ladder with a class-keyword fallback.
 | `requireBothRoles` gate | ❌ not used | — |
 
 ### II.4 Known gaps (before live validation)
+
+**Status snapshot** — updated after P5.B static-analysis sweep:
+
+| Gap | Status | Commit |
+|---|---|---|
+| **G2** streaming gate | ✅ CLOSED | `c49d3de` — `isStreaming` wired + regression tests |
+| **G3** Thinking not extracted | ✅ CLOSED | `8fbba6d` — `extractText` calls `extractThinking` for assistant turns |
+| **G6** Gems URL | 🔸 CLARIFIED | `11f4da0` — unanchored regex already matches `/gem/.../chat/<hex>` via substring; tests lock behaviour |
+| G1, G4, G5, G7, G8, G9, G10, G11, G12 | ⬜ OPEN | Need live DOM probe / autopilot |
 
 Derived from comparing Part I.1 to Part II.1-3:
 

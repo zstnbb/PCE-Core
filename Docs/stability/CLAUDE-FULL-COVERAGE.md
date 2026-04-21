@@ -96,7 +96,7 @@ Three-tier ladder. First non-empty result wins.
 | `getSessionHint` | ✅ | Surface 1 (`/chat/<uuid>`) only |
 | `getSessionHint` gap | ❌ | Surface 12 (`/project/<id>`), 18 (`/share/<uuid>`) |
 | `getContainer` | ✅ | 6 selector fallbacks (`.conversation-content`, `.chat-messages`, `.thread-content`, `[role="log"]`, `main .flex.flex-col`, `main`) |
-| `getModelName` | ❌ **NOT IMPLEMENTED** | — |
+| `getModelName` | ✅ IMPLEMENTED (8d7c1df, closes **C5**) | Haiku/Sonnet/Opus family + fallbacks |
 | `extractAttachments` | from `pce-dom.ts` | Surfaces 4, 9-11 |
 | `extractThinking` | from `pce-dom.ts`, called in Strategy 1 | Surface 5 |
 | `elementTop` | ✅ | Position-based sort of strategy 1 |
@@ -108,13 +108,23 @@ Three-tier ladder. First non-empty result wins.
 | Debounce (2000ms) | ✅ |
 | `streamCheckMs` | ❌ not passed |
 | Poll (3000ms) | ✅ |
-| `isStreaming` gate | ❌ NOT WIRED (see **C2**) |
+| `isStreaming` gate | ✅ WIRED (c49d3de, closes **C2**) |
 | `hookHistoryApi` | ❌ false (see **C1**) |
 | Fingerprint dedup | ✅ |
-| Manual-capture bridge | ❌ NOT WIRED (see **C6**) |
+| Manual-capture bridge | ✅ WIRED (db55169, closes **C6**) |
 | Capture mode | `full` (not incremental) — by design |
 
 ### II.4 Known gaps
+
+**Status snapshot** — updated after P5.B static-analysis sweep:
+
+| Gap | Status | Commit |
+|---|---|---|
+| **C2** streaming gate | ✅ CLOSED | `c49d3de` — `isStreaming` wired + stop-button detection + regression tests |
+| **C3** Projects URL | 🔸 CLARIFIED | `11f4da0` — unanchored regex already matches `/project/<id>/chat/<uuid>` via substring; tests lock behaviour |
+| **C5** `getModelName` | ✅ CLOSED | `8d7c1df` — Haiku/Sonnet/Opus family regex + 3-tier fallback |
+| **C6** manual-capture bridge | ✅ CLOSED | `db55169` — `installManualCaptureBridge` + listener added |
+| C1, C4, C7, C8, C9, C10, C11, C12 | ⬜ OPEN | Need live DOM probe (C4 Artifacts is biggest) / autopilot |
 
 - **C1. No pushState hook.** `/chat/A` → `/chat/B` within 3s escapes URL polling. Claude navigates via client-side router for most transitions.
 - **C2. No streaming gate.** `isStreaming` is not passed to `createCaptureRuntime`. Partial captures mid-stream are possible when the 2s debounce fires before streaming ends. Same problem as Gemini G2 — likely the same one-line fix.
