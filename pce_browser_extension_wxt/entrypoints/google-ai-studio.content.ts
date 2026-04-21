@@ -448,24 +448,51 @@ export function extractMessages(
       return;
     }
 
-    // Ambiguous turn: try both extractions.
-    const userContent = extractUserText(turn);
-    const userAtt = dedupeAttachments([
-      ...extractAttachments(turn),
-      ...extractLocalAttachments(turn, origin),
-    ]);
-    const userAttachmentText = attachmentOnlyText(userAtt);
-    if (userContent || userAttachmentText || userAtt.length > 0) {
-      const msg: ExtractedMessage = {
-        role: "user",
-        content: userContent || userAttachmentText || "[Attachment]",
-      };
-      if (userAtt.length > 0) msg.attachments = userAtt;
-      messages.push(msg);
+    // Ambiguous turn: try both extractions — but only when we can
+    // distinguish user from model via explicit container classes.
+    //
+    // Closes P5.B gap **A3**: previously, an ambiguous turn with a
+    // ``.chat-turn-container.model`` child (but no outer class marker)
+    // would extract the WHOLE turn as the user message (because
+    // ``extractUserText`` falls back to ``cleanContainerText(turn)``),
+    // producing a ghost user turn containing the model's reply.
+    //
+    // We now only extract a user message if an explicit user container
+    // exists, and only extract an assistant message if an explicit
+    // model container exists. Turns with neither (ghost / loading /
+    // structural wrappers) contribute zero messages.
+    const userContainer = turn.querySelector(
+      ".chat-turn-container.user, .chat-turn-container .user",
+    );
+    const modelContainer = turn.querySelector(
+      ".chat-turn-container.model, .model",
+    );
+    if (!userContainer && !modelContainer) {
+      return;
     }
-    const assistantContent = extractAssistantText(turn);
-    if (assistantContent) {
-      messages.push({ role: "assistant", content: assistantContent });
+
+    if (userContainer) {
+      const userContent = extractUserText(turn);
+      const userAtt = dedupeAttachments([
+        ...extractAttachments(turn),
+        ...extractLocalAttachments(turn, origin),
+      ]);
+      const userAttachmentText = attachmentOnlyText(userAtt);
+      if (userContent || userAttachmentText || userAtt.length > 0) {
+        const msg: ExtractedMessage = {
+          role: "user",
+          content: userContent || userAttachmentText || "[Attachment]",
+        };
+        if (userAtt.length > 0) msg.attachments = userAtt;
+        messages.push(msg);
+      }
+    }
+
+    if (modelContainer) {
+      const assistantContent = extractAssistantText(turn);
+      if (assistantContent) {
+        messages.push({ role: "assistant", content: assistantContent });
+      }
     }
   });
 

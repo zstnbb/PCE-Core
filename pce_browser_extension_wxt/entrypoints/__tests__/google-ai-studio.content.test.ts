@@ -403,6 +403,63 @@ describe("extractMessages", () => {
     expect(extractMessages(document)).toEqual([]);
   });
 
+  // P5.B gap A3 regression: turns with no .user/.model container
+  // must NOT produce ghost messages.
+  it("skips ghost turns that have no .user or .model container (A3)", () => {
+    document.body.innerHTML = `
+      <main>
+        <ms-chat-turn>
+          <div class="chat-turn-container">
+            <div class="loading-indicator">...</div>
+          </div>
+        </ms-chat-turn>
+      </main>`;
+    expect(extractMessages(document, "aistudio.google.com")).toEqual([]);
+  });
+
+  it("skips completely empty ms-chat-turn (A3)", () => {
+    document.body.innerHTML = `
+      <main>
+        <ms-chat-turn></ms-chat-turn>
+      </main>`;
+    expect(extractMessages(document, "aistudio.google.com")).toEqual([]);
+  });
+
+  // A3 follow-up: even in the ambiguous branch (no outer class marker),
+  // a model-container-only turn must extract ONLY the assistant side —
+  // not a ghost user turn containing the model's reply.
+  it("ambiguous turn with model container only -> assistant only (A3)", () => {
+    document.body.innerHTML = `
+      <main>
+        <ms-chat-turn>
+          <div class="chat-turn-container">
+            <div class="chat-turn-container model">
+              <div class="markdown">the model's reply only</div>
+            </div>
+          </div>
+        </ms-chat-turn>
+      </main>`;
+    const msgs = extractMessages(document, "aistudio.google.com");
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].role).toBe("assistant");
+    expect(msgs[0].content).toContain("the model's reply only");
+  });
+
+  it("ambiguous turn with user container only -> user only (A3)", () => {
+    document.body.innerHTML = `
+      <main>
+        <ms-chat-turn>
+          <div class="chat-turn-container">
+            <div class="chat-turn-container user">just the user text</div>
+          </div>
+        </ms-chat-turn>
+      </main>`;
+    const msgs = extractMessages(document, "aistudio.google.com");
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].role).toBe("user");
+    expect(msgs[0].content).toContain("just the user text");
+  });
+
   it("uses [Attachment] placeholder for image-only user messages", () => {
     document.body.innerHTML = `
       <main>
