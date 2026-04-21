@@ -13,6 +13,7 @@ import {
   getContainer,
   getModelName,
   getSessionHint,
+  isStreaming,
 } from "../deepseek.content";
 
 beforeEach(() => {
@@ -44,6 +45,36 @@ describe("getContainer", () => {
   it("falls back to body when no main", () => {
     document.body.innerHTML = `<p>hi</p>`;
     expect(getContainer(document)).toBe(document.body);
+  });
+});
+
+// P5.B gap DS1 regression: isStreaming gate must detect DeepSeek's
+// Stop/Cancel button (English + Chinese) so mid-stream capture is
+// deferred.
+describe("isStreaming", () => {
+  it("true when a Stop-generating button is present", () => {
+    document.body.innerHTML = `<button aria-label="Stop generating">X</button>`;
+    expect(isStreaming(document)).toBe(true);
+  });
+
+  it("true when a Chinese Stop button text is present", () => {
+    document.body.innerHTML = `<button>停止</button>`;
+    expect(isStreaming(document)).toBe(true);
+  });
+
+  it("true when a Cancel button text is present", () => {
+    document.body.innerHTML = `<button>Cancel</button>`;
+    expect(isStreaming(document)).toBe(true);
+  });
+
+  it("false when the page is idle", () => {
+    document.body.innerHTML = `<p>quiet page</p>`;
+    expect(isStreaming(document)).toBe(false);
+  });
+
+  it("false when buttons are present but none match stop/cancel", () => {
+    document.body.innerHTML = `<button aria-label="Send">Send</button>`;
+    expect(isStreaming(document)).toBe(false);
   });
 });
 
