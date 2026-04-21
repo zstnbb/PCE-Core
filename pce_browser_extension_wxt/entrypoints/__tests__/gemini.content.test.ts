@@ -280,3 +280,60 @@ describe("extractMessages — Gemini turn selectors", () => {
     expect(extractMessages(document)).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// extractMessages strategy-ladder coverage (P5.B gap G9 regression)
+//
+// Strategies 2, 4, 5 had zero test coverage before v1.0.1. These tests
+// force each strategy to fire in isolation by constructing DOM that only
+// matches that strategy's selectors. Locks in fallback behaviour against
+// future Angular DOM churn.
+// ---------------------------------------------------------------------------
+
+describe("extractMessages — Strategy 2 (class keyword fallback)", () => {
+  it("fires for [class*='query-text'] / [class*='response-container']", () => {
+    // No <user-query>/<model-response> tags + no data-turn-role, so
+    // Strategy 1 / 3 are skipped. Classes force Strategy 2.
+    document.body.innerHTML = `
+      <main>
+        <div class="query-text user-query">user via strategy 2</div>
+        <div class="response-container model-response">assistant via strategy 2</div>
+      </main>`;
+    const msgs = extractMessages(document);
+    expect(msgs.some((m) => m.role === "user" && m.content.includes("strategy 2"))).toBe(true);
+    expect(msgs.some((m) => m.role === "assistant" && m.content.includes("strategy 2"))).toBe(true);
+  });
+});
+
+describe("extractMessages — Strategy 4 (legacy conversation-container)", () => {
+  it("fires for .conversation-container .turn-content", () => {
+    // No web-component tags, no class*="query-text"/"response-container",
+    // no data-turn-role — forces fall-through to Strategy 4.
+    document.body.innerHTML = `
+      <main>
+        <div class="conversation-container">
+          <div class="turn-content user-turn">user via strategy 4</div>
+          <div class="turn-content model-turn">assistant via strategy 4</div>
+        </div>
+      </main>`;
+    const msgs = extractMessages(document);
+    expect(msgs.some((m) => m.role === "user" && m.content.includes("strategy 4"))).toBe(true);
+    expect(msgs.some((m) => m.role === "assistant" && m.content.includes("strategy 4"))).toBe(true);
+  });
+});
+
+describe("extractMessages — Strategy 5 (message-content custom element)", () => {
+  it("fires for message-content tags with class-based role keywords", () => {
+    // No <user-query>/<model-response>, no query-text/response-container
+    // class, no data-turn-role, no .conversation-container wrapper —
+    // only the message-content tag selector matches.
+    document.body.innerHTML = `
+      <main>
+        <message-content class="user-query">user via strategy 5</message-content>
+        <message-content class="model-response">assistant via strategy 5</message-content>
+      </main>`;
+    const msgs = extractMessages(document);
+    expect(msgs.some((m) => m.role === "user" && m.content.includes("strategy 5"))).toBe(true);
+    expect(msgs.some((m) => m.role === "assistant" && m.content.includes("strategy 5"))).toBe(true);
+  });
+});
