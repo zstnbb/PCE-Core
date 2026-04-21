@@ -157,7 +157,12 @@ function dedupeMessages(messages: ExtractedMessage[]): ExtractedMessage[] {
   const seen = new Set<string>();
   for (const msg of messages) {
     if (!msg || !msg.role || !msg.content) continue;
-    const key = `${msg.role}:${msg.content.slice(0, 200)}`;
+    // Closes P5.B gap **G10**: the previous ``slice(0, 200)`` key collapsed
+    // two user messages that shared a long preamble (e.g. a system-style
+    // prefix "Please help me with the following…" repeated across turns).
+    // Full content is the only correct dedupe signal. Memory cost is
+    // negligible (a Set<string> over a realistic conversation).
+    const key = `${msg.role}:${msg.content}`;
     if (seen.has(key)) continue;
     seen.add(key);
     deduped.push(msg);

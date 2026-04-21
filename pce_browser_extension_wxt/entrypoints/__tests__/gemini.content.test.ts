@@ -231,7 +231,7 @@ describe("extractMessages — Gemini turn selectors", () => {
     expect(msgs[1].role).toBe("assistant");
   });
 
-  it("dedupes turns with identical prefix", () => {
+  it("dedupes turns with identical content", () => {
     document.body.innerHTML = `
       <main>
         <user-query>same question</user-query>
@@ -241,6 +241,26 @@ describe("extractMessages — Gemini turn selectors", () => {
     const msgs = extractMessages(document);
     const userMsgs = msgs.filter((m) => m.role === "user");
     expect(userMsgs).toHaveLength(1);
+  });
+
+  // P5.B gap G10 regression: two messages that share a long common
+  // preamble but differ in the tail must NOT be deduped. Previously
+  // the key was `role:content.slice(0,200)` which collapsed them.
+  it("does NOT dedupe turns with 200+ char common prefix but different tail (G10)", () => {
+    const commonPrefix = "Please help me with the following task: ".repeat(8);
+    // commonPrefix is ~320 chars, well over the old 200-char slice.
+    document.body.innerHTML = `
+      <main>
+        <user-query>${commonPrefix} First actual question.</user-query>
+        <model-response><div class="markdown">reply 1</div></model-response>
+        <user-query>${commonPrefix} Second actual question.</user-query>
+        <model-response><div class="markdown">reply 2</div></model-response>
+      </main>`;
+    const msgs = extractMessages(document);
+    const userMsgs = msgs.filter((m) => m.role === "user");
+    expect(userMsgs).toHaveLength(2);
+    expect(userMsgs[0].content).toContain("First actual question");
+    expect(userMsgs[1].content).toContain("Second actual question");
   });
 
   it("falls back to [class*='turn'] when dedicated selectors miss", () => {
