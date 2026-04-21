@@ -105,9 +105,9 @@ export const CONTAINER_SELECTORS: readonly ContainerCandidate[] = [
   { sel: '[class*="chat-log"]', score: 8 },
   { sel: '[class*="thread-container"]', score: 7 },
   { sel: '[role="log"]', score: 7 },
-  { sel: '[role="feed"]', score: 5 },
   // Medium specificity
   { sel: "main [class*='chat']", score: 6 },
+  { sel: '[role="feed"]', score: 5 },
   { sel: "main [class*='message']", score: 5 },
   // Low specificity fallbacks
   { sel: "main", score: 2 },
@@ -121,13 +121,16 @@ export function findChatContainer(doc: Document = document): Element | null {
   for (const { sel, score } of CONTAINER_SELECTORS) {
     try {
       const el = doc.querySelector(sel);
-      if (el && score > bestScore) {
-        const childCount = el.children.length;
-        const adjustedScore = score + Math.min(childCount, 10) * 0.5;
-        if (adjustedScore > bestScore) {
-          best = el;
-          bestScore = adjustedScore;
-        }
+      if (!el) continue;
+      // Compare adjusted scores only. The previous `score > bestScore`
+      // short-circuit used the base score against an already-adjusted
+      // bestScore, which hid higher-child-count containers behind a
+      // lower-base candidate.
+      const childCount = el.children.length;
+      const adjustedScore = score + Math.min(childCount, 10) * 0.5;
+      if (adjustedScore > bestScore) {
+        best = el;
+        bestScore = adjustedScore;
       }
     } catch {
       // Invalid selector; skip

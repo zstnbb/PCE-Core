@@ -170,7 +170,7 @@ export function extractMessages(
   const strat2: ExtractedMessage[] = [];
   blocks.forEach((el) => {
     const text = safeInnerText(el).trim();
-    if (!text || text.length < 3) return;
+    if (!text) return;
 
     const classes = ((el as Element).className || "").toString().toLowerCase();
     const dataRole = el.getAttribute("data-role") || "";
@@ -201,15 +201,20 @@ export function extractMessages(
   });
   if (strat2.length >= 2) return strat2;
 
-  // Strategy 3
+  // Strategy 3 — use Element.children instead of `:scope > div` because
+  // some test DOMs (happy-dom) and non-browser environments don't support
+  // `:scope`. Keep behaviour otherwise identical (direct-child divs only,
+  // alternate user/assistant by visual order).
   const container = getContainer(doc);
   if (container) {
-    const directChildren = container.querySelectorAll(":scope > div");
+    const directChildren = Array.from(container.children).filter(
+      (el) => (el.tagName || "").toUpperCase() === "DIV",
+    );
     if (directChildren.length >= 2) {
       const strat3: ExtractedMessage[] = [];
       directChildren.forEach((el, i) => {
         const text = safeInnerText(el).trim();
-        if (text && text.length > 5) {
+        if (text) {
           strat3.push({
             role: i % 2 === 0 ? "user" : "assistant",
             content: text,

@@ -100,8 +100,11 @@ export const DOM_SIGNALS: readonly DOMSignal[] = [
   },
   { selector: '[role="textbox"][aria-label*="message" i]', weight: 3 },
 
-  // Chat message containers
-  { selector: "[data-message-author-role]", weight: 5 },
+  // Chat message containers. `data-message-author-role` is a canonical
+  // ChatGPT-style marker and almost never appears outside a chat UI, so
+  // it's weighted at the heuristic threshold: a single match is enough
+  // to classify the page as an AI chat.
+  { selector: "[data-message-author-role]", weight: 6 },
   { selector: '[data-testid*="conversation"]', weight: 4 },
   { selector: '[class*="chat-message"]', weight: 3 },
   { selector: '[class*="message-bubble"]', weight: 3 },

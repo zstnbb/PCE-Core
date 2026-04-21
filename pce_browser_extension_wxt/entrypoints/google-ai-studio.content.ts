@@ -125,7 +125,13 @@ export function imageMediaType(
 ): string {
   const dataMatch = String(src || "").match(/^data:([^;,]+)[;,]/i);
   if (dataMatch) return dataMatch[1];
-  const lower = String(name || src || "").toLowerCase();
+  // Check both the provided name/alt and the source URL — a non-empty
+  // alt ("a diagram") must not mask the extension hint in the URL.
+  const lower = (
+    String(name || "") +
+    " " +
+    String(src || "")
+  ).toLowerCase();
   if (lower.includes(".png")) return "image/png";
   if (lower.includes(".jpg") || lower.includes(".jpeg")) return "image/jpeg";
   if (lower.includes(".gif")) return "image/gif";

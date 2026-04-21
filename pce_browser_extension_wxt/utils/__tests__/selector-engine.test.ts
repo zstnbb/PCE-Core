@@ -179,8 +179,11 @@ describe("createSelectorEngine — selector cache", () => {
     // Warm the cache
     engine.queryContainer();
 
-    // Delete the matching element, run 3 misses in a row
-    document.body.innerHTML = `<main></main>`;
+    // Remove every container candidate so the cached selector AND the
+    // fallback scan-all both miss — the ChatGPT config keeps ``main`` as
+    // its last container candidate, so leaving an empty ``<main>`` would
+    // let the scan-all self-heal and never accumulate misses.
+    document.body.innerHTML = `<p>nothing matches</p>`;
     engine.queryContainer();
     engine.queryContainer();
     engine.queryContainer();

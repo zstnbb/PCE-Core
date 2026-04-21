@@ -228,7 +228,12 @@ describe("createCaptureRuntime — incremental delta", () => {
     const { runtime, sendMessage } = buildHarness({
       messages: () => msgs,
     });
-    runtime.triggerCapture();
+    // Start the observer so subsequent DOM mutations drive captures.
+    // `start()` schedules an initial capture; wait for it to settle so
+    // sentCount is primed to the current message list length before we
+    // change `msgs` and mutate the DOM.
+    runtime.start();
+    await new Promise((r) => setTimeout(r, 30));
     sendMessage.mockClear();
 
     // Same count, expanded last message content
@@ -240,10 +245,12 @@ describe("createCaptureRuntime — incremental delta", () => {
       },
     ];
 
-    // Don't reset sentCount — use the private schedule path. We can
-    // trigger it via triggerCapture which DOES reset sentCount, so
-    // instead we simulate a DOM mutation to fire the observer.
-    document.body.appendChild(document.createElement("div"));
+    // Mutate inside the observed container (the runtime observes
+    // `#root`, not `document.body`, so a body-level append would be
+    // outside the subtree and ignored).
+    document
+      .getElementById("root")!
+      .appendChild(document.createElement("div"));
     // Observer debounce is 10ms; wait ≥ 15ms
     await new Promise((r) => setTimeout(r, 30));
 

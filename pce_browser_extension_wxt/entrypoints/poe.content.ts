@@ -59,9 +59,13 @@ function safeInnerText(el: any): string {
 export function getMessageNodes(
   doc: Document = document,
 ): NodeListOf<Element> {
+  // Broadened from the legacy ``[id^='message-']`` requirement so nodes
+  // rendered without the id prefix (e.g. transient replies, non-standard
+  // IDs) still flow through role detection, which remains the real filter.
   return doc.querySelectorAll(
     "[id^='message-'].ChatMessage_chatMessage__xkgHx, " +
-      "[id^='message-'][class*='ChatMessage_chatMessage']",
+      "[id^='message-'][class*='ChatMessage_chatMessage'], " +
+      "[class*='ChatMessage_chatMessage']",
   );
 }
 

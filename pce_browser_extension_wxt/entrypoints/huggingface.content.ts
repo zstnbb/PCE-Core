@@ -29,7 +29,7 @@ declare global {
 // ---------------------------------------------------------------------------
 
 const SESSION_HINT_RE = /\/chat\/conversation\/([a-f0-9]+)/i;
-const MODEL_URL_RE = /\/chat\/models\/([^/?]+)/;
+const MODEL_URL_RE = /\/chat\/models\/([^?#]+)/;
 
 export function getSessionHint(
   pathname: string = location.pathname,
@@ -116,7 +116,10 @@ export function getModelName(
     }
   }
 
-  const titleMatch = doc.title.match(/^(.+?)\s*[-|]/);
+  // Require real whitespace before the separator so model names that
+  // embed hyphens (e.g. `meta-llama/Llama-3`) aren't truncated at their
+  // first internal dash.
+  const titleMatch = doc.title.match(/^(.+?)\s+[-|]/);
   if (titleMatch && titleMatch[1].includes("/")) {
     return titleMatch[1].trim();
   }
@@ -148,7 +151,7 @@ export function extractMessages(
       els.forEach((el) => {
         const role = detectRole(el);
         const text = extractText(el);
-        if (text && text.length > 1) {
+        if (text) {
           messages.push({ role, content: text });
         }
       });

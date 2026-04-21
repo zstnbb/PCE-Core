@@ -107,7 +107,7 @@ export function extractMessages(
   const seen = new Set<string>();
   const nodes = doc.querySelectorAll(
     ".chat-user.markdown-prose, .chat-assistant.markdown-prose, " +
-      ".chat-assistant, .user-message, [class*='message-']",
+      ".chat-user, .chat-assistant, .user-message, [class*='message-']",
   );
 
   nodes.forEach((node) => {
@@ -115,7 +115,7 @@ export function extractMessages(
     if (role === "unknown") return;
 
     const text = normalizeText(safeInnerText(node));
-    if (!text || text.length < 2) return;
+    if (!text) return;
 
     const key = `${role}:${text}`;
     if (seen.has(key)) return;

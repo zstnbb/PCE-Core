@@ -82,11 +82,19 @@ class OpenAIChatNormalizer(BaseNormalizer):
         # Regex path match (catches /api/v0/chat/completions etc.)
         if _CHAT_PATH_RE.search(path):
             return True
-        # Known OpenAI-compatible host (API or web UI)
-        if host in _COMPATIBLE_HOSTS:
+        # Known OpenAI-compatible host (API or web UI). Strip port so the
+        # Local Hook (captures host="127.0.0.1:PORT") still matches.
+        host_no_port = host.split(":", 1)[0] if host else host
+        if host in _COMPATIBLE_HOSTS or host_no_port in _COMPATIBLE_HOSTS:
             return True
-        # Known provider
-        if provider in ("openai", "groq", "together", "fireworks", "openrouter", "zhipu", "moonshot"):
+        # Known provider (OpenAI-compatible + local-model providers that share
+        # the `messages` request schema).
+        if provider in (
+            "openai", "groq", "together", "fireworks", "openrouter",
+            "zhipu", "moonshot",
+            "ollama", "local-model", "lm-studio", "vllm", "localai",
+            "text-gen-webui", "jan",
+        ):
             return True
         return False
 
@@ -152,6 +160,25 @@ class OpenAIChatNormalizer(BaseNormalizer):
                         continue
                     role = msg.get("role", "assistant")
                     text, attachments = _extract_rich_content(msg)
+                    if text:
+                        cj = build_content_json(attachments, plain_text=text)
+                        messages.append(NormalizedMessage(
+                            role=role,
+                            content_text=text,
+                            content_json=cj,
+                            model_name=resp_model,
+                            token_estimate=completion_tokens,
+                            ts=created_at,
+                        ))
+
+            # Ollama-native `/api/chat` response shape: a single `message`
+            # object instead of a `choices` array. Handle it when we didn't
+            # already extract an assistant message from `choices`.
+            if not any(m.role == "assistant" for m in messages):
+                ollama_msg = resp_data.get("message")
+                if isinstance(ollama_msg, dict):
+                    role = ollama_msg.get("role", "assistant")
+                    text, attachments = _extract_rich_content(ollama_msg)
                     if text:
                         cj = build_content_json(attachments, plain_text=text)
                         messages.append(NormalizedMessage(
@@ -240,6 +267,9 @@ def _compute_confidence(
         choices = resp_data.get("choices")
         if isinstance(choices, list) and len(choices) > 0:
             score += 0.20
+        elif isinstance(resp_data.get("message"), dict):
+            # Ollama-native `/api/chat` response.
+            score += 0.15
         usage = resp_data.get("usage")
         if isinstance(usage, dict) and usage.get("total_tokens"):
             score += 0.10
@@ -250,7 +280,8 @@ def _compute_confidence(
     elif messages:
         score += 0.05  # at least some messages extracted
 
-    if host in _COMPATIBLE_HOSTS:
+    host_no_port = host.split(":", 1)[0] if host else host
+    if host in _COMPATIBLE_HOSTS or host_no_port in _COMPATIBLE_HOSTS:
         score += 0.10
     if path in _CHAT_PATHS:
         score += 0.10

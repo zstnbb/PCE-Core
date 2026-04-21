@@ -189,6 +189,11 @@ describe("CaptureQueue.flush — concurrency guard", () => {
     const second = await CaptureQueue.flush();
     expect(second).toEqual({ sent: 0, remaining: 0 });
 
+    // Wait for the first flush to actually reach its `await fetch(...)`
+    // (so `resolveFetch` is wired up). Without this the fetch promise
+    // hasn't been constructed yet and calling `resolveFetch!()` throws.
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
     // Let the first finish
     resolveFetch!(new Response("{}", { status: 200 }));
     const firstResult = await first;

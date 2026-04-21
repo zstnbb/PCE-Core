@@ -31,6 +31,7 @@ import time
 from pathlib import Path
 
 import httpx
+import pytest
 import uvicorn
 
 # ---------------------------------------------------------------------------
@@ -65,6 +66,94 @@ _servers: list[threading.Thread] = []
 _pass = 0
 _fail = 0
 _proxy_proc = None
+_services_started = False
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Pytest integration
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# This file was originally written as a standalone script (see `main()` at the
+# bottom + `if __name__ == "__main__"` guard). The module-level `test_*`
+# functions are also picked up by pytest when the tests/ directory is
+# collected. To make them work without changing the script contract, this
+# session-scoped autouse fixture runs `start_all_services()` exactly once
+# before any `test_*` function executes, and cleans up the proxy subprocess +
+# temp data dir after the last test.
+
+
+def _rebind_data_dir(new_data_dir: str) -> None:
+    """Propagate the ``PCE_DATA_DIR`` override into every already-imported
+    ``pce_core`` / ``pce_proxy`` module.
+
+    ``pce_core.config`` computes ``DATA_DIR`` / ``DB_PATH`` at import time,
+    and numerous modules do ``from .config import DB_PATH`` (name-binding),
+    so simply setting ``os.environ`` after those modules load has no effect.
+    When this test module is collected as part of a larger pytest run, other
+    test files have already triggered that import, and captures end up in
+    the previously bound path — causing later queries against ``TMP_DIR``
+    to hit a DB with no tables.
+    """
+
+    import sys as _sys
+    from pathlib import Path as _Path
+
+    new_path = _Path(new_data_dir)
+    new_db = new_path / "pce.db"
+
+    for mod_name in list(_sys.modules.keys()):
+        if not (
+            mod_name == "pce_core"
+            or mod_name.startswith("pce_core.")
+            or mod_name == "pce_proxy"
+            or mod_name.startswith("pce_proxy.")
+        ):
+            continue
+        mod = _sys.modules.get(mod_name)
+        if mod is None:
+            continue
+        for attr, value in (("DATA_DIR", new_path), ("DB_PATH", new_db)):
+            if hasattr(mod, attr):
+                try:
+                    setattr(mod, attr, value)
+                except Exception:
+                    # Read-only modules / C extensions — skip silently.
+                    pass
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _pce_e2e_services():
+    """Boot mock servers + PCE Core + Local Hook for the pytest session.
+
+    Idempotent: if ``main()`` already started services (because someone ran
+    ``python tests/test_e2e_full.py`` directly), this is a no-op.
+    """
+
+    global _services_started
+
+    if not _services_started:
+        # Propagate TMP_DIR into every pce_core/pce_proxy module that may
+        # have already imported DB_PATH/DATA_DIR by name before this file
+        # was collected — otherwise captures land in the wrong database.
+        _rebind_data_dir(TMP_DIR)
+        start_all_services()
+        _services_started = True
+
+    yield
+
+    # Session teardown — mirror `main()`'s finally block.
+    global _proxy_proc
+    if _proxy_proc is not None:
+        try:
+            _proxy_proc.terminate()
+            try:
+                _proxy_proc.wait(timeout=5)
+            except Exception:
+                _proxy_proc.kill()
+        finally:
+            _proxy_proc = None
+
+    shutil.rmtree(TMP_DIR, ignore_errors=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -658,8 +747,9 @@ def test_t5_dashboard_api():
         assert r.status_code == 404
         ok("Pair 404: correct for nonexistent pair")
 
-        # Dashboard HTML
-        r = c.get(f"http://127.0.0.1:{PORT_PCE_CORE}/")
+        # Dashboard HTML — `/` may redirect to `/onboarding` for a first-run
+        # install (P5.A-5), so follow redirects and accept either page.
+        r = c.get(f"http://127.0.0.1:{PORT_PCE_CORE}/", follow_redirects=True)
         assert r.status_code == 200
         assert "PCE" in r.text
         ok("Dashboard HTML: served correctly")

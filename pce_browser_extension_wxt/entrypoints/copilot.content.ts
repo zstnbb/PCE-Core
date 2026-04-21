@@ -120,7 +120,7 @@ export function extractMessages(
       els.forEach((el) => {
         const role = detectRole(el);
         const text = extractText(el);
-        if (text && text.length > 1) {
+        if (text) {
           collected.push({ role, content: text });
         }
       });
