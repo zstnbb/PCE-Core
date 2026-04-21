@@ -26,8 +26,8 @@ Unlike LLM observability products (Langfuse, Helicone, Phoenix), PCE runs entire
 ### Clone + install core
 
 ```bash
-git clone https://github.com/zstnbb/pce.git
-cd pce
+git clone https://github.com/zstnbb/PCE-Core.git
+cd PCE-Core
 pip install -r requirements.txt
 ```
 

@@ -24,7 +24,7 @@ ADR-009 采纳 UCS(Universal Capture Stack)五层架构后,必须回答:**哪些
 
 ### 模块边界
 
-**OSS Edition(Apache-2.0)**——`github.com/zstnbb/pce`(当前仓库)
+**OSS Edition(Apache-2.0)**——`github.com/zstnbb/PCE-Core`(当前仓库)
 
 | 模块 | 职责 | 理由 |
 |---|---|---|
@@ -114,7 +114,7 @@ ADR-009 采纳 UCS(Universal Capture Stack)五层架构后,必须回答:**哪些
 **目标**:
 
 ```
-github.com/zstnbb/pce                  (公开,Apache-2.0)
+github.com/zstnbb/PCE-Core             (公开,Apache-2.0)
 ├── pce_core/         ← 去掉 capture_supervisor/
 ├── pce_proxy/
 ├── pce_browser_extension_wxt/

@@ -1209,7 +1209,7 @@ canary ──→ 每 commit(CI),内部 / 测试机
 - 选项 A:全开源
 - 选项 B:Core 开源(L1/L3a/L3d/L3e/L3f/L4a/L4c + CaptureEvent 契约 + ingest gateway),Supervisor + L0 + L2 + L3b + L4b 闭源商业 ← **采纳**
 - 选项 C:全闭源
-- 完整边界定义见 ADR-010。License:OSS = Apache-2.0,Pro = 专有。仓库拆分:`github.com/zstnbb/pce`(公开) + `github.com/zstnbb/pce-pro`(私有)
+- 完整边界定义见 ADR-010。License:OSS = Apache-2.0,Pro = 专有。仓库拆分:`github.com/zstnbb/PCE-Core`(公开) + `github.com/zstnbb/pce-pro`(私有)
 
 **D-3 · 目标用户优先级** — ✅ **Decided (2026-04-18): Option A — 开发者先行**
 - 选项 A:开发者先行(Cursor/Copilot/Codex 用户)→ 产品反馈直接,技术门槛匹配 ← **采纳**

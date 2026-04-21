@@ -15,7 +15,7 @@
 PCE is an open-source project. This Privacy Policy is maintained by the project owner:
 
 - **Publisher:** zstnbb (individual)
-- **Repository:** https://github.com/zstnbb/pce
+- **Repository:** https://github.com/zstnbb/PCE-Core
 - **Contact:** See the `SECURITY.md` and `CONTRIBUTING.md` files in the repository for current contact addresses.
 
 PCE is **not** operated as a hosted service. The "publisher" maintains the open-source code; it does not host or receive any user data.
@@ -88,7 +88,7 @@ PCE is not directed at children under 13 and does not knowingly collect informat
 - **Disable capture temporarily:** Click the PCE toolbar icon → "Pause capture".
 - **Stop all capture permanently:** Uninstall the browser extension or close the PCE Core desktop app. With PCE Core closed, queued data sits in your browser's IndexedDB until you either restart PCE Core or clear the extension's storage via `chrome://extensions/`.
 - **Delete all captured data:** Delete the `~/.pce/data/` folder on your machine.
-- **Inspect the source code:** https://github.com/zstnbb/pce is public and licensed under Apache-2.0.
+- **Inspect the source code:** https://github.com/zstnbb/PCE-Core is public and licensed under Apache-2.0.
 
 ## 9. Changes to this policy
 
@@ -96,4 +96,4 @@ We will update this file in the repository when the behavior of the extension or
 
 ## 10. Contact
 
-For privacy questions or concerns, please open an issue at https://github.com/zstnbb/pce/issues, or email the address listed in `SECURITY.md` in the repository.
+For privacy questions or concerns, please open an issue at https://github.com/zstnbb/PCE-Core/issues, or email the address listed in `SECURITY.md` in the repository.

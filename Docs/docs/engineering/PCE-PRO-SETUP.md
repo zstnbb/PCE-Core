@@ -84,7 +84,7 @@ version = "0.1.0-dev"
 description = "PCE Pro — advanced capture layers (private)"
 requires-python = ">=3.10"
 dependencies = [
-    "pce @ git+https://github.com/zstnbb/pce.git@v1.0.0",
+    "pce @ git+https://github.com/zstnbb/PCE-Core.git@v1.0.0",
     "frida>=16",
     "psutil>=5.9",
 ]
@@ -140,7 +140,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - name: Install pce from tagged release
-        run: pip install "pce @ git+https://github.com/zstnbb/pce.git@v1.0.0"
+        run: pip install "pce @ git+https://github.com/zstnbb/PCE-Core.git@v1.0.0"
       - name: Install pce-pro
         run: pip install -e .
       - name: Import smoke test

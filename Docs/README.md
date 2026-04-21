@@ -89,7 +89,7 @@
 
 1. 完成 R1–R7 仓库拆分与开源门面文件（P5.A 编码的前置条件）
 2. 开工 P5.A 11 项原子任务（见 `TASK-006`）
-3. 4 周后发 v1.0 Subscription Capture（OSS `github.com/zstnbb/pce` 从私有转公开，Apache-2.0）
+3. 4 周后发 v1.0 Subscription Capture（OSS `github.com/zstnbb/PCE-Core` 从私有转公开，Apache-2.0）
 
 绝对不追求的：
 

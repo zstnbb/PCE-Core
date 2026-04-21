@@ -123,10 +123,10 @@ All three checkboxes must be ticked before submission:
 ## 6. Privacy policy URL
 
 ```
-https://github.com/zstnbb/pce/blob/master/PRIVACY.md
+https://github.com/zstnbb/PCE-Core/blob/master/PRIVACY.md
 ```
 
-(Valid the moment the `pce` repo is flipped to public. Until then,
+(Valid the moment the `PCE-Core` repo is flipped to public. Until then,
 the Dashboard will show a 404-warning — submit anyway, then flip the
 repo public before the reviewer actually clicks through. Review times
 of 1–3 weeks give plenty of slack for this.)
@@ -147,7 +147,7 @@ The Webstore build does NOT request <all_urls>. It requests a list of 17 specifi
 ### "What does PCE Core do with the captured data?"
 
 ```
-PCE Core is a separate open-source desktop application written in Python. It stores the captures in a SQLite database on the user's local file system (default: ~/.pce/data/pce.db) and exposes a web dashboard at http://127.0.0.1:9800 for searching the history. Source: https://github.com/zstnbb/pce.
+PCE Core is a separate open-source desktop application written in Python. It stores the captures in a SQLite database on the user's local file system (default: ~/.pce/data/pce.db) and exposes a web dashboard at http://127.0.0.1:9800 for searching the history. Source: https://github.com/zstnbb/PCE-Core.
 ```
 
 ### "Why does the extension capture DOM content instead of using an official API?"

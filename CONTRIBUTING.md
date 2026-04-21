@@ -55,8 +55,8 @@ For feature requests, please describe:
 ### Setup
 
 ```bash
-git clone https://github.com/zstnbb/pce.git
-cd pce
+git clone https://github.com/zstnbb/PCE-Core.git
+cd PCE-Core
 python -m venv .venv
 source .venv/bin/activate  # or .venv\Scripts\activate on Windows
 pip install -r requirements.txt

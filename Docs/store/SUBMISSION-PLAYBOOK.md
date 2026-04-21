@@ -115,7 +115,7 @@ Copy-paste from `Docs/store/justification.md`:
 - **Remote code** → "No" + §4 text.
 - **Data usage categories** → tick exactly the ones §5 lists.
 - **Compliance certifications** → tick all three checkboxes in §5.
-- **Privacy policy URL** → `https://github.com/zstnbb/pce/blob/master/PRIVACY.md`
+- **Privacy policy URL** → `https://github.com/zstnbb/PCE-Core/blob/master/PRIVACY.md`
   (exact URL from §6 — it 404s until the repo goes public, which is
   fine; Google's reviewer typically checks this AFTER the first
   functional-review email exchange, giving you a week or two of

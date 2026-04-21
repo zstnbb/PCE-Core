@@ -203,7 +203,7 @@ PCE 的长期演化路径定义为：
 
 开源与商业边界（ADR-010）：
 
-- **OSS `github.com/zstnbb/pce`**：L1 + L3a + L3d + L3e + L3f + L4a + L4c + CaptureEvent 契约 + Ingest Gateway + 归一化 / 存储 / 仪表板基础版
+- **OSS `github.com/zstnbb/PCE-Core`**：L1 + L3a + L3d + L3e + L3f + L4a + L4c + CaptureEvent 契约 + Ingest Gateway + 归一化 / 存储 / 仪表板基础版
 - **Pro `github.com/zstnbb/pce-pro`**：L0 + L2 + L3b + L4b + Capture Supervisor + IDE 扩展高级版 + 仪表板高级版
 - 依赖方向约束：Pro 可 import OSS，OSS 永不 import Pro（CI 硬拦截）
 
