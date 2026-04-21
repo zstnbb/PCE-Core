@@ -122,7 +122,9 @@ Gemini uses a 5-tier selector ladder with a class-keyword fallback.
 | **G2** streaming gate | ✅ CLOSED | `c49d3de` — `isStreaming` wired + regression tests |
 | **G3** Thinking not extracted | ✅ CLOSED | `8fbba6d` — `extractText` calls `extractThinking` for assistant turns |
 | **G6** Gems URL | 🔸 CLARIFIED | `11f4da0` — unanchored regex already matches `/gem/.../chat/<hex>` via substring; tests lock behaviour |
-| G1, G4, G5, G7, G8, G9, G10, G11, G12 | ⬜ OPEN | Need live DOM probe / autopilot |
+| **G9** Strategies 2/4/5 untested | ✅ CLOSED | `d34ff05` — dedicated regression tests for each fallback path |
+| **G10** dedup too aggressive | ✅ CLOSED | `955cfef` — full content as dedupe key instead of `slice(0, 200)` |
+| G1, G4, G5, G7, G8, G11, G12 | ⬜ OPEN | Need live DOM probe / autopilot |
 
 Derived from comparing Part I.1 to Part II.1-3:
 
