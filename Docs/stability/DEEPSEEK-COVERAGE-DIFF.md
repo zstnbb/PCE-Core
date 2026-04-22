@@ -51,7 +51,7 @@ selector is `.ds-markdown` for assistant replies.
 
 ## 5. Known gaps (short list)
 
-- **DS1.** `isStreaming` gate NOT wired. Same as G2/C2. Status: ⬜ OPEN.
+- **DS1.** `isStreaming` gate NOT wired. Same as G2/C2. Status: ✅ CLOSED — shared `isStreaming` helper + Stop/Cancel button detection wired; passed to `createCaptureRuntime`. See `deepseek.content.ts:64-75` + `isStreaming: () => isStreaming(document)` on line 328.
 - **DS2.** `findTurnContainer` walks up 6 levels guessing siblings; may mis-pair user/assistant when layout uses grid / flex with non-sibling containers. Status: ⬜ OPEN — needs live DOM probe.
 - **DS3.** Strategy 3 (large-text-block heuristic) can capture random sidebar/toolbar text as "user messages" if the heuristic misfires. Offset-height gating helps but isn't foolproof. Status: ⬜ OPEN.
 - **DS4.** `/chat/s/<id>` URL semantics unclear. The current regex matches it and returns the id, but if `/chat/s/` is a SHARED thread surface, we'd be capturing it incorrectly. Status: ⬜ OPEN — needs live validation.

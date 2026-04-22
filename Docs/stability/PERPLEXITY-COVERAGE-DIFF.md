@@ -52,8 +52,8 @@ a query + a cited answer.
 
 ## 5. Known gaps (short list)
 
-- **PX1.** `dedupeMessages` uses `slice(0, 240)` key — same failure mode as Gemini's **G10** (long prefix collapse). Status: ⬜ OPEN — mirror `955cfef` pattern (use full content).
-- **PX2.** `isStreaming` gate NOT wired. Status: ⬜ OPEN — mirror `c49d3de` pattern.
+- **PX1.** `dedupeMessages` uses `slice(0, 240)` key — same failure mode as Gemini's **G10** (long prefix collapse). Status: ✅ CLOSED — mirrored `955cfef`: dedup key now uses full content (`${role}:${content}`). See `perplexity.content.ts:137-148`.
+- **PX2.** `isStreaming` gate NOT wired. Status: ✅ CLOSED — shared `isStreaming` helper + Stop/Cancel button detection wired; passed to `createCaptureRuntime`. See `perplexity.content.ts:63-74` + `isStreaming: () => isStreaming(document)` on line 248.
 - **PX3.** `getModelName` always returns `null` (hard-coded). Perplexity does surface the model name in the Pro tier header; low-priority improvement. Status: ⬜ OPEN — probably ship in v1.1.
 - **PX4.** No `/share/<id>` skip. Perplexity has public thread sharing at `/search/<id>?s=<share-token>`. Status: ⬜ OPEN — URL pattern needs live validation.
 - **PX5.** Citations inside `extractText` are STRIPPED by the `[class*='citation']` selector. Semantic citation capture (structured attachments) depends on `pce-dom.ts:extractAttachments` picking them up — unverified. Status: ⬜ OPEN — shared with Copilot MCP5 and Gemini G7.

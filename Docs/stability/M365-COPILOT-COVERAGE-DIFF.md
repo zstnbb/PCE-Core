@@ -50,7 +50,7 @@ Excel/PowerPoint/Outlook web apps. Coverage model differs.
 
 ## 5. Known gaps (short list)
 
-- **M365-P1.** No `isStreaming` gate. Mid-stream partials possible when user closes the panel mid-reply. Status: ⬜ OPEN.
+- **M365-P1.** No `isStreaming` gate. Mid-stream partials possible when user closes the panel mid-reply. Status: ✅ CLOSED — shared `isStreaming` helper + Stop/Cancel button detection wired; passed to `createCaptureRuntime`. See `m365-copilot.content.ts:113-124` + `isStreaming: () => isStreaming(document)` on line 229.
 - **M365-P2.** No `getModelName` — `conversation.model_name` always empty. Status: ⬜ OPEN — falls back to MITM for canonical model identity, but dashboard shows `null`.
 - **M365-P3.** `hookHistoryApi: false`. Navigating between Word↔Excel↔Outlook in the same tab: new panel mounts but polling takes up to 5s. Status: ⬜ OPEN.
 - **M365-P4.** No E2E adapter; can't run autopilot yet. Status: ⬜ OPEN — needs ~300 lines of `m365_copilot.py`.
