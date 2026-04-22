@@ -70,14 +70,25 @@ list below round-trips to `pce_browser_extension_wxt/wxt.config.ts`
 `COVERED_SITES` constant; anything a reviewer finds in the manifest
 host_permissions is enumerated here and vice versa.
 
+**IMPORTANT — 1000-char field limit.** The Dashboard "请求主机权限的理由 /
+Host permission justification" textarea is hard-capped at **1000
+characters** (any excess is silently truncated, as the user discovered
+on 2026-04-22 when the paragraph ended mid-sentence at "does NOT
+request <"). The block below is **822 chars with 178 chars headroom**.
+Do NOT re-expand with per-domain parentheticals, per-group counts, or
+product-feature descriptions — they are not load-bearing for review
+and will push over the limit again. If you add a host, either (a)
+append it to the tightest group line or (b) delete a less-critical
+alias to stay under budget.
+
 ```
-The extension needs to read conversation DOM on AI chat sites to capture messages. The manifest declares 25 host patterns covering ~14 distinct AI services (some have multiple domain aliases).
+We read conversation DOM on AI chat sites to capture messages. The manifest declares 25 host patterns covering ~14 distinct AI services (some have multiple domain aliases), not <all_urls>.
 
-— Dedicated AI chat UIs (17 host patterns / ~10 services): chatgpt.com + chat.openai.com (ChatGPT; legacy domain kept for bookmarks that redirect), claude.ai, gemini.google.com, aistudio.google.com, copilot.microsoft.com, chat.deepseek.com, www.perplexity.ai, poe.com, huggingface.co/chat, grok.com, chat.mistral.ai, kimi.com + www.kimi.com + kimi.moonshot.cn (Kimi; current + mirror + legacy), chat.z.ai (Zhipu), manus.im.
+Dedicated AI chat UIs: chatgpt.com, chat.openai.com, claude.ai, gemini.google.com, aistudio.google.com, copilot.microsoft.com, chat.deepseek.com, www.perplexity.ai, poe.com, huggingface.co/chat, grok.com, chat.mistral.ai, kimi.com, www.kimi.com, kimi.moonshot.cn, chat.z.ai, manus.im.
 
-— AI features embedded in productivity / collaboration tools (8 host patterns / ~4 services): m365.cloud.microsoft + *.cloud.microsoft + *.officeapps.live.com (Microsoft 365 Copilot across Word/Excel/PowerPoint/Outlook web apps), notion.so + www.notion.so (Notion AI), figma.com + www.figma.com (Figma AI), mail.google.com (Gmail "Help me write").
+AI features in productivity tools: m365.cloud.microsoft, *.cloud.microsoft, *.officeapps.live.com (Microsoft 365 Copilot), notion.so, www.notion.so (Notion AI), figma.com, www.figma.com (Figma AI), mail.google.com (Gmail).
 
-The extension does NOT request <all_urls>, and it does not run on any site outside this list. Captured data is sent exclusively to http://127.0.0.1:9800 on the user's own machine — never to any server operated by us.
+Captured data is sent exclusively to http://127.0.0.1:9800 on the user's own machine — never to any server operated by us.
 ```
 
 ---
