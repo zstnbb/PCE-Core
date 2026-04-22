@@ -1,7 +1,7 @@
 # PCE Privacy Policy
 
 **Effective date:** 2026-04-21
-**Applies to:** PCE browser extension (Chrome, Firefox) and PCE Core desktop application, version 1.0.0 and later.
+**Applies to:** PCE browser extension (Chrome, Firefox) and PCE Core companion server, version 1.0.1 and later. (v1.0.0 was rejected in review for a keyword-spam description and never reached the Chrome Web Store front-end.)
 
 ## TL;DR
 
@@ -22,7 +22,7 @@ PCE is **not** operated as a hosted service. The "publisher" maintains the open-
 
 ## 2. What the browser extension does
 
-The PCE browser extension is a passive observer. When you visit a supported AI site (ChatGPT, Claude, Gemini, Copilot, Notion AI, M365 Copilot, Figma AI, Gmail "Help me write", and others listed in the extension manifest), it:
+The PCE browser extension is a passive observer. When you visit a supported AI site (see the hosts declared in the extension manifest, also listed in the public README at https://github.com/zstnbb/PCE-Core#supported-ai-tools), it:
 
 1. Reads the conversation DOM (messages you sent and replies you received).
 2. Reads page metadata needed to identify the conversation (URL, page title, provider name).
@@ -48,7 +48,7 @@ If PCE Core is not running on your machine, the extension stores the captures in
 
 ## 4. Where your data is stored
 
-All captured data is stored in a SQLite database on your local machine, managed by the PCE Core desktop application. The default location is:
+All captured data is stored in a SQLite database on your local machine, managed by the PCE Core companion server. The default location is:
 
 - **Windows:** `%USERPROFILE%\.pce\data\pce.db`
 - **macOS / Linux:** `~/.pce/data/pce.db`
@@ -76,7 +76,7 @@ If you export data from PCE Core manually (e.g., JSON export, clipboard copy), t
 | `activeTab` | Read the URL of the tab you are currently viewing to detect whether it is a supported AI site. |
 | `scripting` | Inject the universal extractor into AI pages that are covered but don't have a dedicated extractor yet. |
 | `tabs` | Detect navigation events so captures are routed to the correct session. |
-| `contextMenus` | Provide the "Save selection as snippet" right-click menu. |
+| `contextMenus` | Provide the "Capture This Page (PCE)" right-click menu for force-capturing the currently-viewed AI conversation. |
 | `host_permissions` (list of AI sites) | Run content scripts on those specific sites to read conversation DOM. Only AI sites are listed; the Webstore build does **not** request `<all_urls>`. |
 
 ## 7. Children's privacy

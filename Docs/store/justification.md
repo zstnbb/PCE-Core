@@ -56,7 +56,7 @@ Receive tab update events so the background service worker can route captures to
 ### `contextMenus`
 
 ```
-Provide a right-click menu item "Save selection as snippet" on supported AI sites, letting users keep specific quotes from a conversation for later reference.
+Provide a right-click menu item "Capture This Page (PCE)" on supported AI sites so the user can force-capture the currently-viewed conversation. Registered in the background service worker via chrome.contextMenus.create({id:"pce-capture-page", contexts:["page"]}).
 ```
 
 ---
@@ -147,7 +147,7 @@ The Webstore build does NOT request <all_urls>. It requests a list of 17 specifi
 ### "What does PCE Core do with the captured data?"
 
 ```
-PCE Core is a separate open-source desktop application written in Python. It stores the captures in a SQLite database on the user's local file system (default: ~/.pce/data/pce.db) and exposes a web dashboard at http://127.0.0.1:9800 for searching the history. Source: https://github.com/zstnbb/PCE-Core.
+PCE Core is a separate open-source companion server written in Python (run locally via `python -m pce_core.server`). It stores the captures in a SQLite database on the user's local file system (default: ~/.pce/data/pce.db) and exposes a web dashboard at http://127.0.0.1:9800 for searching the history. Source: https://github.com/zstnbb/PCE-Core.
 ```
 
 ### "Why does the extension capture DOM content instead of using an official API?"
