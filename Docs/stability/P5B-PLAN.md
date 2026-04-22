@@ -1,12 +1,30 @@
 # P5.B — Stability Hardening Plan
 
-**Context:** v1.0.0 is in Chrome Web Store review queue (submitted 2026-04-21).
-During review (3-21 days), we prepare **v1.0.1** — the update Google will
-auto-push to every installed user once both v1.0.0 and v1.0.1 pass
-review. v1.0.1 is where the real first-day UX gets nailed.
+**Context (updated 2026-04-22):** v1.0.0 was **rejected** by Chrome Web
+Store on 2026-04-22 (transfer ID `FZSL`, Yellow Argon keyword-spam —
+the SUPPORTED SITES bullet list in the description). The rejection is
+documented in `Docs/store/listing.md` → "Rejection history".
+
+**v1.0.1 has been rebuilt** (commit `3c79fe1`) with:
+- rewritten store listing (no bullet list of brand names — see `listing.md`)
+- 16 static gap fixes across S1 + S2 (specs in `Docs/stability/*-COVERAGE*.md`)
+- 616/616 unit tests green, 0 regressions
+- output zip: `pce_browser_extension_wxt/.output/pce-browser-extension-wxt-1.0.1-chrome.zip` (1.01 MB)
+
+**Pending user action before resubmission** (see `SUBMISSION-PLAYBOOK.md` §Step 0):
+1. B3 smoke test on the 1.0.1 unpacked build
+2. Dashboard → Store listing tab: paste new Summary + Description
+3. Dashboard → Package tab: upload 1.0.1 zip
+4. Submit for review
+
+Since v1.0.0 never reached Chrome's store front-end (it was rejected in
+review), v1.0.1 becomes the **first public release**. There is no
+installed user base to auto-push to yet. The "v1.0.1 = first-day UX"
+framing in the original plan still applies — it's just the literal
+first release instead of a fast follow-up.
 
 **Non-goal:** feature parity or new capabilities. Only **reliability of
-what v1.0.0 already promises in the Chrome Web Store listing**.
+what v1.0.1 promises in the Chrome Web Store listing**.
 
 ---
 

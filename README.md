@@ -57,18 +57,29 @@ All data lives at `~/.pce/data/pce.db` (override via `PCE_DATA_DIR`). Sensitive 
 
 ## Supported AI Tools
 
-### Structured capture (body + metadata)
+### Browser extension scope (Chrome Web Store listing)
 
-- **Web chats**: ChatGPT, Claude.ai, Gemini, Perplexity, DeepSeek, Kimi, Grok, Qwen, Zhipu GLM, Meta AI, Character.AI
-- **Desktop chats**: ChatGPT Desktop (non-pinned versions), Poe Desktop
-- **IDE AI**: GitHub Copilot (VS Code), Windsurf, Cline
-- **CLI AI**: Codex CLI, Claude Code, Aider
-- **Local models**: Ollama, LM Studio, llama.cpp, vLLM server
-- **SDK-instrumented apps**: any LiteLLM / OpenTelemetry-enabled Python app
+The browser extension (`pce_browser_extension_wxt/`) runs on exactly the hosts declared in its MV3 manifest — the same list the Chrome Web Store reviewer sees under `host_permissions`. No `<all_urls>` access; no hidden sites.
 
-### UI-level capture (text + DOM)
+- AI chat UIs: `chatgpt.com`, `chat.openai.com`, `claude.ai`, `gemini.google.com`, `aistudio.google.com`, `copilot.microsoft.com`, `chat.deepseek.com`, `www.perplexity.ai`, `poe.com`, `grok.com`, `huggingface.co/chat`, `chat.mistral.ai`, `kimi.com` / `www.kimi.com` / `kimi.moonshot.cn`, `chat.z.ai`, `manus.im`
+- AI embedded in productivity: `www.notion.so` / `notion.so`, `m365.cloud.microsoft` + `*.cloud.microsoft` + `*.officeapps.live.com`, `www.figma.com` / `figma.com`, `mail.google.com`
 
-- Notion AI, Microsoft 365 Copilot (web), Figma AI, Gmail AI, Jira AI, and any AI-powered SaaS (via browser extension)
+The canonical source is `pce_browser_extension_wxt/wxt.config.ts` (`COVERED_SITES` constant). Anything in this section must round-trip to that file.
+
+### Structured capture (body + metadata, other PCE layers)
+
+Covered by PCE Core's non-extension capture layers (L1 TLS MITM, L3c IDE extensions, L3e LiteLLM SDK, etc.), NOT by the browser extension:
+
+- **Web chats (beyond the extension)**: Qwen, Meta AI, Character.AI — captured via L1 when the user routes traffic through PCE's proxy.
+- **Desktop chats**: ChatGPT Desktop (non-pinned versions), Poe Desktop — L1.
+- **IDE AI**: GitHub Copilot (VS Code), Windsurf, Cline — L3c.
+- **CLI AI**: Codex CLI, Claude Code, Aider — L1.
+- **Local models**: Ollama, LM Studio, llama.cpp, vLLM server — L1.
+- **SDK-instrumented apps**: any LiteLLM / OpenTelemetry-enabled Python app — L3e/L3f.
+
+### UI-level capture fallback (text + DOM on unknown AI sites)
+
+- Jira AI, generic AI-powered SaaS surfaces: the extension's `detector.js` + `universal-extractor.js` scripts activate only when the user explicitly visits such a page AND a heuristic flags it as an AI UI. These hosts are NOT in `host_permissions` and therefore do NOT participate in the Chrome Web Store submission — they require the sideload build.
 
 ### Requires PCE Pro
 
