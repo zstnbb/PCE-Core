@@ -86,7 +86,7 @@ PCE is not directed at children under 13 and does not knowingly collect informat
 ## 8. Your controls
 
 - **Disable capture temporarily:** Click the PCE toolbar icon → "Pause capture".
-- **Stop all capture permanently:** Uninstall the browser extension or close the PCE Core desktop app. With PCE Core closed, queued data sits in your browser's IndexedDB until you either restart PCE Core or clear the extension's storage via `chrome://extensions/`.
+- **Stop all capture permanently:** Uninstall the browser extension or close the PCE Core companion server. With PCE Core closed, queued data sits in your browser's IndexedDB until you either restart PCE Core or clear the extension's storage via `chrome://extensions/`.
 - **Delete all captured data:** Delete the `~/.pce/data/` folder on your machine.
 - **Inspect the source code:** https://github.com/zstnbb/PCE-Core is public and licensed under Apache-2.0.
 

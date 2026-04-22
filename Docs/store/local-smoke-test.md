@@ -103,7 +103,7 @@ Go back to `chrome://extensions/` → Details → Permissions:
 
 - [ ] Click the PCE toolbar icon → popup opens without errors.
 - [ ] Popup shows "Connected to PCE Core" (green dot).
-- [ ] Right-click on any AI page → "Save selection as snippet" menu item is there.
+- [ ] Right-click on any AI page → "Capture This Page (PCE)" menu item is there. (Note: the floating "Save" button that appears when you highlight text is a SEPARATE feature — that one is a DOM overlay, not a Chrome context menu.)
 - [ ] Toggle extension OFF then ON in `chrome://extensions/` — reloading any AI tab still captures.
 
 ---
