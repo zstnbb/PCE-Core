@@ -63,16 +63,19 @@ Provide a right-click menu item "Capture This Page (PCE)" on supported AI sites 
 
 ## 3. Host permissions justification (the one reviewers care most about)
 
-Because PCE requests a list of 17+ AI hosts, this field gets the most
-scrutiny. Keep it concrete — enumerate the categories and tie each to
-a capability the extension actually ships.
+The manifest declares a list of 25 hosts covering roughly 14 AI-tool
+services (some services have multiple domains — e.g. Kimi has three,
+ChatGPT has two, Notion/Figma each have www + bare). Each host on the
+list below round-trips to `pce_browser_extension_wxt/wxt.config.ts`
+`COVERED_SITES` constant; anything a reviewer finds in the manifest
+host_permissions is enumerated here and vice versa.
 
 ```
-The extension needs to read conversation DOM on AI chat sites to capture messages. Each host on the list is a supported AI tool:
+The extension needs to read conversation DOM on AI chat sites to capture messages. The manifest declares 25 host patterns covering ~14 distinct AI services (some have multiple domain aliases).
 
-— Dedicated AI chat UIs (14 hosts): chatgpt.com, chat.openai.com (legacy ChatGPT domain, kept for 301-redirect handling on bookmarked URLs), claude.ai, gemini.google.com, aistudio.google.com, copilot.microsoft.com, chat.deepseek.com, perplexity.ai, poe.com, huggingface.co/chat, grok.com, chat.mistral.ai, kimi.com + kimi.moonshot.cn (Kimi's current and legacy domains), chat.z.ai (Zhipu), manus.im.
+— Dedicated AI chat UIs (17 host patterns / ~10 services): chatgpt.com + chat.openai.com (ChatGPT; legacy domain kept for bookmarks that redirect), claude.ai, gemini.google.com, aistudio.google.com, copilot.microsoft.com, chat.deepseek.com, www.perplexity.ai, poe.com, huggingface.co/chat, grok.com, chat.mistral.ai, kimi.com + www.kimi.com + kimi.moonshot.cn (Kimi; current + mirror + legacy), chat.z.ai (Zhipu), manus.im.
 
-— AI features embedded in productivity tools (4 hosts): m365.cloud.microsoft + *.cloud.microsoft + *.officeapps.live.com (Microsoft 365 Copilot across Word/Excel/PowerPoint/Outlook), notion.so (Notion AI), figma.com (Figma AI), mail.google.com (Gmail "Help me write").
+— AI features embedded in productivity / collaboration tools (8 host patterns / ~4 services): m365.cloud.microsoft + *.cloud.microsoft + *.officeapps.live.com (Microsoft 365 Copilot across Word/Excel/PowerPoint/Outlook web apps), notion.so + www.notion.so (Notion AI), figma.com + www.figma.com (Figma AI), mail.google.com (Gmail "Help me write").
 
 The extension does NOT request <all_urls>, and it does not run on any site outside this list. Captured data is sent exclusively to http://127.0.0.1:9800 on the user's own machine — never to any server operated by us.
 ```
@@ -141,7 +144,7 @@ happened to other extensions; none are unique to PCE.
 ### "Why do you need `<all_urls>`?"
 
 ```
-The Webstore build does NOT request <all_urls>. It requests a list of 17 specific AI hosts. The <all_urls> pattern appears only in `web_accessible_resources.matches`, which is the syntax for declaring which sites may load extension-internal files — it does not grant the extension any read/inject capability on those sites. Chrome does not gate web_accessible_resources exposure behind host_permissions; the <all_urls> match there simply allows the AI sites the extension already runs on to load the bundled interceptor.
+The Webstore build does NOT request <all_urls>. It requests a list of 25 specific host patterns covering ~14 AI services. The <all_urls> pattern appears only in `web_accessible_resources.matches`, which is the syntax for declaring which sites may load extension-internal files — it does not grant the extension any read/inject capability on those sites. Chrome does not gate web_accessible_resources exposure behind host_permissions; the <all_urls> match there simply allows the AI sites the extension already runs on to load the bundled interceptor.
 ```
 
 ### "What does PCE Core do with the captured data?"

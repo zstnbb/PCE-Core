@@ -51,7 +51,11 @@ import { defineConfig } from "wxt";
  */
 
 const COVERED_SITES = [
-  // F1 — dedicated AI chat / coding tools (13 sites).
+  // F1 — dedicated AI chat / coding tools (17 host patterns covering
+  // ~10 distinct services; multi-domain services are: ChatGPT
+  // (chatgpt.com + chat.openai.com legacy) and Kimi (kimi.com +
+  // www.kimi.com + kimi.moonshot.cn). Must round-trip to
+  // Docs/store/justification.md §3.
   "https://chatgpt.com/*",
   "https://chat.openai.com/*",
   "https://claude.ai/*",
