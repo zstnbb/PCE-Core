@@ -1,19 +1,91 @@
-# Chrome Web Store — Submission Playbook (v1.0.0)
+# Chrome Web Store — Submission Playbook (v1.0.1, post-rejection)
 
-**Purpose:** Single ordered checklist for getting PCE extension 1.0.0
-live on the Chrome Web Store. Every step is either (a) a file already
-in this repo that you copy-paste from, or (b) a click-through in the
-Chrome Web Store Developer Dashboard.
+**Purpose:** Single ordered checklist for getting PCE extension live on
+the Chrome Web Store. Every step is either (a) a file already in this
+repo that you copy-paste from, or (b) a click-through in the Chrome
+Web Store Developer Dashboard.
 
 **Who runs this:** You, on your developer account. Cascade has already
 produced every artefact referenced below; the remaining work is in the
 browser + Dashboard.
 
 **Expected elapsed time:**
-- Day 1 (today): steps 1–3 below, ~2 hours including screenshots.
+- Day 1: steps 1–3 below, ~2 hours including screenshots.
 - Day 2 onwards: wait for Google review. Status visible in the Dashboard.
-- Approval median: 3–7 days for standard review, 1–3 weeks if
-  Extended Review triggers.
+- Approval median: 3–7 days for standard review, 1–3 weeks if Extended
+  Review triggers. Metadata-only resubmissions after a rejection are
+  typically fastest (1–3 business days).
+
+---
+
+## 2026-04-22 — v1.0.0 was rejected. Start at **Step 0** below.
+
+Google rejected v1.0.0 with **transfer ID `FZSL`** ("Yellow Argon",
+keyword-spam violation). Root cause + fix are documented in
+`Docs/store/listing.md` → "Rejection history". TL;DR: the previous
+description contained a bullet list of 14 AI-tool brand names with
+URLs, which triggers Chrome's SEO-stuffing heuristic.
+
+**The updated listing copy is already in `Docs/store/listing.md`.**
+Before re-submitting:
+
+### Step 0 — v1.0.1 resubmission (do this FIRST)
+
+1. **Bump the extension version.** Edit
+   `pce_browser_extension_wxt/wxt.config.ts`, change `version: "1.0.0"`
+   to `version: "1.0.1"`. The Chrome Web Store rejects uploads whose
+   version is the same as or lower than the currently submitted one
+   — you cannot replace the rejected v1.0.0 with another v1.0.0.
+
+2. **Rebuild the webstore zip.**
+   ```
+   cd pce_browser_extension_wxt
+   pnpm build --mode webstore
+   pnpm zip --mode webstore
+   ```
+   Output: `.output/pce-browser-extension-wxt-1.0.1-chrome.zip`.
+
+3. **Re-run the B3 local smoke test** against the new unpacked
+   directory (`.output/chrome-mv3/`) following
+   `Docs/store/local-smoke-test.md`. Rejection fix is metadata-only
+   so functional parity is expected, but do NOT skip the smoke test
+   — a late-breaking regression at v1.0.1 would be embarrassing on
+   a resubmission.
+
+4. **Dashboard → Items → PCE → Package tab → Upload new package**
+   → drag the new zip. Chrome replaces the rejected 1.0.0 archive
+   with 1.0.1.
+
+5. **Dashboard → Items → PCE → Store listing tab:**
+   - Replace the **Summary** with the new line from
+     `Docs/store/listing.md` → §Summary.
+   - Replace the **Description** with the updated full block from
+     §Detailed description (both EN and ZH if ZH is enabled).
+   - Everything else (title, category, screenshots, icons) stays.
+
+6. **Privacy-practices tab:** no changes required.
+   `Docs/store/justification.md` §3 host-permissions text still
+   accurately describes the 17 hosts — and per Chrome Web Store
+   policy, the **host-permissions justification field is allowed
+   and in fact required to enumerate each host**; the spam policy
+   only applies to the public description. Do NOT trim §3.
+
+7. **Submit for review.** The resubmit banner at the top of the
+   Dashboard item page will show a dedicated "Resubmit after
+   rejection" button.
+
+8. **Appeal vs resubmit?** Appeal is appropriate only when you
+   believe the rejection itself was wrong. For keyword-spam the
+   correct path is resubmission with a rewritten description — do
+   NOT file an appeal for 1.0.0. The appeal queue is slower than
+   the resubmission queue, and the outcome is almost always "your
+   appeal is denied because the decision was correct; please
+   resubmit after rewriting".
+
+Then pick up the original flow below from **Step 1 §1.2** (smoke
+test) or **Step 2** (Dashboard submission) — Steps 1.1 and 1.3
+(identity verification, screenshots) are reused from v1.0.0 and
+don't need to be redone.
 
 ---
 
