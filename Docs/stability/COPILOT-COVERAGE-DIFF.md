@@ -48,11 +48,15 @@
 
 ## 5. Known gaps (short list)
 
-- **MCP1.** `isStreaming` gate NOT wired. Partial mid-stream captures possible. Status: ⬜ OPEN — mirror `c49d3de` (Gemini/Claude fix) pattern.
-- **MCP2.** `hookHistoryApi: false`. SPA nav detected only after 5s polling. Status: ⬜ OPEN.
+- **MCP1.** `isStreaming` gate NOT wired. Partial mid-stream captures possible. Status: ✅ CLOSED — fixed with shared `isStreaming` helper + Stop/Cancel button detection (commit after `54ebf16`).
+- **MCP2.** `hookHistoryApi: false`. SPA nav detected only after 5s polling. Status: ⬜ OPEN (acceptable for v1.0.1 — 5s lag beats a capture miss).
 - **MCP3.** Dedupe key uses full content (good — no slice collapse like Gemini's G10). No action needed.
 - **MCP4.** No `/share/` URL skip. Status: ⬜ OPEN — mirror `702bf0e` pattern.
 - **MCP5.** Bing citations extracted only as `[class*='citation']` STRIPPED by `extractText` — semantic citations go into `assistant` text as inline URLs rather than structured `citation` attachments. Status: ⬜ OPEN — needs live DOM probe.
+- **MCP6.** *Empty-reply capture* (P5B-PLAN P0 exit criterion). Copilot's React UI briefly shows the user turn BEFORE the assistant turn's `.ac-textBlock` populates. Two compounding bugs let a partial capture through:
+  1. `extractText` returned `""` when `.ac-textBlock` existed but was empty (no fall-through to the whole-clone text).
+  2. Runtime was not configured with `requireBothRoles: true`, so the partial turn list (user-only) made it past `capture-runtime.ts:306`.
+  Status: ✅ CLOSED — (a) `extractText` now falls through when the rendered child is empty; (b) `requireBothRoles: true` wired. Matches `zhipu`/`poe`/`grok`/`m365-copilot` pattern. Regression tests added in `__tests__/copilot.content.test.ts`.
 
 ## 6. Order of attack
 

@@ -108,6 +108,34 @@ describe("extractText", () => {
       "the actual reply body",
     );
   });
+
+  // P5.B gap MCP6 (empty-reply bug): when the rendered child is an
+  // empty React scaffold, fall through to the whole-clone text so the
+  // runtime's requireBothRoles gate has a chance to observe a
+  // non-empty assistant side. Before this fix the empty ``.ac-textBlock``
+  // caused ``extractText`` to return "", the message was filtered out,
+  // and the capture landed with only the user side.
+  it("falls through to whole-clone text when the rendered child is empty", () => {
+    document.body.innerHTML = `
+      <div id="x">
+        non-empty body scaffold text
+        <div class="ac-textBlock"></div>
+      </div>`;
+    const t = extractText(document.getElementById("x")!);
+    expect(t).toContain("non-empty body scaffold text");
+    expect(t).not.toBe("");
+  });
+
+  it("returns the rendered child text when it is non-empty (no regression)", () => {
+    document.body.innerHTML = `
+      <div id="x">
+        outer noise that should be ignored
+        <div class="markdown">actual markdown body</div>
+      </div>`;
+    expect(extractText(document.getElementById("x")!)).toBe(
+      "actual markdown body",
+    );
+  });
 });
 
 // P5.B gap MCP1 regression: isStreaming gate must detect Copilot's

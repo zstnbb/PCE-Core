@@ -97,10 +97,22 @@ export function extractText(el: Element): string {
     )
     .forEach((e) => e.remove());
 
+  // P5.B gap MCP6 (empty-reply bug): rendered child may exist as a
+  // React scaffold BEFORE streaming populates it. The legacy
+  // ``if (rendered) return safeInnerText(rendered).trim();`` returned
+  // ``""`` in that window, and the empty string survived into the
+  // capture because the runtime did not require both roles. Fall
+  // through to the whole-clone fallback when the rendered child is
+  // empty so at least SOMETHING testable bubbles up; the runtime's
+  // ``requireBothRoles`` gate (wired below) then defers the capture
+  // until the assistant side is non-empty.
   const rendered = clone.querySelector(
     ".ac-textBlock, .markdown, [class*='rendered'], [class*='text-content']",
   );
-  if (rendered) return safeInnerText(rendered).trim();
+  if (rendered) {
+    const renderedText = safeInnerText(rendered).trim();
+    if (renderedText) return renderedText;
+  }
 
   return safeInnerText(clone).trim();
 }
@@ -182,6 +194,12 @@ export default defineContentScript({
       getSessionHint: () => getSessionHint(),
       getModelName: () => getModelName(document),
       hookHistoryApi: false,
+      // P5.B gap MCP6 (empty-reply bug): Copilot's React UI shows the
+      // user turn BEFORE the assistant turn finishes mounting. Without
+      // this gate the runtime fires a capture with only the user side,
+      // which downstream renders as an "empty reply". Mirrors
+      // zhipu/poe/grok/m365 (all set this true).
+      requireBothRoles: true,
     });
 
     document.addEventListener("pce-manual-capture", () => {
