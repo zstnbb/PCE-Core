@@ -64,16 +64,28 @@ wait for reply, then check the PCE dashboard.
 4. Console:
    - [ ] No errors.
 
-### 2.3 Microsoft Copilot
+### 2.3 Microsoft Copilot (⭐ load-bearing for v1.0.1)
+
+v1.0.1 ships 2 Copilot behavior fixes that must be verified live:
 
 1. Open `https://copilot.microsoft.com/`.
 2. Send a message, wait for reply.
 3. Dashboard:
    - [ ] Session appears.
-   - [ ] Both sides visible.
-4. Console:
-   - [ ] No errors.
-   - Copilot's DOM changes frequently — if the reply is captured but empty, note which selector missed; don't block the submission on this (known minor).
+   - [ ] **Both sides visible (no empty-reply)**. This is the MCP6 regression
+         — if the assistant reply is captured as empty but the UI shows a
+         reply, the `requireBothRoles` + `extractText` fallback fix (commit
+         `7e80ef4`) is not taking effect. Stop and investigate.
+   - [ ] Send a second message in the SAME conversation. Both turns
+         captured correctly (tests dedup + fingerprint on multi-turn).
+4. Open a shared Copilot URL (find one via a friend / search for
+   `copilot.microsoft.com/share/` in Google):
+   - [ ] Dashboard shows ZERO new capture from the shared URL. This is
+         the MCP4 regression (commit `edbc3d5`). If a capture DOES
+         appear with someone else's conversation content, the
+         `/share/` URL skip is not taking effect.
+5. Console (F12 on the Copilot tab):
+   - [ ] No red `[PCE]` errors.
 
 ### 2.4 Notion AI (F2 — stretch check)
 
@@ -91,7 +103,7 @@ wait for reply, then check the PCE dashboard.
 
 Go back to `chrome://extensions/` → Details → Permissions:
 
-- [ ] "This extension can read and change your data on these sites" → lists the 17 AI hosts.
+- [ ] "This extension can read and change your data on these sites" → lists the 25 host patterns from the manifest (17 F1 AI chat UIs + 8 F2 productivity hosts; some services have multiple domain aliases — ChatGPT has 2, Kimi has 3, Notion/Figma each have 2 — so 25 patterns ≈ 14 distinct services). Exact list is in `pce_browser_extension_wxt/wxt.config.ts` `COVERED_SITES`, and must match `Docs/store/justification.md` §3 verbatim.
 - [ ] The list does NOT include `<all_urls>` or "all websites".
 - [ ] No host appears that isn't in our `COVERED_SITES` array.
 
