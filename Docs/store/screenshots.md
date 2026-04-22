@@ -1,4 +1,4 @@
-# Chrome Web Store — Screenshot Checklist (v1.0.0)
+# Chrome Web Store — Screenshot Checklist (v1.0.1)
 
 You (the human) need to produce these images. Cascade can't — they
 require running the real product and interacting with real AI sites.

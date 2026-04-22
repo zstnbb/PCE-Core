@@ -28,7 +28,7 @@ in time.
 4. Pick the folder (not the zip): `f:\INVENTION\You.Inc\PCE Core\pce_browser_extension_wxt\.output\chrome-mv3\`
 5. Extension card appears. **Verify on the card:**
    - [ ] Name: `PCE - AI Interaction Capture`
-   - [ ] Version: `1.0.0`
+   - [ ] Version: `1.0.1` (previous 1.0.0 was rejected — see `SUBMISSION-PLAYBOOK.md` §Step 0)
    - [ ] No red error badge
    - [ ] Click "Details" → scroll to "Permissions":
      - [ ] Shows the explicit site list — NOT "Read and change all your data on all websites"
@@ -113,7 +113,7 @@ Go back to `chrome://extensions/` → Details → Permissions:
 Make a quick note on what worked / what didn't. Template:
 
 ```
-2026-04-21 B3 smoke test — pce-browser-extension-wxt-1.0.0-chrome.zip
+2026-04-2X B3 smoke test — pce-browser-extension-wxt-1.0.1-chrome.zip
   ChatGPT ........ pass
   Claude ......... pass
   Copilot ........ pass (empty reply on model switcher, known)

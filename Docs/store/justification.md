@@ -1,4 +1,4 @@
-# Chrome Web Store — Review Justifications (v1.0.0)
+# Chrome Web Store — Review Justifications (v1.0.1)
 
 Copy-paste targets for the Developer Dashboard "Privacy practices" tab.
 Every field below corresponds to one form field Chrome Web Store shows

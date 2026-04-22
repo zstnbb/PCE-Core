@@ -93,7 +93,8 @@ don't need to be redone.
 
 | Artefact | Status | Location |
 |---|---|---|
-| Webstore zip (994 KB) | ✅ Built | `pce_browser_extension_wxt/.output/pce-browser-extension-wxt-1.0.0-chrome.zip` |
+| Webstore zip (v1.0.1, 1.01 MB) | ✅ Built | `pce_browser_extension_wxt/.output/pce-browser-extension-wxt-1.0.1-chrome.zip` |
+| Webstore zip (v1.0.0, 994 KB, REJECTED) | ⚠️ Kept for reference | `pce_browser_extension_wxt/.output/pce-browser-extension-wxt-1.0.0-chrome.zip` |
 | Webstore unpacked folder (for B3 test) | ✅ Built | `pce_browser_extension_wxt/.output/chrome-mv3/` |
 | Manifest audited | ✅ 0 `<all_urls>` in content_scripts | — |
 | PRIVACY.md | ✅ Written | `PRIVACY.md` (repo root) |
@@ -155,7 +156,7 @@ for refreshes, we pull from git.
 ### 2.1 Create new item
 
 1. Dashboard → **Items** → **+ New item**.
-2. Drag the zip: `.output/pce-browser-extension-wxt-1.0.0-chrome.zip`.
+2. Drag the zip: `.output/pce-browser-extension-wxt-1.0.1-chrome.zip` (the v1.0.0 zip was rejected — see Step 0).
 3. Wait for the upload + manifest parse. If it errors, it will tell
    you which manifest field is invalid.
 
@@ -241,7 +242,7 @@ GitHub → Settings → Danger Zone → Change repository visibility → Public
 - The listing URL becomes live. Grab it from the Dashboard.
 - Update `Docs/store/SUBMISSION-PLAYBOOK.md` with the final listing
   URL (amend this file).
-- Announce: GitHub release notes for v1.0.0, HN / Reddit / relevant
+- Announce: GitHub release notes for v1.0.1, HN / Reddit / relevant
   Discords.
 
 ---
@@ -266,7 +267,7 @@ If approved then you find a showstopper:
 - `Docs/store/screenshots.md`
 - `Docs/store/local-smoke-test.md`
 - `Docs/store/SUBMISSION-PLAYBOOK.md` (this file)
-- `pce_browser_extension_wxt/.output/pce-browser-extension-wxt-1.0.0-chrome.zip`
+- `pce_browser_extension_wxt/.output/pce-browser-extension-wxt-1.0.1-chrome.zip`
 
 Do **not** delete the `.output/` zip until at least the review emails
 stop coming — Google sometimes asks for the original package to
