@@ -15,7 +15,11 @@ Once we are past v1.0, the last two minor versions will receive security patches
 
 **Please do NOT open a public GitHub issue for security vulnerabilities.**
 
-Instead, email: **security@pce.example.com** _(placeholder — replace with actual mailbox before making the repo public)_
+Instead, use GitHub's built-in private vulnerability reporting:
+
+→ **[Report a vulnerability](https://github.com/zstnbb/PCE-Core/security/advisories/new)** — routes privately to the repository maintainer. No email mailbox required.
+
+(If you prefer email, leave a contact address in your first message on the advisory and we will follow up there.)
 
 What to include in your report:
 
@@ -69,4 +73,4 @@ _No entries yet — be the first!_
 
 ## PGP Key
 
-_To be added once the security mailbox is set up. Reports without PGP encryption are still accepted._
+GitHub private advisories are end-to-end encrypted between reporter and maintainer (TLS in transit, GitHub-managed storage). A separate PGP key is therefore not published. Reports outside the advisory flow are accepted but will be treated as public unless you specify otherwise.

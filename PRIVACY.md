@@ -16,7 +16,7 @@ PCE is an open-source project. This Privacy Policy is maintained by the project 
 
 - **Publisher:** zstnbb (individual)
 - **Repository:** https://github.com/zstnbb/PCE-Core
-- **Contact:** See the `SECURITY.md` and `CONTRIBUTING.md` files in the repository for current contact addresses.
+- **Contact:** For security issues, use GitHub's private vulnerability reporting at https://github.com/zstnbb/PCE-Core/security/advisories/new (see `SECURITY.md`). For general inquiries, open a public issue at https://github.com/zstnbb/PCE-Core/issues.
 
 PCE is **not** operated as a hosted service. The "publisher" maintains the open-source code; it does not host or receive any user data.
 
@@ -96,4 +96,4 @@ We will update this file in the repository when the behavior of the extension or
 
 ## 10. Contact
 
-For privacy questions or concerns, please open an issue at https://github.com/zstnbb/PCE-Core/issues, or email the address listed in `SECURITY.md` in the repository.
+For privacy questions or concerns, please open an issue at https://github.com/zstnbb/PCE-Core/issues. For security-relevant disclosures that should stay private until fixed, use GitHub's private advisory flow: https://github.com/zstnbb/PCE-Core/security/advisories/new.
