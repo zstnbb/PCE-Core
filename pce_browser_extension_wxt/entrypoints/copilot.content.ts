@@ -132,7 +132,14 @@ export function getModelName(doc: Document = document): string | null {
  */
 export function extractMessages(
   doc: Document = document,
+  pathname: string = typeof location !== "undefined" ? location.pathname : "/",
 ): ExtractedMessage[] {
+  // Closes P5.B gap **MCP4**: read-only shared conversations
+  // (``copilot.microsoft.com/share/<id>``) must NOT be captured as if
+  // authored by the current user. Mirrors commit 702bf0e (Gemini G8,
+  // Claude C9) pattern.
+  if (/^\/share\//i.test(pathname)) return [];
+
   const turnSelectors = [
     '[class*="user-message"], [class*="bot-message"]',
     '[class*="UserMessage"], [class*="BotMessage"]',
@@ -190,7 +197,7 @@ export default defineContentScript({
 
       getContainer: () => getContainer(document),
       isStreaming: () => isStreaming(document),
-      extractMessages: () => extractMessages(document),
+      extractMessages: () => extractMessages(document, location.pathname),
       getSessionHint: () => getSessionHint(),
       getModelName: () => getModelName(document),
       hookHistoryApi: false,

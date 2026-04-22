@@ -211,3 +211,38 @@ describe("extractMessages", () => {
     expect(extractMessages(document)).toEqual([]);
   });
 });
+
+// P5.B gap MCP4 regression: shared URLs must return [] even when the
+// DOM has valid-looking turns (because the current user didn't author
+// them). Mirrors the G8 / C9 pattern in gemini/claude content scripts.
+describe("extractMessages — /share/ URL skip (MCP4)", () => {
+  it("returns [] on /share/<id> paths regardless of DOM content", () => {
+    document.body.innerHTML = `
+      <main>
+        <div class="user-message"><div class="ac-textBlock">someone else's question</div></div>
+        <div class="bot-message"><div class="ac-textBlock">someone else's answer</div></div>
+      </main>`;
+    expect(extractMessages(document, "/share/abc123")).toEqual([]);
+  });
+
+  it("still captures on non-share paths with the same DOM", () => {
+    document.body.innerHTML = `
+      <main>
+        <div class="user-message"><div class="ac-textBlock">u question</div></div>
+        <div class="bot-message"><div class="ac-textBlock">bot answer</div></div>
+      </main>`;
+    const msgs = extractMessages(document, "/chat/thread_1");
+    expect(msgs).toHaveLength(2);
+    expect(msgs[0].role).toBe("user");
+    expect(msgs[1].role).toBe("assistant");
+  });
+
+  it("is case-insensitive on /Share/<id>", () => {
+    document.body.innerHTML = `
+      <main>
+        <div class="user-message"><div class="ac-textBlock">x</div></div>
+        <div class="bot-message"><div class="ac-textBlock">y</div></div>
+      </main>`;
+    expect(extractMessages(document, "/Share/abc")).toEqual([]);
+  });
+});

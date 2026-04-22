@@ -51,7 +51,7 @@
 - **MCP1.** `isStreaming` gate NOT wired. Partial mid-stream captures possible. Status: ✅ CLOSED — fixed with shared `isStreaming` helper + Stop/Cancel button detection (commit after `54ebf16`).
 - **MCP2.** `hookHistoryApi: false`. SPA nav detected only after 5s polling. Status: ⬜ OPEN (acceptable for v1.0.1 — 5s lag beats a capture miss).
 - **MCP3.** Dedupe key uses full content (good — no slice collapse like Gemini's G10). No action needed.
-- **MCP4.** No `/share/` URL skip. Status: ⬜ OPEN — mirror `702bf0e` pattern.
+- **MCP4.** No `/share/` URL skip. Status: ✅ CLOSED — `extractMessages` now takes a `pathname` argument and short-circuits to `[]` when `^/share/` matches. Mirrors commit `702bf0e` (Gemini G8 + Claude C9). 3 regression tests added.
 - **MCP5.** Bing citations extracted only as `[class*='citation']` STRIPPED by `extractText` — semantic citations go into `assistant` text as inline URLs rather than structured `citation` attachments. Status: ⬜ OPEN — needs live DOM probe.
 - **MCP6.** *Empty-reply capture* (P5B-PLAN P0 exit criterion). Copilot's React UI briefly shows the user turn BEFORE the assistant turn's `.ac-textBlock` populates. Two compounding bugs let a partial capture through:
   1. `extractText` returned `""` when `.ac-textBlock` existed but was empty (no fall-through to the whole-clone text).
