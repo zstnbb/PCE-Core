@@ -103,7 +103,7 @@ export default defineConfig({
 
     return {
       name: "PCE - AI Interaction Capture",
-      version: "1.0.0",
+      version: "1.0.1",
       description:
         "Captures AI conversations from web-based AI tools and sends them to your local PCE instance.",
       permissions: [
