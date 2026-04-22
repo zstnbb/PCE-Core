@@ -26,31 +26,37 @@ keyword-spam violation). Root cause + fix are documented in
 description contained a bullet list of 14 AI-tool brand names with
 URLs, which triggers Chrome's SEO-stuffing heuristic.
 
-**The updated listing copy is already in `Docs/store/listing.md`.**
-Before re-submitting:
+**Everything below Cascade-side is already done.** The v1.0.1 zip is
+built, the listing rewrite is ready in `Docs/store/listing.md`, several
+side bugs found during the resubmission audit are fixed and shipped
+inside the same zip. Your remaining work is **only** steps 3–7 below
+(smoke test + dashboard + submit).
 
-### Step 0 — v1.0.1 resubmission (do this FIRST)
+### Step 0 — v1.0.1 resubmission
 
-1. **Bump the extension version.** Edit
-   `pce_browser_extension_wxt/wxt.config.ts`, change `version: "1.0.0"`
-   to `version: "1.0.1"`. The Chrome Web Store rejects uploads whose
-   version is the same as or lower than the currently submitted one
-   — you cannot replace the rejected v1.0.0 with another v1.0.0.
+1. ~~Bump the extension version.~~ **DONE** (commit `3c79fe1`).
+   `wxt.config.ts` + `package.json` at 1.0.1.
 
-2. **Rebuild the webstore zip.**
-   ```
-   cd pce_browser_extension_wxt
-   pnpm build --mode webstore
-   pnpm zip --mode webstore
-   ```
-   Output: `.output/pce-browser-extension-wxt-1.0.1-chrome.zip`.
+2. ~~Rebuild the webstore zip.~~ **DONE** (commits `3c79fe1`,
+   `2401e54`). Output zip is at
+   `.output/pce-browser-extension-wxt-1.0.1-chrome.zip` (1.01 MB).
+
+   *Side-effect fixes also shipped into the same zip during the
+   audit pass:*
+   - **Copilot MCP6** (P5B-PLAN P0 exit criterion): empty-reply
+     capture closed via `requireBothRoles` gate + `extractText`
+     empty-rendered fallback. `7e80ef4`.
+   - **Copilot MCP4**: `/share/<id>` URLs now skip capture, matching
+     the Gemini G8 / Claude C9 pattern. `edbc3d5`.
+   - **Popup version label** was stale at `v0.3.0`; now `v1.0.1`.
+     `2401e54`.
+   - Various stale coverage-doc markers synced to code. `4c2cbaf`.
 
 3. **Re-run the B3 local smoke test** against the new unpacked
    directory (`.output/chrome-mv3/`) following
-   `Docs/store/local-smoke-test.md`. Rejection fix is metadata-only
-   so functional parity is expected, but do NOT skip the smoke test
-   — a late-breaking regression at v1.0.1 would be embarrassing on
-   a resubmission.
+   `Docs/store/local-smoke-test.md`. The new zip contains 2 Copilot
+   behavior changes (MCP4 + MCP6) beyond the metadata fix, so the
+   smoke test is load-bearing this time.
 
 4. **Dashboard → Items → PCE → Package tab → Upload new package**
    → drag the new zip. Chrome replaces the rejected 1.0.0 archive
@@ -63,12 +69,17 @@ Before re-submitting:
      §Detailed description (both EN and ZH if ZH is enabled).
    - Everything else (title, category, screenshots, icons) stays.
 
-6. **Privacy-practices tab:** no changes required.
-   `Docs/store/justification.md` §3 host-permissions text still
-   accurately describes the 17 hosts — and per Chrome Web Store
-   policy, the **host-permissions justification field is allowed
-   and in fact required to enumerate each host**; the spam policy
-   only applies to the public description. Do NOT trim §3.
+6. **Privacy-practices tab:**
+   - `contextMenus` justification: the label changed from "Save
+     selection as snippet" to "Capture This Page (PCE)" to match
+     the actual code in `background.ts:602`. Paste the updated
+     field from `Docs/store/justification.md` §2 → `contextMenus`.
+   - Host-permissions justification (§3): the host count was audited
+     and is now 25 host patterns covering ~14 AI services, with every
+     manifest entry enumerated verbatim. Paste §3 as-is. Per Chrome
+     Web Store policy, the **host-permissions justification field is
+     allowed and required to enumerate each host**; the spam policy
+     only applies to the public description.
 
 7. **Submit for review.** The resubmit banner at the top of the
    Dashboard item page will show a dedicated "Resubmit after
