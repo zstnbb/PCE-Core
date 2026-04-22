@@ -32,4 +32,6 @@ Thumbs.db
 ~/.mitmproxy/
 /tests/e2e/screenshots
 /tests/e2e/e2e_state.json
+/tests/e2e/fixtures/generated/
+/tests/e2e/reports/chatgpt/
 /logs/

@@ -274,6 +274,51 @@ def wait_for_no_new_captures(
         time.sleep(poll_interval)
 
 
+def wait_for_no_new_sessions(
+    initial_session_count: int,
+    *,
+    provider: str | None = None,
+    timeout_s: float = 12,
+    poll_interval: float = 1.5,
+    last: int = 200,
+) -> dict:
+    """Wait until the timeout expires without any new sessions appearing."""
+    start = time.time()
+    while True:
+        elapsed = time.time() - start
+        try:
+            sessions = get_sessions(last=last, provider=provider)
+            current_count = len(sessions)
+            if current_count > initial_session_count:
+                return {
+                    "success": False,
+                    "initial_session_count": initial_session_count,
+                    "current_session_count": current_count,
+                    "new_session_count": current_count - initial_session_count,
+                    "sessions": sessions,
+                    "elapsed_s": round(elapsed, 1),
+                }
+        except Exception as e:
+            logger.warning("No-session verifier poll error: %s", e)
+
+        if elapsed >= timeout_s:
+            try:
+                sessions = get_sessions(last=last, provider=provider)
+            except Exception:
+                sessions = []
+            current_count = len(sessions)
+            return {
+                "success": current_count == initial_session_count,
+                "initial_session_count": initial_session_count,
+                "current_session_count": current_count,
+                "new_session_count": max(0, current_count - initial_session_count),
+                "sessions": sessions,
+                "elapsed_s": round(elapsed, 1),
+            }
+
+        time.sleep(poll_interval)
+
+
 def wait_for_session_with_messages(
     provider: str,
     min_messages: int = 2,

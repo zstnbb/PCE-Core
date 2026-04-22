@@ -275,9 +275,12 @@ export function extractAttachments(el: Element | null): PceAttachment[] {
       if (imgAny.width > 0 && imgAny.width < 40) return;
     }
 
-    const isGenerated = /dall-?e|oaidalleapi|generated|creation/i.test(
-      src + " " + alt,
-    );
+    const generatedHost = img.closest('[class*="imagegen"], [id^="image-"]');
+    const isGenerated =
+      !!generatedHost ||
+      /dall-?e|oaidalleapi|generated|creation|imagegen|\u5df2\u751f\u6210|\u751f\u6210(?:\u7684)?\u56fe/i.test(
+        srcHints,
+      );
 
     attachments.push({
       type: isGenerated ? "image_generation" : "image_url",
@@ -345,6 +348,8 @@ export function extractAttachments(el: Element | null): PceAttachment[] {
   const existingFileNames = new Set(
     attachments.filter((a) => a.type === "file").map((a) => a.name || ""),
   );
+  const uploadStatusRe =
+    /uploaded|ready|attached|\u5df2\u4e0a\u4f20|\u73b0\u5df2\u4ea4\u4e92[!\uff01]?/i;
   el.querySelectorAll("button, [role='button'], a, div, span").forEach(
     (chip) => {
       if (chip.querySelector("pre, code, .markdown, article")) return;
@@ -352,8 +357,20 @@ export function extractAttachments(el: Element | null): PceAttachment[] {
       if ((chip as any).scrollHeight > 100) return;
       const text = safeText(chip).trim();
       if (text.length < 3 || text.length > 120) return;
-      const firstLine = text.split("\n")[0].trim();
-      if (_FILE_EXT_RE.test(firstLine) && !existingFileNames.has(firstLine)) {
+      const lines = text
+        .split(/\n+/)
+        .map((line) => line.replace(uploadStatusRe, "").replace(/\s+/g, " ").trim())
+        .filter(Boolean);
+      const firstLine = lines[0] || "";
+      const hasUploadStatus = uploadStatusRe.test(text);
+      const hasFileKindLine = lines.some((line) =>
+        /^(pdf|csv|docx?|xlsx?|txt|md|json|png|jpe?g|webp)$/i.test(line),
+      );
+      if (
+        firstLine &&
+        (_FILE_EXT_RE.test(firstLine) || hasUploadStatus || hasFileKindLine) &&
+        !existingFileNames.has(firstLine)
+      ) {
         existingFileNames.add(firstLine);
         upsertFileAttachment(buildFileAttachment(chip, firstLine));
       }
@@ -372,6 +389,17 @@ export function extractAttachments(el: Element | null): PceAttachment[] {
         name: firstLine.slice(0, 200),
         source_type: "text-fallback",
         media_type: inferMediaTypeFromName(firstLine),
+      });
+    } else if (
+      firstLine &&
+      firstLine.length <= 80 &&
+      !/^PCE-|^User:|^Assistant:/i.test(firstLine) &&
+      lines.slice(1).some((line) => /^PCE-[A-Z0-9]+-/i.test(line))
+    ) {
+      upsertFileAttachment({
+        type: "file",
+        name: firstLine.slice(0, 200),
+        source_type: "chatgpt-upload-title-fallback",
       });
     }
   }

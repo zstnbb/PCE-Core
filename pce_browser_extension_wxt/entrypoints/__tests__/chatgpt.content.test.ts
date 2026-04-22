@@ -17,6 +17,7 @@ import {
   getContainer,
   getConvId,
   getModelName,
+  isSettingsSurface,
   isStreamingChatGPT,
   resolveConversationId,
 } from "../chatgpt.content";
@@ -38,6 +39,30 @@ describe("getConvId", () => {
     expect(getConvId("/settings")).toBeNull();
     expect(getConvId("/")).toBeNull();
     expect(getConvId("")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isSettingsSurface
+// ---------------------------------------------------------------------------
+
+describe("isSettingsSurface", () => {
+  it("treats /settings as non-conversation UI", () => {
+    expect(isSettingsSurface(document, "/settings", "")).toBe(true);
+  });
+
+  it("treats #settings modal routes as non-conversation UI", () => {
+    document.body.innerHTML = `
+      <div role="dialog">
+        <h1>设置</h1>
+        <p>常规</p>
+      </div>`;
+    expect(isSettingsSurface(document, "/", "#settings")).toBe(true);
+  });
+
+  it("returns false for normal chat surfaces", () => {
+    document.body.innerHTML = `<main><div data-message-author-role="assistant">hello</div></main>`;
+    expect(isSettingsSurface(document, "/", "")).toBe(false);
   });
 });
 
@@ -136,7 +161,7 @@ describe("resolveConversationId", () => {
 // extractMessages
 // ---------------------------------------------------------------------------
 
-describe("extractMessages — Strategy A (data-message-author-role)", () => {
+describe("extractMessages – Strategy A (data-message-author-role)", () => {
   it("captures user + assistant messages", () => {
     document.body.innerHTML = `
       <main>
@@ -187,6 +212,75 @@ describe("extractMessages — Strategy A (data-message-author-role)", () => {
     expect(msgs.length).toBeGreaterThanOrEqual(2);
     expect(msgs.some((m) => m.role === "user")).toBe(true);
     expect(msgs.some((m) => m.role === "assistant")).toBe(true);
+  });
+
+  it("captures ChatGPT generated-image attachments from the wider assistant turn", () => {
+    document.body.innerHTML = `
+      <main>
+        <div data-testid="conversation-turn-1" data-turn="user">
+          <div data-message-author-role="user">draw a blue square</div>
+        </div>
+        <section data-testid="conversation-turn-2" data-turn="assistant">
+          <div data-message-author-role="assistant">
+            <div class="group/imagegen-image relative" id="image-fixture">
+              <img
+                alt="generated image"
+                src="https://chatgpt.com/backend-api/estuary/content?id=file_fixture"
+              />
+            </div>
+          </div>
+        </section>
+      </main>`;
+    const msgs = extractMessages(document);
+    expect(msgs).toHaveLength(2);
+    expect(msgs[1].content).toContain("generated image");
+    expect(msgs[1].attachments).toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: "image_generation" })]),
+    );
+  });
+
+  it("captures generated images when assistant turns lack author-role nodes", () => {
+    document.body.innerHTML = `
+      <main>
+        <section data-testid="conversation-turn-1" data-turn="user">
+          <div data-message-author-role="user">draw a blue square</div>
+        </section>
+        <section data-testid="conversation-turn-2" data-turn="assistant">
+          <div class="group/imagegen-image relative" id="image-fixture">
+            <img
+              alt="已生成图片"
+              src="https://chatgpt.com/backend-api/estuary/content?id=file_fixture"
+              width="1254"
+              height="1254"
+            />
+          </div>
+        </section>
+      </main>`;
+    const msgs = extractMessages(document);
+    expect(msgs).toHaveLength(2);
+    expect(msgs[1].role).toBe("assistant");
+    expect(msgs[1].attachments).toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: "image_generation" })]),
+    );
+  });
+
+  it("returns no messages while settings UI is open", () => {
+    document.body.innerHTML = `
+      <main>
+        <div data-testid="conversation-turn-1">
+          <div data-message-author-role="user">hi there</div>
+        </div>
+        <div data-testid="conversation-turn-2">
+          <div data-message-author-role="assistant">
+            <div class="markdown prose">underlying conversation</div>
+          </div>
+        </div>
+      </main>
+      <div role="dialog">
+        <h1>设置</h1>
+        <p>常规</p>
+      </div>`;
+    expect(extractMessages(document)).toEqual([]);
   });
 });
 

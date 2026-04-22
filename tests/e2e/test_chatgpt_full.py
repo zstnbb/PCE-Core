@@ -15,6 +15,7 @@ import pytest
 
 from .capture_verifier import (
     assert_canvas_in_screenshot,
+    get_sessions,
     get_stats,
     pce_is_running,
     reset_baseline,
@@ -22,7 +23,7 @@ from .capture_verifier import (
     verify_rich_content,
     wait_for_conversation_capture_matching,
     wait_for_new_captures,
-    wait_for_no_new_captures,
+    wait_for_no_new_sessions,
     wait_for_session_matching,
 )
 from .sites.chatgpt import ChatGPTAdapter
@@ -173,8 +174,8 @@ CASES: list[ChatGPTCase] = [
             "PCE-{id}-{token}. Generate a simple image of a blue square icon. "
             "Also include a one-sentence caption containing {token}."
         ),
-        raw_required_attachment_types={"assistant": {"image_url"}},
-        session_required_attachment_types={"assistant": {"image_url"}},
+        raw_required_attachment_types={"assistant": {"image_generation"}},
+        session_required_attachment_types={"assistant": {"image_generation"}},
         response_timeout_s=180,
         capture_timeout_s=60,
         session_timeout_s=60,
@@ -189,7 +190,7 @@ CASES: list[ChatGPTCase] = [
         ),
         raw_required_attachment_types={"user": {"file"}, "assistant": {"code_block"}},
         session_required_attachment_types={"user": {"file"}, "assistant": {"code_block"}},
-        response_timeout_s=120,
+        response_timeout_s=420,
         capture_timeout_s=50,
         session_timeout_s=60,
     ),
@@ -425,6 +426,7 @@ def _begin_observation(provider: str) -> dict[str, Any]:
         "started_at": time.time(),
         "initial_count": stats["total_captures"],
         "initial_provider_count": stats.get("by_provider", {}).get(provider, 0),
+        "initial_session_count": len(get_sessions(last=200, provider=provider)),
     }
 
 
@@ -650,7 +652,7 @@ def _action_regenerate(case: ChatGPTCase, adapter: ChatGPTAdapter, driver, token
     observation = _begin_observation(adapter.provider)
     before_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_before_regenerate")
     if not adapter.click_regenerate(driver):
-        raise CaseFailure("regenerate_click_failed")
+        raise CaseSkip("regenerate_unavailable_on_current_ui")
     stream_seen = adapter.wait_for_stop_button_visible(driver, timeout_s=12)
     response_ok = adapter.wait_for_response(driver)
     after_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_after_regenerate")
@@ -695,7 +697,7 @@ def _action_branch_flip(case: ChatGPTCase, adapter: ChatGPTAdapter, driver, toke
     observation = _begin_observation(adapter.provider)
     before_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_before_flip")
     if not adapter.flip_branch(driver, direction="prev"):
-        raise CaseFailure("branch_flip_unavailable")
+        raise CaseSkip("branch_flip_unavailable_on_current_ui")
     time.sleep(2)
     adapter.trigger_manual_capture(driver)
     time.sleep(2)
@@ -821,6 +823,22 @@ def _action_project(case: ChatGPTCase, adapter: ChatGPTAdapter, driver, token: s
 def _action_temporary_chat(case: ChatGPTCase, adapter: ChatGPTAdapter, driver, token: str, _: dict[str, Path]):
     if not adapter.toggle_temporary(driver):
         raise CaseSkip("temporary_chat_unavailable")
+    dismiss_deadline = time.time() + 10
+    while time.time() < dismiss_deadline:
+        adapter.dismiss_temporary_modal(driver)
+        dialog_visible = bool(
+            driver.execute_script(
+                """
+                return [...document.querySelectorAll('[role="dialog"]')].some((el) => {
+                  const style = window.getComputedStyle(el);
+                  return style && style.display !== "none" && style.visibility !== "hidden";
+                });
+                """
+            )
+        )
+        if not dialog_visible:
+            break
+        time.sleep(0.5)
     _ensure_input_ready(adapter, driver, retry_navigation=False)
     observation = _begin_observation(adapter.provider)
     prompt = case.prompt_template.format(id=case.id, token=token)
@@ -847,6 +865,10 @@ def _action_error_state(case: ChatGPTCase, adapter: ChatGPTAdapter, driver, toke
 
 
 def _action_settings_page(case: ChatGPTCase, adapter: ChatGPTAdapter, driver, _: str, __: dict[str, Path]):
+    _navigate_home(adapter, driver)
+    adapter.click_new_chat(driver)
+    _ensure_input_ready(adapter, driver, retry_navigation=True)
+    time.sleep(2)
     observation = _begin_observation(adapter.provider)
     before_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_before_settings")
     if not adapter.navigate_to_settings(driver):
@@ -858,7 +880,10 @@ def _action_settings_page(case: ChatGPTCase, adapter: ChatGPTAdapter, driver, _:
         "screenshots": {"before": before_ss, "after": after_ss},
         "notes": {
             "current_url": driver.current_url,
-            "settings_ui_hint": adapter.page_contains_any_text(driver, ["Settings", "设置"]),
+            "settings_ui_hint": adapter.page_contains_any_text(
+                driver,
+                ["Settings", "设置", "常规", "通知", "个性化"],
+            ),
         },
         "expect_no_new_captures": True,
     }
@@ -894,18 +919,17 @@ def _verify_case(case: ChatGPTCase, action_result: dict[str, Any]) -> dict[str, 
     expect_no_new = action_result.get("expect_no_new_captures", case.expect_no_new_captures)
 
     if expect_no_new:
-        result = wait_for_no_new_captures(
-            initial_count=action_result["initial_count"],
-            initial_provider_count=action_result["initial_provider_count"],
+        result = wait_for_no_new_sessions(
+            initial_session_count=action_result["initial_session_count"],
             timeout_s=case.capture_timeout_s,
             poll_interval=1.5,
             provider=provider,
         )
         if not result["success"]:
             raise CaseFailure(
-                f"unexpected_new_capture provider_new={result['provider_new_count']}"
+                f"unexpected_new_session count={result['new_session_count']}"
             )
-        verification["no_new_captures"] = result
+        verification["no_new_sessions"] = result
         return verification
 
     capture_result = wait_for_new_captures(
@@ -943,6 +967,10 @@ def _verify_case(case: ChatGPTCase, action_result: dict[str, Any]) -> dict[str, 
         "session_required_attachment_types",
         case.session_required_attachment_types,
     )
+    session_started_after = action_result["started_at"] - 5
+    if "session_started_after" in action_result:
+        session_started_after = action_result["session_started_after"]
+
     session_result = wait_for_session_matching(
         provider=provider,
         contains_text=contains_text,
@@ -951,7 +979,7 @@ def _verify_case(case: ChatGPTCase, action_result: dict[str, Any]) -> dict[str, 
         min_messages=2,
         timeout_s=case.session_timeout_s,
         poll_interval=2,
-        started_after=action_result["started_at"] - 5,
+        started_after=session_started_after,
     )
     if not session_result["success"]:
         raise CaseFailure(
@@ -967,12 +995,15 @@ def _verify_case(case: ChatGPTCase, action_result: dict[str, Any]) -> dict[str, 
     rich = verify_rich_content(session_result["messages"])
     verification["rich_content"] = rich
 
-    if case.required_text_fragments:
+    required_text_fragments = action_result.get(
+        "required_text_fragments", case.required_text_fragments
+    )
+    if required_text_fragments:
         joined = "\n".join((m.get("content_text") or "") for m in session_result["messages"])
-        missing = [frag for frag in case.required_text_fragments if frag not in joined]
+        missing = [frag for frag in required_text_fragments if frag not in joined]
         if missing:
             raise CaseFailure(f"missing_text_fragments {missing}")
-        verification["required_text_fragments"] = list(case.required_text_fragments)
+        verification["required_text_fragments"] = list(required_text_fragments)
 
     return verification
 

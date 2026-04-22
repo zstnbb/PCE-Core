@@ -69,10 +69,35 @@ export function getContainer(doc: Document = document): Element | null {
   return null;
 }
 
+export function isSettingsSurface(
+  doc: Document = document,
+  pathname: string = location.pathname,
+  hash: string = location.hash,
+): boolean {
+  const lowerPath = pathname.toLowerCase();
+  const lowerHash = hash.toLowerCase();
+  if (lowerPath.startsWith("/settings") || lowerHash.includes("settings")) {
+    return true;
+  }
+
+  const dialog = doc.querySelector('[role="dialog"]');
+  if (!dialog) return false;
+
+  const text = safeInnerText(dialog).trim().toLowerCase();
+  return (
+    text.includes("settings") ||
+    text.includes("\u8bbe\u7f6e") ||
+    text.includes("\u5e38\u89c4") ||
+    text.includes("\u901a\u77e5") ||
+    text.includes("\u4e2a\u6027\u5316") ||
+    text.includes("\u5e10\u6237")
+  );
+}
+
 export function isStreamingChatGPT(doc: Document = document): boolean {
   // The generic stop-button / streaming-class test is covered by
   // utils/pce-dom.ts, but the runtime only invokes our isStreaming
-  // hook — so check both here.
+  // hook – so check both here.
   const stopBtn = doc.querySelector(
     'button[aria-label*="Stop"], button[data-testid*="stop"]',
   );
@@ -95,6 +120,8 @@ export function isStreamingChatGPT(doc: Document = document): boolean {
 export function extractSpecialContent(
   doc: Document = document,
 ): ExtractedMessage | null {
+  if (isSettingsSurface(doc)) return null;
+
   const main = doc.querySelector("main");
   if (!main) return null;
 
@@ -155,6 +182,14 @@ function safeInnerText(el: any): string {
   return "";
 }
 
+function attachmentSourceForMessage(el: Element): Element {
+  return (
+    el.closest('[data-testid^="conversation-turn"], [data-turn], article, section') ||
+    el.parentElement ||
+    el
+  );
+}
+
 /**
  * Run through the 5 legacy extraction strategies in priority order.
  * Returns the first non-empty list.
@@ -162,6 +197,8 @@ function safeInnerText(el: any): string {
 export function extractMessages(
   doc: Document = document,
 ): ExtractedMessage[] {
+  if (isSettingsSurface(doc)) return [];
+
   // Strategy A: [data-message-author-role] elements (current 2024-25 layout)
   const roleEls = doc.querySelectorAll("[data-message-author-role]");
   if (roleEls.length > 0) {
@@ -171,10 +208,7 @@ export function extractMessages(
       if (role === "user") {
         const text = safeInnerText(el).trim();
         if (text) {
-          const attSource =
-            el.closest('[data-testid^="conversation-turn"]') ||
-            el.parentElement ||
-            el;
+          const attSource = attachmentSourceForMessage(el);
           const att = extractAttachments(attSource);
           const msg: ExtractedMessage = { role: "user", content: text };
           if (att.length > 0) msg.attachments = att;
@@ -183,15 +217,17 @@ export function extractMessages(
       } else {
         const thinking = extractThinking(el);
         const reply = extractReplyContent(el);
-        if (thinking || reply) {
+        const attSource = attachmentSourceForMessage(el);
+        const att = extractAttachments(attSource);
+        if (thinking || reply || att.length > 0) {
           let content = "";
           if (thinking) content += "<thinking>\n" + thinking + "\n</thinking>\n\n";
           if (reply) content += reply;
-          const attSource =
-            el.closest('[data-testid^="conversation-turn"]') ||
-            el.parentElement ||
-            el;
-          const att = extractAttachments(attSource);
+          if (!content.trim() && att.length > 0) {
+            content = att
+              .map((item) => item.alt || item.title || item.name || item.type)
+              .join("\n");
+          }
           const msg: ExtractedMessage = {
             role: role || "assistant",
             content: content.trim(),
@@ -201,12 +237,24 @@ export function extractMessages(
         }
       }
     });
-    const hasNonUser = messages.some((m) => m.role !== "user");
-    if (!hasNonUser && messages.length > 0) {
-      const special = extractSpecialContent(doc);
-      if (special) messages.push(special);
+    if (messages.length > 0) {
+      const hasNonUser = messages.some((m) => m.role !== "user");
+      const hasAssistantTurn = !!doc.querySelector(
+        '[data-testid^="conversation-turn"][data-turn="assistant"], [data-turn="assistant"]',
+      );
+      if (!hasNonUser && hasAssistantTurn) {
+        // Mixed ChatGPT layouts can expose user author-role nodes but only
+        // data-turn assistant containers, especially generated-image replies.
+        // Let Strategy B read the turn container rather than fabricating a
+        // special-content assistant from the surrounding page text.
+      } else {
+        if (!hasNonUser) {
+          const special = extractSpecialContent(doc);
+          if (special) messages.push(special);
+        }
+        return messages;
+      }
     }
-    if (messages.length > 0) return messages;
   }
 
   // Strategy B: conversation-turn testids
@@ -217,7 +265,10 @@ export function extractMessages(
       const roleAttr = turn
         .querySelector("[data-message-author-role]")
         ?.getAttribute("data-message-author-role");
-      const role = roleAttr || (i % 2 === 0 ? "user" : "assistant");
+      const turnRole =
+        turn.getAttribute("data-turn") ||
+        turn.getAttribute("data-message-author-role");
+      const role = roleAttr || turnRole || (i % 2 === 0 ? "user" : "assistant");
       if (role === "user") {
         const text = safeInnerText(turn).trim();
         if (text) {
@@ -229,11 +280,16 @@ export function extractMessages(
       } else {
         const thinking = extractThinking(turn);
         const reply = extractReplyContent(turn);
-        if (thinking || reply) {
+        const att = extractAttachments(turn);
+        if (thinking || reply || att.length > 0) {
           let content = "";
           if (thinking) content += "<thinking>\n" + thinking + "\n</thinking>\n\n";
           if (reply) content += reply;
-          const att = extractAttachments(turn);
+          if (!content.trim() && att.length > 0) {
+            content = att
+              .map((item) => item.alt || item.title || item.name || item.type)
+              .join("\n");
+          }
           const msg: ExtractedMessage = { role, content: content.trim() };
           if (att.length > 0) msg.attachments = att;
           messages.push(msg);

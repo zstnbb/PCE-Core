@@ -56,6 +56,53 @@ class ChatGPTAdapter(BaseSiteAdapter):
     page_load_wait_s = 4
     response_timeout_s = 60
 
+    def find_input(self, driver: WebDriver) -> bool:
+        selectors = [
+            self.input_selector,
+            '[contenteditable="true"][id="prompt-textarea"]',
+            '[contenteditable="true"][data-testid*="prompt"]',
+        ]
+        for selector in selectors:
+            for el in self._find_elements(driver, selector):
+                try:
+                    if el.is_displayed() and el.is_enabled():
+                        return True
+                except Exception:
+                    continue
+        return False
+
+    def navigate(self, driver: WebDriver) -> bool:
+        try:
+            current_url = (driver.current_url or "").lower()
+        except Exception:
+            current_url = ""
+
+        on_chatgpt = "chatgpt.com" in current_url or "chat.openai.com" in current_url
+        if on_chatgpt:
+            for _ in range(4):
+                if self.find_input(driver):
+                    return True
+                time.sleep(1)
+            if self.click_new_chat(driver):
+                for _ in range(4):
+                    if self.find_input(driver):
+                        return True
+                    time.sleep(1)
+
+        try:
+            driver.get(self.url)
+            deadline = time.time() + max(self.page_load_wait_s + 6, 10)
+            while time.time() < deadline:
+                if self.find_input(driver):
+                    logger.info("[%s] Navigated to %s", self.name, self.url)
+                    return True
+                time.sleep(0.5)
+            logger.warning("[%s] Navigated to %s but input did not appear", self.name, self.url)
+            return False
+        except Exception as e:
+            logger.error("[%s] Navigation failed: %s", self.name, e)
+            return False
+
     def _find_elements_safe(
         self,
         root: WebDriver | WebElement,
@@ -524,13 +571,15 @@ class ChatGPTAdapter(BaseSiteAdapter):
             driver.get(self.url + "?temporary-chat=true")
             time.sleep(self.page_load_wait_s)
             if "temporary" in driver.current_url.lower():
+                self.dismiss_temporary_modal(driver)
                 return True
             if self.page_contains_any_text(driver, ["Temporary", "临时"]):
+                self.dismiss_temporary_modal(driver)
                 return True
         except Exception:
             pass
 
-        return self._click_first(
+        clicked = self._click_first(
             driver,
             [
                 'button[aria-label*="Temporary"]',
@@ -539,6 +588,55 @@ class ChatGPTAdapter(BaseSiteAdapter):
                 'a[aria-label*="临时"]',
             ],
         )
+        if clicked:
+            time.sleep(0.8)
+            self.dismiss_temporary_modal(driver)
+        return clicked
+
+    def dismiss_temporary_modal(self, driver: WebDriver) -> bool:
+        deadline = time.time() + 8
+        clicked = False
+        while time.time() < deadline:
+            try:
+                clicked = bool(
+                    driver.execute_script(
+                        """
+                        const labels = ["continue", "\\u7ee7\\u7eed", "\\u5f00\\u59cb"];
+                        const dialogs = [...document.querySelectorAll('[role="dialog"]')];
+                        const dialog = dialogs.find((el) => {
+                          const style = window.getComputedStyle(el);
+                          return style && style.display !== "none" && style.visibility !== "hidden";
+                        });
+                        if (!dialog) return false;
+                        const buttons = [...dialog.querySelectorAll('button')];
+                        const button = buttons.find((el) => {
+                          const text = (el.innerText || el.textContent || el.getAttribute('aria-label') || '')
+                            .trim()
+                            .toLowerCase();
+                          return labels.some((label) => text.includes(label));
+                        });
+                        if (!button) return false;
+                        button.click();
+                        return true;
+                        """
+                    )
+                )
+            except Exception:
+                clicked = False
+
+            if clicked:
+                time.sleep(0.8)
+                dialogs = self._find_elements_safe(driver, By.CSS_SELECTOR, '[role="dialog"]')
+                visible = self._first_displayed(dialogs)
+                if visible is None:
+                    return True
+            else:
+                dialogs = self._find_elements_safe(driver, By.CSS_SELECTOR, '[role="dialog"]')
+                if self._first_displayed(dialogs) is None:
+                    return False
+            time.sleep(0.3)
+
+        return False
 
     def switch_model(self, driver: WebDriver, labels: Iterable[str]) -> bool:
         if not self._click_first(

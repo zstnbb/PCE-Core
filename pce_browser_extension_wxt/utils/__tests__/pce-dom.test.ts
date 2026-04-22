@@ -382,4 +382,41 @@ describe("extractAttachments — robustness", () => {
     // Should not have two entries just because of case differences.
     expect(files).toHaveLength(1);
   });
+
+  it("captures upload chips that ChatGPT renders without a file extension", () => {
+    document.body.innerHTML = `
+      <div id="turn">
+        <div role="button">
+          <span>Sample Data T13 1776836103</span>
+          <span>\u73b0\u5df2\u4ea4\u4e92\uff01</span>
+        </div>
+      </div>`;
+    const atts = extractAttachments(document.getElementById("turn"));
+    expect(atts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "file",
+          name: "Sample Data T13 1776836103",
+        }),
+      ]),
+    );
+  });
+
+  it("captures ChatGPT user-message upload titles after upload status disappears", () => {
+    document.body.innerHTML = `
+      <div id="turn">
+        Sample Data T13 1776837108
+        PCE-T13-T13-1776837108. Analyze the attached CSV.
+      </div>`;
+    const atts = extractAttachments(document.getElementById("turn"));
+    expect(atts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "file",
+          name: "Sample Data T13 1776837108",
+          source_type: "chatgpt-upload-title-fallback",
+        }),
+      ]),
+    );
+  });
 });
