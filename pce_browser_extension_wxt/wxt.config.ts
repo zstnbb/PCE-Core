@@ -106,10 +106,19 @@ export default defineConfig({
         : ["<all_urls>"];
 
     return {
-      name: "PCE - AI Interaction Capture",
+      // NOTE: `name` and `description` below drive the Chrome Web Store
+      // "软件包中的标题" (title) and "软件包中的摘要" (summary) fields,
+      // which are READ-ONLY in the Developer Dashboard when no
+      // `default_locale` is declared (our case). Editing them there is
+      // not possible -- they must be changed here and the package
+      // rebuilt + re-uploaded. Keep these in lockstep with
+      // Docs/store/listing.md -> §Title and §Summary.
+      //
+      // Length limits: name <= 45 chars, description <= 132 chars.
+      name: "PCE — Local-First AI Conversation Capture",
       version: "1.0.1",
       description:
-        "Captures AI conversations from web-based AI tools and sends them to your local PCE instance.",
+        "Keep a searchable local history of your AI chat conversations — stored entirely on your own computer, never in our cloud.",
       permissions: [
         "storage",
         "activeTab",
