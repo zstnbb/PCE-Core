@@ -32,19 +32,19 @@ async function resetAll(): Promise<void> {
   // `clear` + `resetModuleState` combo puts us back to a clean slate.
 }
 
-function mockFetchOk(): ReturnType<typeof vi.fn> {
+function mockFetchOk() {
   return vi.fn(async () =>
     new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } }),
   );
 }
 
-function mockFetchStatus(status: number): ReturnType<typeof vi.fn> {
+function mockFetchStatus(status: number) {
   return vi.fn(async () =>
     new Response("{}", { status, headers: { "Content-Type": "application/json" } }),
   );
 }
 
-function mockFetchNetworkError(): ReturnType<typeof vi.fn> {
+function mockFetchNetworkError() {
   return vi.fn(async () => {
     throw new TypeError("NetworkError");
   });

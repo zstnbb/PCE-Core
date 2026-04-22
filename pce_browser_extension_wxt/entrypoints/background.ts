@@ -607,7 +607,13 @@ export default defineBackground({
     });
 
     chrome.contextMenus.onClicked.addListener(
-      (info: { menuItemId: string }, tab: MinimalTab | undefined) => {
+      // Chrome's `OnClickData` type is wider than `{menuItemId: string}`
+      // but we only read that one field; the `tab` param is OPTIONAL
+      // per chrome.contextMenus typings, so declare `tab?:` instead of
+      // `tab: T | undefined` to match the API signature (closes a
+      // latent TS2345 that `pnpm typecheck` flagged post-resubmission
+      // audit; no runtime change).
+      (info: chrome.contextMenus.OnClickData, tab?: MinimalTab) => {
         if (info.menuItemId === "pce-capture-page" && tab?.id) {
           void handleContextMenuCapture(tab);
         }
