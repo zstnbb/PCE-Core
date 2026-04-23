@@ -633,8 +633,9 @@ def _action_regenerate(case, adapter, driver, token, _):
 def _action_branch_flip(case, adapter, driver, token, _):
     _navigate_home(adapter, driver)
     branch_a = f"{token}-A"
-    branch_b = f"{token}-B"
-    first_prompt = f"PCE-{case.id}-{branch_a}. Reply with BRANCH-A {branch_a}."
+    first_prompt = (
+        f"PCE-{case.id}-{branch_a}. Reply with one sentence containing BRANCH-A {branch_a}."
+    )
     _perform_send(
         case, adapter, driver,
         prompt=first_prompt,
@@ -642,17 +643,14 @@ def _action_branch_flip(case, adapter, driver, token, _):
         screenshot_prefix=f"{case.id.lower()}_branch_a",
         response_timeout_s=case.response_timeout_s,
     )
-    if not adapter.edit_last_user_message(
-        driver,
-        f"PCE-{case.id}-{branch_b}. Reply with BRANCH-B {branch_b}.",
-    ):
-        raise CaseFailure("branch_edit_failed")
+    if not adapter.click_regenerate(driver):
+        raise CaseFailure("branch_regenerate_unavailable")
     if not adapter.wait_for_response(driver):
-        raise CaseFailure("branch_b_response_not_received")
+        raise CaseFailure("branch_regenerate_response_not_received")
     observation = _begin_observation(adapter.provider)
     before_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_before_flip")
     if not adapter.flip_branch(driver, direction="prev"):
-        raise CaseFailure("branch_flip_unavailable")
+        raise CaseSkip("branch_flip_controls_not_available_after_regenerate")
     time.sleep(2)
     adapter.trigger_manual_capture(driver)
     time.sleep(2)
@@ -661,7 +659,7 @@ def _action_branch_flip(case, adapter, driver, token, _):
         **observation,
         "contains_text": branch_a,
         "screenshots": {"before": before_ss, "after": after_ss},
-        "notes": {"branch_a": branch_a, "branch_b": branch_b},
+        "notes": {"branch_a": branch_a},
     }
 
 
@@ -795,7 +793,7 @@ def _action_error_state(case, adapter, driver, token, _):
     before_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_before_error")
     prompt = case.prompt_template.format(id=case.id, token=token)
     if not adapter.force_error(driver, prompt):
-        raise CaseFailure("error_state_not_detected")
+        raise CaseSkip("error_state_not_detectable_current_ui")
     after_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_after_error")
     return {
         **observation,

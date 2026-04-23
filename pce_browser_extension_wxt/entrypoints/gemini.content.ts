@@ -140,7 +140,7 @@ export function extractText(el: Element): string {
   const clone = el.cloneNode(true) as Element;
   clone
     .querySelectorAll(
-      "script, style, [hidden], .sr-only, .chip-container, .action-button",
+      "script, style, [hidden], .sr-only, .cdk-visually-hidden, [class*='screen-reader'], .chip-container, .action-button",
     )
     .forEach((e) => e.remove());
 

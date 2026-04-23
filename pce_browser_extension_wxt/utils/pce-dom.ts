@@ -391,6 +391,8 @@ export function extractAttachments(el: Element | null): PceAttachment[] {
         media_type: inferMediaTypeFromName(firstLine),
       });
     } else if (
+      !/(^|\.)gemini\.google\.com$/i.test(locHost) &&
+      !el.closest("user-query, user-query-content") &&
       firstLine &&
       firstLine.length <= 80 &&
       !/^PCE-|^User:|^Assistant:/i.test(firstLine) &&

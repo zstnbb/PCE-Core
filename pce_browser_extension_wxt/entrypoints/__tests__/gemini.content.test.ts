@@ -219,6 +219,30 @@ describe("extractMessages — Gemini turn selectors", () => {
     expect(msgs[1].content).toContain("I am Gemini");
   });
 
+  it("strips Gemini screen-reader user labels without inventing file attachments", () => {
+    document.body.innerHTML = `
+      <main>
+        <user-query>
+          <span class="user-query-container">
+            <div class="file-preview-container"></div>
+            <div class="query-text">
+              <span class="cdk-visually-hidden screen-reader-user-query-label">You said</span>
+              <p>PCE-GEMINI-LABEL. Reply exactly OK.</p>
+            </div>
+          </span>
+        </user-query>
+        <model-response>
+          <message-content>
+            <div class="markdown">OK</div>
+          </message-content>
+        </model-response>
+      </main>`;
+    const msgs = extractMessages(document);
+    expect(msgs).toHaveLength(2);
+    expect(msgs[0].content).toBe("PCE-GEMINI-LABEL. Reply exactly OK.");
+    expect(msgs[0].attachments).toBeUndefined();
+  });
+
   it("captures data-turn-role-based pairs", () => {
     document.body.innerHTML = `
       <main>

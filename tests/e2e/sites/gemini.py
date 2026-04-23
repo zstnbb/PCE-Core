@@ -36,8 +36,11 @@ class GeminiAdapter(BaseSiteAdapter):
     )
     send_button_selector = (
         'button[aria-label*="Send" i], '
+        'button[aria-label*="发送"], '
         'button.send-button, '
-        'button[mattooltip*="Send" i]'
+        'button[mattooltip*="Send" i], '
+        'button[mattooltip*="发送"], '
+        'button.submit'
     )
     stop_button_selector = (
         'button[aria-label*="Stop" i], '
@@ -53,6 +56,8 @@ class GeminiAdapter(BaseSiteAdapter):
     user_turn_selector = (
         'user-query, '
         '[data-turn-role="user"], '
+        'user-query-content, '
+        '.query-content, '
         '[class*="user-query"]'
     )
     assistant_turn_selector = (
@@ -170,17 +175,63 @@ class GeminiAdapter(BaseSiteAdapter):
     # --- Turn + conversation helpers ---------------------------------------
 
     def _visible_turns(self, driver: WebDriver, role: str) -> list[WebElement]:
-        selector = (
-            self.user_turn_selector if role == "user" else self.assistant_turn_selector
-        )
+        if role == "user":
+            preferred = self._visible_turns_for_selectors(
+                driver,
+                [
+                    "user-query",
+                    '[data-turn-role="user"]',
+                    "user-query-content",
+                    ".query-content",
+                    '[class*="user-query"]',
+                ],
+            )
+            if preferred:
+                return preferred
+            return []
+
+        selector = self.assistant_turn_selector
         turns: list[WebElement] = []
         for el in self._find_elements(driver, selector):
             try:
-                if el.is_displayed():
+                if el.is_displayed() and not self._is_noise_turn_candidate(el):
                     turns.append(el)
             except Exception:
                 continue
         return turns
+
+    def _visible_turns_for_selectors(
+        self,
+        driver: WebDriver,
+        selectors: Iterable[str],
+    ) -> list[WebElement]:
+        for selector in selectors:
+            turns: list[WebElement] = []
+            for el in self._find_elements_safe(driver, By.CSS_SELECTOR, selector):
+                try:
+                    if not el.is_displayed() or self._is_noise_turn_candidate(el):
+                        continue
+                    turns.append(el)
+                except Exception:
+                    continue
+            if turns:
+                return turns
+        return []
+
+    def _is_noise_turn_candidate(self, el: WebElement) -> bool:
+        try:
+            cls = (el.get_attribute("class") or "").lower()
+            tag = (el.tag_name or "").lower()
+            rect = el.rect or {}
+            width = float(rect.get("width") or 0)
+            height = float(rect.get("height") or 0)
+            if "cdk-visually-hidden" in cls or "screen-reader" in cls:
+                return True
+            if tag in {"span", "mat-icon"} and width <= 2 and height <= 2:
+                return True
+        except Exception:
+            return False
+        return False
 
     def last_turn(self, driver: WebDriver, role: str) -> WebElement | None:
         turns = self._visible_turns(driver, role)
@@ -259,6 +310,29 @@ class GeminiAdapter(BaseSiteAdapter):
 
     # --- Core actions ------------------------------------------------------
 
+    def _click_send_button(self, driver: WebDriver) -> bool:
+        selectors = [
+            self.send_button_selector,
+            'button[aria-label="发送"]',
+            'button[class*="send-button"]',
+            'button[class*="submit"]',
+        ]
+        if self._click_first(driver, selectors):
+            return True
+
+        xpath = (
+            ".//button[.//mat-icon[@fonticon='send' or @data-mat-icon-name='send'] "
+            "or contains(@aria-label, '发送') "
+            "or contains(@aria-label, 'Send') "
+            "or contains(@mattooltip, '发送') "
+            "or contains(@mattooltip, 'Send')]"
+        )
+        buttons = self._find_elements_safe(driver, By.XPATH, xpath)
+        target = self._first_displayed(buttons)
+        if target is not None:
+            return self._click_element(driver, target)
+        return False
+
     def send_message(self, driver: WebDriver, message: str = None) -> bool:
         msg = message or self.test_message
         try:
@@ -275,25 +349,33 @@ class GeminiAdapter(BaseSiteAdapter):
             input_el.send_keys(msg)
             time.sleep(0.5)
 
+            user_turns_before = self.turn_count(driver, role="user")
             clicked = False
             deadline = time.time() + 20
             while time.time() < deadline and not clicked:
-                for btn in self._find_elements(driver, self.send_button_selector):
-                    try:
-                        if not (btn.is_displayed() and btn.is_enabled()):
-                            continue
-                        try:
-                            btn.click()
-                        except Exception:
-                            driver.execute_script("arguments[0].click();", btn)
-                        clicked = True
-                        break
-                    except Exception:
-                        continue
+                clicked = self._click_send_button(driver)
                 if not clicked:
                     time.sleep(0.5)
             if not clicked:
                 input_el.send_keys(Keys.ENTER)
+                time.sleep(0.5)
+
+            if not self.wait_for_turn_count(
+                driver,
+                user_turns_before,
+                role="user",
+                timeout_s=8,
+            ):
+                if self._click_send_button(driver):
+                    if not self.wait_for_turn_count(
+                        driver,
+                        user_turns_before,
+                        role="user",
+                        timeout_s=8,
+                    ):
+                        return False
+                else:
+                    return False
 
             logger.info("[%s] Message sent: %s", self.name, msg[:80])
             time.sleep(self.post_send_settle_s)
@@ -374,7 +456,14 @@ class GeminiAdapter(BaseSiteAdapter):
         buttons = self._find_elements_safe(
             turn,
             By.XPATH,
-            self._xpath_contains_aria(["Edit", "编辑", "編輯", "Modify"]),
+            self._xpath_contains_aria(["Edit", "编辑", "編輯", "Modify", "修改"]),
+        )
+        buttons.extend(
+            self._find_elements_safe(
+                turn,
+                By.CSS_SELECTOR,
+                'button[data-test-id="prompt-edit-button"], button[mattooltip*="修改"], button[mattooltip*="edit" i]',
+            )
         )
         target = self._first_displayed(buttons)
         if target is not None and self._click_element(driver, target):
@@ -424,17 +513,98 @@ class GeminiAdapter(BaseSiteAdapter):
         except Exception:
             return False
 
+    def accept_upload_consent_if_present(
+        self,
+        driver: WebDriver,
+        *,
+        timeout_s: float = 6,
+    ) -> bool:
+        """Accept Gemini's first-use image/file generation consent dialog."""
+        labels = ["Agree", "I agree", "Accept", "同意", "接受"]
+        xpath = (
+            "//*[(@role='dialog' or contains(@class, 'dialog') or "
+            "contains(@class, 'mat-mdc-dialog'))]//button["
+            + " or ".join(
+                (
+                    f"contains(normalize-space(.), {self._xpath_literal(label)}) "
+                    f"or contains(@aria-label, {self._xpath_literal(label)})"
+                )
+                for label in labels
+            )
+            + "]"
+        )
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            buttons = self._find_elements_safe(driver, By.XPATH, xpath)
+            target = self._first_displayed(buttons)
+            if target is not None and self._click_element(driver, target):
+                time.sleep(1.0)
+                return True
+            time.sleep(0.4)
+        return False
+
+    def send_rich_message(
+        self,
+        driver: WebDriver,
+        *,
+        message: str,
+        file_paths: list[str] | None = None,
+        image_paths: list[str] | None = None,
+    ) -> bool:
+        all_uploads: list[tuple[list[str], str]] = []
+        if image_paths:
+            all_uploads.append((list(image_paths), "image"))
+        if file_paths:
+            all_uploads.append((list(file_paths), "file"))
+
+        for paths, kind in all_uploads:
+            selector = self._upload_selector_for_kind(kind)
+            if selector:
+                if not self.upload_paths(driver, paths, kind=kind, selector=selector):
+                    return False
+            else:
+                logger.info("[%s] No file input for %s — using clipboard paste", self.name, kind)
+                if not self.upload_via_paste(driver, paths, kind=kind):
+                    return False
+            self.accept_upload_consent_if_present(driver)
+
+        return self.send_message(driver, message=message)
+
     def click_regenerate(self, driver: WebDriver) -> bool:
         if self._click_first(
             driver,
             [
                 'button[aria-label*="Regenerate" i]',
                 'button[aria-label*="重新生成"]',
+                'button[aria-label*="重做"]',
+                'button[aria-label*="重试"]',
+                'button[aria-label*="Retry" i]',
                 'button[data-test-id*="regenerate"]',
                 'button[mattooltip*="Regenerate" i]',
+                'button[mattooltip*="Retry" i]',
+                'button[mattooltip*="重做"]',
+                'button[mattooltip*="重试"]',
             ],
         ):
             time.sleep(0.8)
+            self._click_regenerate_menu_item_if_present(driver)
+            return True
+
+        refresh_xpath = (
+            ".//button[.//mat-icon[@fonticon='refresh' "
+            "or @data-mat-icon-name='refresh'] "
+            "or contains(@aria-label, '重做') "
+            "or contains(@aria-label, '重试') "
+            "or contains(@aria-label, 'Retry') "
+            "or contains(@mattooltip, '重做') "
+            "or contains(@mattooltip, '重试') "
+            "or contains(@mattooltip, 'Retry')]"
+        )
+        buttons = self._find_elements_safe(driver, By.XPATH, refresh_xpath)
+        target = self._first_displayed(buttons)
+        if target is not None and self._click_element(driver, target):
+            time.sleep(0.8)
+            self._click_regenerate_menu_item_if_present(driver)
             return True
 
         # Fallback: assistant "more options" dropdown
@@ -454,22 +624,74 @@ class GeminiAdapter(BaseSiteAdapter):
         time.sleep(0.3)
 
         xpath = self._xpath_contains_text(
-            ["Regenerate", "重新生成", "Modify response", "Show drafts"]
+            ["Regenerate", "Retry", "重做", "重试", "重新生成", "Modify response", "Show drafts"]
         )
         found = self._find_elements_safe(driver, By.XPATH, xpath)
         target = self._first_displayed(found)
         if target is not None and self._click_element(driver, target):
             time.sleep(0.8)
+            self._click_regenerate_menu_item_if_present(driver)
             return True
+        return False
+
+    def _click_regenerate_menu_item_if_present(self, driver: WebDriver) -> bool:
+        xpath = self._xpath_contains_text(["Retry", "Regenerate", "重试", "重新生成"])
+        deadline = time.time() + 2.5
+        while time.time() < deadline:
+            found = self._find_elements_safe(driver, By.XPATH, xpath)
+            target = self._first_displayed(found)
+            if target is not None and self._click_element(driver, target):
+                time.sleep(0.8)
+                return True
+            time.sleep(0.25)
         return False
 
     def flip_branch(self, driver: WebDriver, direction: str = "next") -> bool:
         """Gemini 'Show drafts' has < 1/2/3 > arrows to flip between drafts."""
-        labels = ["Next", "下一个", "下一条", "下一分支", "Draft"]
+        labels = [
+            "Next",
+            "Next draft",
+            "next response",
+            "下一个",
+            "下一条",
+            "下一分支",
+            "下一版",
+            "下一稿",
+            "Draft",
+            "草稿",
+        ]
+        icon_names = ["chevron_right", "keyboard_arrow_right", "arrow_forward_ios"]
         if direction == "prev":
-            labels = ["Previous", "上一个", "上一条", "上一分支"]
+            labels = [
+                "Previous",
+                "Previous draft",
+                "previous response",
+                "上一个",
+                "上一条",
+                "上一分支",
+                "上一版",
+                "上一稿",
+            ]
+            icon_names = ["chevron_left", "keyboard_arrow_left", "arrow_back_ios"]
         buttons = self._find_elements_safe(
             driver, By.XPATH, self._xpath_contains_aria(labels)
+        )
+        target = self._first_displayed(buttons)
+        if target is not None and self._click_element(driver, target):
+            time.sleep(1)
+            return True
+
+        icon_predicate = " or ".join(
+            (
+                f".//mat-icon[@fonticon={self._xpath_literal(icon)} "
+                f"or @data-mat-icon-name={self._xpath_literal(icon)}]"
+            )
+            for icon in icon_names
+        )
+        buttons = self._find_elements_safe(
+            driver,
+            By.XPATH,
+            f".//button[{icon_predicate}]",
         )
         target = self._first_displayed(buttons)
         if target is not None and self._click_element(driver, target):
