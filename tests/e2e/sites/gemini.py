@@ -154,7 +154,9 @@ class GeminiAdapter(BaseSiteAdapter):
             for label in labels
         )
         return (
-            ".//*[(self::button or self::a or @role='menuitem' or self::div)"
+            ".//*[(self::button or self::a or self::div "
+            "or @role='menuitem' or @role='button' "
+            "or contains(@class, 'chip') or contains(@class, 'suggestion'))"
             f" and ({checks})]"
         )
 
@@ -541,6 +543,446 @@ class GeminiAdapter(BaseSiteAdapter):
                 time.sleep(1.0)
                 return True
             time.sleep(0.4)
+        return False
+
+    def _visible_body_text(self, driver: WebDriver) -> str:
+        try:
+            return driver.find_element(By.TAG_NAME, "body").text or ""
+        except Exception:
+            try:
+                return driver.page_source or ""
+            except Exception:
+                return ""
+
+    def _displayed_dialog_count(self, driver: WebDriver) -> int:
+        selectors = [
+            '[role="dialog"]',
+            '.mat-mdc-dialog-container',
+            '.cdk-overlay-pane',
+            'iframe[src*="picker"]',
+            'iframe[src*="drive"]',
+            'iframe[src*="photos"]',
+        ]
+        count = 0
+        for selector in selectors:
+            for el in self._find_elements_safe(driver, By.CSS_SELECTOR, selector):
+                try:
+                    if el.is_displayed():
+                        count += 1
+                except Exception:
+                    continue
+        return count
+
+    def _dismiss_overlay(self, driver: WebDriver) -> None:
+        try:
+            ActionChains(driver).send_keys(Keys.ESCAPE).perform()
+            time.sleep(0.5)
+        except Exception:
+            pass
+
+    def dismiss_blocking_dialogs(self, driver: WebDriver) -> bool:
+        """Dismiss non-essential Gemini dialogs without enabling account features."""
+        labels = [
+            "Close",
+            "Cancel",
+            "Not now",
+            "Maybe later",
+            "\u5173\u95ed",
+            "\u53d6\u6d88",
+            "\u7a0d\u540e",
+            "\u4e0d\u7528",
+        ]
+        xpath = (
+            "//*[(@role='dialog' or contains(@class, 'dialog') or "
+            "contains(@class, 'mat-mdc-dialog'))]//button["
+            + " or ".join(
+                (
+                    f"contains(normalize-space(.), {self._xpath_literal(label)}) "
+                    f"or contains(@aria-label, {self._xpath_literal(label)})"
+                )
+                for label in labels
+            )
+            + "]"
+        )
+        clicked_any = False
+        deadline = time.time() + 3
+        while time.time() < deadline:
+            target = self._first_displayed(self._find_elements_safe(driver, By.XPATH, xpath))
+            if target is None:
+                break
+            if not self._click_element(driver, target):
+                break
+            clicked_any = True
+            time.sleep(0.8)
+        return clicked_any
+
+    def clear_selected_tool(self, driver: WebDriver) -> bool:
+        """Return the composer to normal prompt mode when a tool chip is selected."""
+        labels = [
+            "Remove",
+            "Close",
+            "Clear",
+            "\u79fb\u9664",
+            "\u5173\u95ed",
+            "\u6e05\u9664",
+        ]
+        label_checks = " ".join(
+            (
+                f"or contains(@aria-label, {self._xpath_literal(label)}) "
+                f"or contains(@mattooltip, {self._xpath_literal(label)})"
+            )
+            for label in labels
+        )
+        xpath = (
+            ".//button["
+            ".//mat-icon[normalize-space(.)='close' or @fonticon='close' "
+            "or @data-mat-icon-name='close'] "
+            "or normalize-space(.)='\u00d7' "
+            + label_checks
+            + "]"
+        )
+        buttons = self._find_elements_safe(driver, By.XPATH, xpath)
+        small_close_xpath = (
+            ".//*[normalize-space(.)='\u00d7' or normalize-space(.)='x' "
+            "or contains(normalize-space(.), 'close') "
+            "or contains(@fonticon, 'close') "
+            "or contains(@data-mat-icon-name, 'close') "
+            "or contains(@fonticon, 'cancel') "
+            "or contains(@data-mat-icon-name, 'cancel')]"
+        )
+        candidates = buttons + self._find_elements_safe(driver, By.XPATH, small_close_xpath)
+        for button in candidates:
+            try:
+                if not button.is_displayed():
+                    continue
+                rect = button.rect or {}
+                width = float(rect.get("width") or 0)
+                height = float(rect.get("height") or 0)
+                if width > 90 or height > 90:
+                    continue
+                if self._click_element(driver, button):
+                    time.sleep(0.8)
+                    return True
+            except Exception:
+                continue
+        return False
+
+    def _click_text_entry(
+        self,
+        driver: WebDriver,
+        labels: Iterable[str],
+        *,
+        timeout_s: float = 6,
+    ) -> bool:
+        xpath = self._xpath_contains_text(labels)
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            candidates = self._find_elements_safe(driver, By.XPATH, xpath)
+            for candidate in candidates:
+                try:
+                    if not candidate.is_displayed():
+                        continue
+                    click_target = candidate
+                    ancestors = self._find_elements_safe(
+                        candidate,
+                        By.XPATH,
+                        (
+                            "./ancestor-or-self::*[self::button or self::a "
+                            "or @role='menuitem' or @role='button' "
+                            "or contains(@class, 'chip') or contains(@class, 'suggestion')][1]"
+                        ),
+                    )
+                    if ancestors:
+                        click_target = ancestors[0]
+                    if self._click_element(driver, click_target):
+                        time.sleep(0.8)
+                        return True
+                except StaleElementReferenceException:
+                    continue
+                except Exception:
+                    continue
+            time.sleep(0.25)
+        return False
+
+    def open_attachment_menu(self, driver: WebDriver) -> bool:
+        """Open Gemini's "+" attachment menu near the prompt composer."""
+        self.dismiss_blocking_dialogs(driver)
+        if self._click_first(
+            driver,
+            [
+                "button.upload-card-button",
+                'button[class*="upload-card-button"]',
+                'button[aria-label*="Add" i]',
+                'button[aria-label*="Attach" i]',
+                'button[aria-label*="Upload" i]',
+                'button[aria-label*="add files" i]',
+                'button[aria-label*="\u6253\u5f00\u6587\u4ef6\u4e0a\u4f20\u83dc\u5355"]',
+                'button[aria-label*="\u6dfb\u52a0"]',
+                'button[aria-label*="\u4e0a\u4f20"]',
+                'button[mattooltip*="Add" i]',
+                'button[mattooltip*="Attach" i]',
+                'button[mattooltip*="\u6dfb\u52a0"]',
+            ],
+        ):
+            time.sleep(0.6)
+            return True
+
+        xpath = (
+            ".//button[normalize-space(.)='+' "
+            "or .//*[normalize-space(.)='+'] "
+            "or .//mat-icon[@fonticon='add' or @data-mat-icon-name='add']]"
+        )
+        target = self._first_displayed(self._find_elements_safe(driver, By.XPATH, xpath))
+        if target is not None and self._click_element(driver, target):
+            time.sleep(0.6)
+            return True
+        return False
+
+    def open_tools_menu(self, driver: WebDriver) -> bool:
+        """Open Gemini's "Tools" menu near the prompt composer."""
+        self.dismiss_blocking_dialogs(driver)
+        if self._click_first(
+            driver,
+            [
+                "button.toolbox-drawer-button",
+                'button[class*="toolbox-drawer-button"]',
+            ],
+        ):
+            time.sleep(0.6)
+            return True
+
+        exact_xpath = (
+            ".//button[(normalize-space(.)='Tools' or normalize-space(.)='\u5de5\u5177' "
+            "or .//*[normalize-space(.)='Tools' or normalize-space(.)='\u5de5\u5177']) "
+            "and not(contains(normalize-space(.), '\u5236\u4f5c\u56fe\u7247')) "
+            "and not(contains(normalize-space(.), '\u521b\u4f5c\u89c6\u9891')) "
+            "and not(contains(normalize-space(.), '\u521b\u4f5c\u97f3\u4e50'))]"
+        )
+        target = self._first_displayed(self._find_elements_safe(driver, By.XPATH, exact_xpath))
+        if target is not None and self._click_element(driver, target):
+            time.sleep(0.6)
+            return True
+
+        if self._click_first(
+            driver,
+            [
+                'button[mattooltip*="Tools" i]',
+                'button[mattooltip*="\u5de5\u5177"]',
+                '[data-test-id="tools-menu-button"]',
+                '[data-test-id="tool-menu-button"]',
+            ],
+        ):
+            time.sleep(0.6)
+            return True
+
+        xpath = self._xpath_contains_text(["Tools", "\u5de5\u5177"])
+        target = self._first_displayed(self._find_elements_safe(driver, By.XPATH, xpath))
+        if target is not None and self._click_element(driver, target):
+            time.sleep(0.6)
+            return True
+        return False
+
+    def click_attachment_menu_entry(
+        self,
+        driver: WebDriver,
+        labels: Iterable[str],
+    ) -> bool:
+        if not self.open_attachment_menu(driver):
+            return False
+        return self._click_text_entry(driver, labels)
+
+    def click_tool_menu_entry(
+        self,
+        driver: WebDriver,
+        labels: Iterable[str],
+    ) -> bool:
+        if not self.open_tools_menu(driver):
+            return False
+        return self._click_text_entry(driver, labels)
+
+    def upload_from_attachment_menu(
+        self,
+        driver: WebDriver,
+        *,
+        labels: Iterable[str],
+        paths: list[str],
+    ) -> bool:
+        """Click a concrete "+" menu upload entry, then feed the resulting file input."""
+        if not self.click_attachment_menu_entry(driver, labels):
+            return False
+
+        deadline = time.time() + self.upload_ready_timeout_s
+        while time.time() < deadline:
+            inputs = self._find_elements_safe(driver, By.CSS_SELECTOR, 'input[type="file"]')
+            for input_el in inputs:
+                try:
+                    driver.execute_script(
+                        "arguments[0].style.display='block';"
+                        "arguments[0].style.visibility='visible';"
+                        "arguments[0].style.opacity=1;",
+                        input_el,
+                    )
+                    input_el.send_keys("\n".join(paths))
+                    time.sleep(2)
+                    self.accept_upload_consent_if_present(driver)
+                    return True
+                except Exception:
+                    continue
+            time.sleep(0.4)
+        # Gemini currently opens a native file picker for these menu entries in
+        # some locales. Selenium cannot feed that picker directly, so keep the
+        # entry-click evidence and use the existing paste-upload path to attach
+        # the same file for capture verification.
+        self._dismiss_overlay(driver)
+        if self.upload_via_paste(driver, paths, kind="file"):
+            self.accept_upload_consent_if_present(driver)
+            return True
+        return False
+
+    def activate_attachment_entry(
+        self,
+        driver: WebDriver,
+        *,
+        labels: Iterable[str],
+        evidence_labels: Iterable[str] = (),
+        allow_new_tab: bool = False,
+    ) -> dict[str, object]:
+        """Click a non-upload "+" entry and return menu/dialog evidence."""
+        before_handles = set(driver.window_handles)
+        clicked = self.click_attachment_menu_entry(driver, labels)
+        time.sleep(2)
+        after_handles = set(driver.window_handles)
+        new_handles = list(after_handles - before_handles)
+        new_url = None
+        if new_handles and allow_new_tab:
+            current = driver.current_window_handle
+            try:
+                driver.switch_to.window(new_handles[0])
+                time.sleep(1)
+                new_url = driver.current_url
+                driver.close()
+            finally:
+                driver.switch_to.window(current)
+
+        body_text = self._visible_body_text(driver)
+        labels_seen = [
+            label for label in evidence_labels
+            if label.lower() in body_text.lower()
+        ]
+        result = {
+            "clicked": clicked,
+            "dialog_count": self._displayed_dialog_count(driver),
+            "labels_seen": labels_seen,
+            "current_url": driver.current_url,
+            "new_url": new_url,
+            "new_tab_opened": bool(new_handles),
+        }
+        self._dismiss_overlay(driver)
+        return result
+
+    def select_tool_entry(
+        self,
+        driver: WebDriver,
+        *,
+        labels: Iterable[str],
+    ) -> dict[str, object]:
+        clicked = self._click_text_entry(driver, labels, timeout_s=2)
+        if not clicked:
+            clicked = self.click_tool_menu_entry(driver, labels)
+        time.sleep(1)
+        body_text = self._visible_body_text(driver)
+        labels_seen = [
+            label for label in labels
+            if label.lower() in body_text.lower()
+        ]
+        return {
+            "clicked": clicked,
+            "labels_seen": labels_seen,
+            "dialog_count": self._displayed_dialog_count(driver),
+            "current_url": driver.current_url,
+        }
+
+    def inspect_tools_entry(
+        self,
+        driver: WebDriver,
+        *,
+        labels: Iterable[str],
+    ) -> dict[str, object]:
+        opened = self.open_tools_menu(driver)
+        time.sleep(0.8)
+        body_text = self._visible_body_text(driver)
+        labels_seen = [
+            label for label in labels
+            if label.lower() in body_text.lower()
+        ]
+        checked = False
+        xpath = self._xpath_contains_text(labels)
+        for candidate in self._find_elements_safe(driver, By.XPATH, xpath):
+            try:
+                if not candidate.is_displayed():
+                    continue
+                attrs = " ".join(
+                    filter(
+                        None,
+                        [
+                            candidate.get_attribute("aria-checked"),
+                            candidate.get_attribute("aria-selected"),
+                            candidate.get_attribute("class"),
+                        ],
+                    )
+                ).lower()
+                if "true" in attrs or "selected" in attrs or "checked" in attrs:
+                    checked = True
+                    break
+            except Exception:
+                continue
+        return {
+            "opened": opened,
+            "labels_seen": labels_seen,
+            "checked_or_selected": checked,
+            "dialog_count": self._displayed_dialog_count(driver),
+            "current_url": driver.current_url,
+        }
+
+    def wait_for_image_generation_complete(
+        self,
+        driver: WebDriver,
+        *,
+        timeout_s: float = 420,
+    ) -> bool:
+        pending_needles = [
+            "Creating your image",
+            "Creating your images",
+            "Generating image",
+            "\u6b63\u5728\u521b\u5efa\u56fe\u7247",
+            "\u6b63\u5728\u751f\u6210\u56fe\u7247",
+            "\u4e3a\u56fe\u7247\u9009\u62e9\u98ce\u683c",
+        ]
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            body = self._visible_body_text(driver)
+            if any(needle.lower() in body.lower() for needle in pending_needles):
+                time.sleep(3)
+                continue
+            try:
+                count = driver.execute_script(
+                    """
+                    const images = Array.from(document.querySelectorAll('model-response img, img'));
+                    return images.filter((img) => {
+                      const r = img.getBoundingClientRect();
+                      const src = img.currentSrc || img.src || '';
+                      if (!src || r.width < 120 || r.height < 120) return false;
+                      if (src.startsWith('data:image/svg')) return false;
+                      return true;
+                    }).length;
+                    """
+                )
+                if int(count or 0) > 0:
+                    time.sleep(2)
+                    return True
+            except Exception:
+                pass
+            time.sleep(3)
         return False
 
     def send_rich_message(

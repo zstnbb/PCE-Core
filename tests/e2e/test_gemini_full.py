@@ -8,6 +8,8 @@ Research, Extensions, 2.5 Pro Thinking, /share/ skip.
 Set ``PCE_GEMINI_CASES=G01,G02,...`` to run a subset.
 Set ``PCE_GEMINI_GEM_URL=https://gemini.google.com/gem/<slug>`` for G15.
 Set ``PCE_GEMINI_SHARE_URL=https://gemini.google.com/share/<hex>`` for G17.
+Set ``PCE_GEMINI_RUN_EXPENSIVE_MEDIA=1`` to let G29/G30 submit video/music
+generation prompts instead of smoke-testing the menu entry only.
 """
 
 from __future__ import annotations
@@ -53,6 +55,52 @@ SAMPLE_IMAGE = FIXTURES_DIR / "sample_square.png"
 ACCOUNT_TIER = os.environ.get("GEMINI_ACCOUNT_TIER", "advanced").strip().lower() or "advanced"
 GEM_URL_ENV = "PCE_GEMINI_GEM_URL"
 SHARE_URL_ENV = "PCE_GEMINI_SHARE_URL"
+RUN_EXPENSIVE_MEDIA = os.environ.get("PCE_GEMINI_RUN_EXPENSIVE_MEDIA", "").strip() == "1"
+
+PLUS_UPLOAD_FILE = ("Upload files", "Upload file", "\u4e0a\u4f20\u6587\u4ef6")
+PLUS_DRIVE = (
+    "Add from Drive",
+    "Google Drive",
+    "Drive",
+    "\u4ece\u4e91\u7aef\u786c\u76d8\u6dfb\u52a0",
+    "\u4e91\u7aef\u786c\u76d8",
+)
+PLUS_PHOTOS = ("Photos", "Google Photos", "\u76f8\u518c")
+PLUS_IMPORT_CODE = ("Import code", "Code", "\u5bfc\u5165\u4ee3\u7801")
+PLUS_NOTEBOOKLM = ("NotebookLM", "Notebook LM")
+
+TOOL_IMAGE = ("Create image", "Make image", "Generate image", "\u5236\u4f5c\u56fe\u7247")
+TOOL_CANVAS = ("Canvas",)
+TOOL_DEEP_RESEARCH = ("Deep Research", "\u6df1\u5ea6\u7814\u7a76")
+TOOL_VIDEO = (
+    "Create video",
+    "Make video",
+    "Video",
+    "\u5236\u4f5c\u89c6\u9891",
+    "\u521b\u4f5c\u89c6\u9891",
+)
+TOOL_MUSIC = (
+    "Create music",
+    "Make music",
+    "Music",
+    "\u5236\u4f5c\u97f3\u4e50",
+    "\u521b\u4f5c\u97f3\u4e50",
+)
+TOOL_LEARNING = (
+    "Learning tutor",
+    "Learning coach",
+    "Learning",
+    "Help me learn",
+    "\u5b66\u4e60\u8f85\u5bfc",
+    "\u5e2e\u6211\u5b66\u4e60",
+)
+TOOL_LABS_PERSONALIZATION = (
+    "Personalization",
+    "Personalized help",
+    "Labs",
+    "\u4e2a\u6027\u5316\u667a\u80fd\u670d\u52a1",
+    "\u4e2a\u6027\u5316\u6709\u5e2e\u52a9\u65f6",
+)
 
 
 class CaseSkip(RuntimeError):
@@ -183,9 +231,9 @@ CASES: list[GeminiCase] = [
         ),
         raw_required_attachment_types={"assistant": {"image_url"}},
         session_required_attachment_types={"assistant": {"image_url"}},
-        response_timeout_s=180,
-        capture_timeout_s=60,
-        session_timeout_s=60,
+        response_timeout_s=420,
+        capture_timeout_s=120,
+        session_timeout_s=120,
     ),
     GeminiCase(
         id="G13",
@@ -261,6 +309,144 @@ CASES: list[GeminiCase] = [
         expect_no_new_captures=True,
         capture_timeout_s=8,
     ),
+    GeminiCase(
+        id="G21",
+        description="+ menu upload file entry",
+        action="plus_upload_file",
+        prompt_template=(
+            "PCE-{id}-{token}. Confirm the uploaded PDF filename in one short "
+            "sentence and include {token}."
+        ),
+        raw_required_attachment_types={"user": {"file"}},
+        session_required_attachment_types={"user": {"file"}},
+        visual_review_required=True,
+    ),
+    GeminiCase(
+        id="G22",
+        description="+ menu Google Drive picker entry",
+        action="plus_drive_entry",
+        visual_review_required=True,
+        expect_no_new_captures=True,
+        capture_timeout_s=8,
+    ),
+    GeminiCase(
+        id="G23",
+        description="+ menu Google Photos picker entry",
+        action="plus_photos_entry",
+        visual_review_required=True,
+        expect_no_new_captures=True,
+        capture_timeout_s=8,
+    ),
+    GeminiCase(
+        id="G24",
+        description="+ menu import code entry",
+        action="plus_import_code",
+        prompt_template=(
+            "PCE-{id}-{token}. Summarize the uploaded code file in one short "
+            "sentence and include {token}."
+        ),
+        raw_required_attachment_types={"user": {"file"}},
+        session_required_attachment_types={"user": {"file"}},
+        visual_review_required=True,
+    ),
+    GeminiCase(
+        id="G25",
+        description="+ menu NotebookLM entry",
+        action="plus_notebooklm_entry",
+        visual_review_required=True,
+        expect_no_new_captures=True,
+        capture_timeout_s=8,
+    ),
+    GeminiCase(
+        id="G26",
+        description="Tools menu Create image entry",
+        action="tool_create_image",
+        prompt_template=(
+            "PCE-{id}-{token}. Create a simple image of a green circle. "
+            "Also include a one-sentence caption containing {token}."
+        ),
+        raw_required_attachment_types={"assistant": {"image_url"}},
+        session_required_attachment_types={"assistant": {"image_url"}},
+        response_timeout_s=420,
+        capture_timeout_s=120,
+        session_timeout_s=120,
+        visual_review_required=True,
+    ),
+    GeminiCase(
+        id="G27",
+        description="Tools menu Canvas entry",
+        action="tool_canvas",
+        prompt_template=(
+            "PCE-{id}-{token}. Use Canvas to draft a short project checklist "
+            "titled {token}."
+        ),
+        response_timeout_s=120,
+        capture_timeout_s=60,
+        session_timeout_s=60,
+        visual_review_required=True,
+    ),
+    GeminiCase(
+        id="G28",
+        description="Tools menu Deep Research entry",
+        action="tool_deep_research",
+        prompt_template=(
+            "PCE-{id}-{token}. Use Deep Research to give a concise summary of "
+            "browser extension testing. Include {token}."
+        ),
+        response_timeout_s=360,
+        capture_timeout_s=90,
+        session_timeout_s=120,
+        visual_review_required=True,
+    ),
+    GeminiCase(
+        id="G29",
+        description="Tools menu Create video entry",
+        action="tool_video",
+        prompt_template=(
+            "PCE-{id}-{token}. Create a very short abstract video of a blue square "
+            "moving slowly. Include {token} in the caption."
+        ),
+        visual_review_required=True,
+        expect_no_new_captures=not RUN_EXPENSIVE_MEDIA,
+        response_timeout_s=420,
+        capture_timeout_s=90 if RUN_EXPENSIVE_MEDIA else 8,
+        session_timeout_s=120,
+    ),
+    GeminiCase(
+        id="G30",
+        description="Tools menu Create music entry",
+        action="tool_music",
+        prompt_template=(
+            "PCE-{id}-{token}. Create a very short calm instrumental loop. "
+            "Include {token} in the caption."
+        ),
+        visual_review_required=True,
+        expect_no_new_captures=not RUN_EXPENSIVE_MEDIA,
+        response_timeout_s=420,
+        capture_timeout_s=90 if RUN_EXPENSIVE_MEDIA else 8,
+        session_timeout_s=120,
+    ),
+    GeminiCase(
+        id="G31",
+        description="Tools menu Learning tutor entry",
+        action="tool_learning_tutor",
+        prompt_template=(
+            "PCE-{id}-{token}. Use learning tutor mode to explain one testing "
+            "concept in two sentences. Include {token}."
+        ),
+        response_timeout_s=120,
+        capture_timeout_s=60,
+        session_timeout_s=60,
+        visual_review_required=True,
+    ),
+    GeminiCase(
+        id="G32",
+        description="Tools menu Labs personalization entry",
+        action="tool_labs_personalization",
+        visual_review_required=True,
+        expect_no_new_captures=True,
+        capture_timeout_s=8,
+    ),
 ]
 
 
@@ -326,7 +512,14 @@ def _ensure_generated_fixtures() -> dict[str, Path]:
     pdf_path = GENERATED_FIXTURES_DIR / "sample_report.pdf"
     if not pdf_path.exists():
         pdf_path.write_bytes(_build_minimal_pdf("PCE PDF fixture"))
-    return {"pdf": pdf_path, "image": SAMPLE_IMAGE}
+    code_path = GENERATED_FIXTURES_DIR / "sample_code.py"
+    if not code_path.exists():
+        code_path.write_text(
+            "def pce_fixture_token():\n"
+            "    return 'PCE Gemini import-code fixture'\n",
+            encoding="utf-8",
+        )
+    return {"pdf": pdf_path, "image": SAMPLE_IMAGE, "code": code_path}
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -420,12 +613,16 @@ def _begin_observation(provider: str) -> dict[str, Any]:
 
 
 def _ensure_input_ready(adapter: GeminiAdapter, driver, *, retry_navigation: bool = True) -> None:
+    adapter.dismiss_blocking_dialogs(driver)
+    adapter.clear_selected_tool(driver)
     if adapter.find_input(driver):
         return
     if retry_navigation:
         time.sleep(2)
         if not adapter.navigate(driver):
             raise CaseFailure("navigation_failed")
+        adapter.dismiss_blocking_dialogs(driver)
+        adapter.clear_selected_tool(driver)
         if adapter.find_input(driver):
             return
     raise CaseFailure("input_not_found")
@@ -434,6 +631,9 @@ def _ensure_input_ready(adapter: GeminiAdapter, driver, *, retry_navigation: boo
 def _navigate_home(adapter: GeminiAdapter, driver) -> dict[str, Any]:
     if not adapter.navigate(driver):
         raise CaseFailure("navigation_failed")
+    adapter.dismiss_blocking_dialogs(driver)
+    adapter.clear_selected_tool(driver)
+    adapter.clear_selected_tool(driver)
     _ensure_input_ready(adapter, driver, retry_navigation=True)
     return {"current_url": driver.current_url}
 
@@ -687,15 +887,49 @@ def _action_image_upload(case, adapter, driver, token, fixtures):
     return {**observation, **send, "contains_text": token}
 
 
-def _action_image_generation(case, adapter, driver, token, _):
-    _navigate_home(adapter, driver)
+def _perform_image_generation(case, adapter, driver, token, *, tool_details=None):
     observation = _begin_observation(adapter.provider)
     prompt = case.prompt_template.format(id=case.id, token=token)
-    send = _perform_send(
-        case, adapter, driver, prompt=prompt, wait_stream=True,
-        response_timeout_s=case.response_timeout_s,
-    )
-    return {**observation, **send, "contains_text": token}
+    before_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_before_send")
+    old_timeout = adapter.response_timeout_s
+    adapter.response_timeout_s = max(adapter.response_timeout_s, case.response_timeout_s)
+    try:
+        if not adapter.send_message(driver, message=prompt):
+            raise CaseFailure("send_failed")
+        stream_seen = adapter.wait_for_stop_button_visible(driver, timeout_s=15)
+        response_ok = adapter.wait_for_response(driver)
+        image_ok = adapter.wait_for_image_generation_complete(
+            driver,
+            timeout_s=case.response_timeout_s,
+        )
+    finally:
+        adapter.response_timeout_s = old_timeout
+    after_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_after_response")
+    if not response_ok:
+        raise CaseFailure("response_not_received")
+    if not image_ok:
+        raise CaseFailure("image_generation_not_completed")
+    adapter.trigger_manual_capture(driver)
+    time.sleep(3)
+    notes = {
+        "stream_seen": stream_seen,
+        "response_received": response_ok,
+        "image_generation_complete": image_ok,
+    }
+    if tool_details is not None:
+        notes["tool_entry"] = tool_details
+    return {
+        **observation,
+        "contains_text": token,
+        "screenshots": {"before": before_ss, "after": after_ss},
+        "notes": notes,
+    }
+
+
+def _action_image_generation(case, adapter, driver, token, _):
+    _navigate_home(adapter, driver)
+    details = adapter.select_tool_entry(driver, labels=TOOL_IMAGE)
+    return _perform_image_generation(case, adapter, driver, token, tool_details=details)
 
 
 def _action_deep_research(case, adapter, driver, token, _):
@@ -818,6 +1052,292 @@ def _action_activity_page(case, adapter, driver, _, __):
     }
 
 
+def _send_prepared_prompt(
+    case: GeminiCase,
+    adapter: GeminiAdapter,
+    driver,
+    *,
+    prompt: str,
+    before_ss: str,
+    response_timeout_s: float | None = None,
+) -> dict[str, Any]:
+    old_timeout = adapter.response_timeout_s
+    if response_timeout_s:
+        adapter.response_timeout_s = max(adapter.response_timeout_s, response_timeout_s)
+    try:
+        if not adapter.send_message(driver, message=prompt):
+            raise CaseFailure("send_failed")
+        stream_seen = adapter.wait_for_stop_button_visible(driver, timeout_s=12)
+        response_ok = adapter.wait_for_response(driver)
+    finally:
+        adapter.response_timeout_s = old_timeout
+
+    after_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_after_response")
+    if not response_ok:
+        raise CaseFailure("response_not_received")
+    adapter.trigger_manual_capture(driver)
+    time.sleep(2)
+    return {
+        "screenshots": {"before": before_ss, "after": after_ss},
+        "notes": {"stream_seen": stream_seen, "response_received": response_ok},
+    }
+
+
+def _require_entry_clicked(details: dict[str, Any], reason: str) -> None:
+    if not details.get("clicked"):
+        raise CaseSkip(reason)
+
+
+def _action_plus_upload_file(case, adapter, driver, token, fixtures):
+    _navigate_home(adapter, driver)
+    observation = _begin_observation(adapter.provider)
+    before_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_before_upload_menu")
+    uploaded = adapter.upload_from_attachment_menu(
+        driver,
+        labels=PLUS_UPLOAD_FILE,
+        paths=[str(fixtures["pdf"])],
+    )
+    if not uploaded:
+        raise CaseSkip("plus_upload_file_entry_unavailable_or_file_input_missing")
+    prompt = case.prompt_template.format(id=case.id, token=token)
+    send = _send_prepared_prompt(
+        case,
+        adapter,
+        driver,
+        prompt=prompt,
+        before_ss=before_ss,
+        response_timeout_s=case.response_timeout_s,
+    )
+    send["notes"]["entry_labels"] = list(PLUS_UPLOAD_FILE)
+    return {**observation, **send, "contains_text": token}
+
+
+def _action_plus_drive_entry(case, adapter, driver, _token, __):
+    _navigate_home(adapter, driver)
+    observation = _begin_observation(adapter.provider)
+    before_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_before_drive_entry")
+    details = adapter.activate_attachment_entry(
+        driver,
+        labels=PLUS_DRIVE,
+        evidence_labels=PLUS_DRIVE,
+    )
+    _require_entry_clicked(details, "plus_drive_entry_unavailable")
+    after_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_after_drive_entry")
+    return {
+        **observation,
+        "screenshots": {"before": before_ss, "after": after_ss},
+        "notes": details,
+        "expect_no_new_captures": True,
+    }
+
+
+def _action_plus_photos_entry(case, adapter, driver, _token, __):
+    _navigate_home(adapter, driver)
+    observation = _begin_observation(adapter.provider)
+    before_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_before_photos_entry")
+    details = adapter.activate_attachment_entry(
+        driver,
+        labels=PLUS_PHOTOS,
+        evidence_labels=PLUS_PHOTOS,
+    )
+    _require_entry_clicked(details, "plus_photos_entry_unavailable")
+    after_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_after_photos_entry")
+    return {
+        **observation,
+        "screenshots": {"before": before_ss, "after": after_ss},
+        "notes": details,
+        "expect_no_new_captures": True,
+    }
+
+
+def _action_plus_import_code(case, adapter, driver, token, fixtures):
+    _navigate_home(adapter, driver)
+    observation = _begin_observation(adapter.provider)
+    before_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_before_import_code")
+    uploaded = adapter.upload_from_attachment_menu(
+        driver,
+        labels=PLUS_IMPORT_CODE,
+        paths=[str(fixtures["code"])],
+    )
+    if not uploaded:
+        raise CaseSkip("plus_import_code_entry_unavailable_or_file_input_missing")
+    prompt = case.prompt_template.format(id=case.id, token=token)
+    send = _send_prepared_prompt(
+        case,
+        adapter,
+        driver,
+        prompt=prompt,
+        before_ss=before_ss,
+        response_timeout_s=case.response_timeout_s,
+    )
+    send["notes"]["entry_labels"] = list(PLUS_IMPORT_CODE)
+    return {**observation, **send, "contains_text": token}
+
+
+def _action_plus_notebooklm_entry(case, adapter, driver, _token, __):
+    _navigate_home(adapter, driver)
+    observation = _begin_observation(adapter.provider)
+    before_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_before_notebooklm")
+    details = adapter.activate_attachment_entry(
+        driver,
+        labels=PLUS_NOTEBOOKLM,
+        evidence_labels=PLUS_NOTEBOOKLM,
+        allow_new_tab=True,
+    )
+    _require_entry_clicked(details, "plus_notebooklm_entry_unavailable")
+    after_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_after_notebooklm")
+    return {
+        **observation,
+        "screenshots": {"before": before_ss, "after": after_ss},
+        "notes": details,
+        "expect_no_new_captures": True,
+    }
+
+
+def _select_tool_or_skip(adapter, driver, labels: tuple[str, ...], reason: str) -> dict[str, Any]:
+    details = adapter.select_tool_entry(driver, labels=labels)
+    _require_entry_clicked(details, reason)
+    return details
+
+
+def _action_tool_create_image(case, adapter, driver, token, _):
+    _navigate_home(adapter, driver)
+    details = _select_tool_or_skip(adapter, driver, TOOL_IMAGE, "tool_create_image_entry_unavailable")
+    return _perform_image_generation(case, adapter, driver, token, tool_details=details)
+
+
+def _action_tool_canvas(case, adapter, driver, token, _):
+    _navigate_home(adapter, driver)
+    details = _select_tool_or_skip(adapter, driver, TOOL_CANVAS, "tool_canvas_entry_unavailable")
+    observation = _begin_observation(adapter.provider)
+    prompt = case.prompt_template.format(id=case.id, token=token)
+    send = _perform_send(
+        case,
+        adapter,
+        driver,
+        prompt=prompt,
+        response_timeout_s=case.response_timeout_s,
+    )
+    send["notes"]["tool_entry"] = details
+    send["notes"]["canvas_ui_hint"] = adapter.wait_for_page_text(driver, ["Canvas"], timeout_s=8)
+    return {**observation, **send, "contains_text": token}
+
+
+def _action_tool_deep_research(case, adapter, driver, token, _):
+    _navigate_home(adapter, driver)
+    details = _select_tool_or_skip(
+        adapter,
+        driver,
+        TOOL_DEEP_RESEARCH,
+        "tool_deep_research_entry_unavailable",
+    )
+    observation = _begin_observation(adapter.provider)
+    prompt = case.prompt_template.format(id=case.id, token=token)
+    send = _perform_send(
+        case,
+        adapter,
+        driver,
+        prompt=prompt,
+        wait_stream=True,
+        response_timeout_s=case.response_timeout_s,
+    )
+    send["notes"]["tool_entry"] = details
+    return {**observation, **send, "contains_text": token}
+
+
+def _action_tool_media(case, adapter, driver, token, labels, reason):
+    _navigate_home(adapter, driver)
+    observation = _begin_observation(adapter.provider)
+    before_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_before_tool_entry")
+    details = _select_tool_or_skip(adapter, driver, labels, reason)
+    if not RUN_EXPENSIVE_MEDIA:
+        after_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_after_tool_entry")
+        adapter.clear_selected_tool(driver)
+        return {
+            **observation,
+            "screenshots": {"before": before_ss, "after": after_ss},
+            "notes": {
+                **details,
+                "entry_only": True,
+                "reason": "expensive_media_generation_disabled",
+            },
+            "expect_no_new_captures": True,
+        }
+
+    prompt = case.prompt_template.format(id=case.id, token=token)
+    send = _send_prepared_prompt(
+        case,
+        adapter,
+        driver,
+        prompt=prompt,
+        before_ss=before_ss,
+        response_timeout_s=case.response_timeout_s,
+    )
+    send["notes"]["tool_entry"] = details
+    return {**observation, **send, "contains_text": token}
+
+
+def _action_tool_video(case, adapter, driver, token, _):
+    return _action_tool_media(
+        case,
+        adapter,
+        driver,
+        token,
+        TOOL_VIDEO,
+        "tool_video_entry_unavailable",
+    )
+
+
+def _action_tool_music(case, adapter, driver, token, _):
+    return _action_tool_media(
+        case,
+        adapter,
+        driver,
+        token,
+        TOOL_MUSIC,
+        "tool_music_entry_unavailable",
+    )
+
+
+def _action_tool_learning_tutor(case, adapter, driver, token, _):
+    _navigate_home(adapter, driver)
+    details = _select_tool_or_skip(
+        adapter,
+        driver,
+        TOOL_LEARNING,
+        "tool_learning_tutor_entry_unavailable",
+    )
+    observation = _begin_observation(adapter.provider)
+    prompt = case.prompt_template.format(id=case.id, token=token)
+    send = _perform_send(
+        case,
+        adapter,
+        driver,
+        prompt=prompt,
+        response_timeout_s=case.response_timeout_s,
+    )
+    send["notes"]["tool_entry"] = details
+    return {**observation, **send, "contains_text": token}
+
+
+def _action_tool_labs_personalization(case, adapter, driver, _token, __):
+    _navigate_home(adapter, driver)
+    observation = _begin_observation(adapter.provider)
+    before_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_before_labs")
+    details = adapter.inspect_tools_entry(driver, labels=TOOL_LABS_PERSONALIZATION)
+    after_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_after_labs")
+    if not details.get("opened"):
+        raise CaseSkip("tools_menu_unavailable_for_labs_personalization")
+    if not details.get("labels_seen"):
+        raise CaseSkip("labs_personalization_entry_unavailable")
+    return {
+        **observation,
+        "screenshots": {"before": before_ss, "after": after_ss},
+        "notes": details,
+        "expect_no_new_captures": True,
+    }
+
+
 ACTIONS = {
     "vanilla_text": _action_vanilla_text,
     "stream_complete": _action_stream_complete,
@@ -839,6 +1359,18 @@ ACTIONS = {
     "settings_page": _action_settings_page,
     "error_state": _action_error_state,
     "activity_page": _action_activity_page,
+    "plus_upload_file": _action_plus_upload_file,
+    "plus_drive_entry": _action_plus_drive_entry,
+    "plus_photos_entry": _action_plus_photos_entry,
+    "plus_import_code": _action_plus_import_code,
+    "plus_notebooklm_entry": _action_plus_notebooklm_entry,
+    "tool_create_image": _action_tool_create_image,
+    "tool_canvas": _action_tool_canvas,
+    "tool_deep_research": _action_tool_deep_research,
+    "tool_video": _action_tool_video,
+    "tool_music": _action_tool_music,
+    "tool_learning_tutor": _action_tool_learning_tutor,
+    "tool_labs_personalization": _action_tool_labs_personalization,
 }
 
 
