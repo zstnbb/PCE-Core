@@ -909,11 +909,78 @@ class ChatGPTCDPClient:
         return result
 
     def edit_last_user_message(self, text: str) -> dict[str, Any]:
-        self.click_last_visible_button_by_aria(["Edit", "编辑", "編輯"])
+        self.click_last_visible_button_by_aria(
+            ["Edit", "Edit message", "\u7f16\u8f91", "\u7f16\u8f91\u6d88\u606f"]
+        )
         time.sleep(0.8)
-        self.set_prompt_text(text)
+        payload = json.dumps(text, ensure_ascii=False)
+        result = self.evaluate(
+            f"""
+            (() => {{
+              const visible = (el) => {{
+                if (!el) return false;
+                const style = getComputedStyle(el);
+                const rect = el.getBoundingClientRect();
+                return style.display !== 'none' && style.visibility !== 'hidden' &&
+                  rect.width > 0 && rect.height > 0;
+              }};
+              const turns = [...document.querySelectorAll('[data-testid^="conversation-turn"][data-turn="user"]')]
+                .filter(visible);
+              const turn = turns[turns.length - 1];
+              if (!turn) return {{ ok: false, reason: 'user_turn_not_found' }};
+              const input = turn.querySelector('textarea[aria-label], textarea, [contenteditable="true"]');
+              if (!input) return {{ ok: false, reason: 'edit_input_not_found', text: turn.innerText || '' }};
+              const value = {payload};
+              input.focus();
+              if ('value' in input) {{
+                const setter = Object.getOwnPropertyDescriptor(
+                  Object.getPrototypeOf(input),
+                  'value'
+                )?.set;
+                if (setter) setter.call(input, value);
+                else input.value = value;
+              }} else {{
+                input.textContent = value;
+              }}
+              input.dispatchEvent(new InputEvent('input', {{
+                bubbles: true,
+                inputType: 'insertText',
+                data: value,
+              }}));
+              input.dispatchEvent(new Event('change', {{ bubbles: true }}));
+              const buttons = [...turn.querySelectorAll('button')].filter(visible);
+              const send = buttons.find((btn) => {{
+                const label = [
+                  btn.getAttribute('aria-label') || '',
+                  btn.innerText || '',
+                  btn.textContent || '',
+                ].join(' ').trim();
+                return /\bsend\b|send prompt/i.test(label) ||
+                  label.includes('\u53d1\u9001');
+              }});
+              if (!send) {{
+                return {{
+                  ok: false,
+                  reason: 'edit_send_button_not_found',
+                  buttons: buttons.map((btn) => ({{
+                    aria: btn.getAttribute('aria-label'),
+                    text: (btn.innerText || btn.textContent || '').trim(),
+                  }})),
+                }};
+              }}
+              send.click();
+              return {{
+                ok: true,
+                text: input.innerText || input.textContent || input.value || '',
+                send_text: (send.innerText || send.textContent || '').trim(),
+              }};
+            }})()
+            """
+        )
+        if not result.get("ok"):
+            raise CDPError(f"edit_user_message_failed: {result}")
         time.sleep(0.8)
-        return self.click_send()
+        return result
 
     def click_regenerate(self) -> dict[str, Any]:
         try:
@@ -981,9 +1048,25 @@ class ChatGPTCDPClient:
         return result
 
     def flip_branch(self, *, direction: str = "prev") -> dict[str, Any]:
-        labels = ["Previous", "上一个", "上一条", "上一分支"]
+        labels = [
+            "Previous",
+            "Previous response",
+            "Previous reply",
+            "\u4e0a\u4e00\u4e2a",
+            "\u4e0a\u4e00\u6761",
+            "\u4e0a\u4e00\u5206\u652f",
+            "\u4e0a\u4e00\u56de\u590d",
+        ]
         if direction == "next":
-            labels = ["Next", "下一个", "下一条", "下一分支"]
+            labels = [
+                "Next",
+                "Next response",
+                "Next reply",
+                "\u4e0b\u4e00\u4e2a",
+                "\u4e0b\u4e00\u6761",
+                "\u4e0b\u4e00\u5206\u652f",
+                "\u4e0b\u4e00\u56de\u590d",
+            ]
         return self.click_last_visible_button_by_aria(labels)
 
     def _query_selector_node_id(self, selector: str) -> int:

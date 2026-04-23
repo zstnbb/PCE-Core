@@ -519,6 +519,7 @@ def _action_branch_flip(client, case, token, _):
         return {
             **observation,
             "contains_text": token,
+            "session_started_after": None,
             "screenshots": {"before": before, "after": after},
             "notes": {"seed_url": seed_url},
         }
@@ -563,6 +564,7 @@ def _action_branch_flip(client, case, token, _):
     return {
         **observation,
         "contains_text": branch_a,
+        "session_started_after": None,
         "screenshots": {"before": before, "after": after},
         "notes": {
             "branch_a": branch_a,

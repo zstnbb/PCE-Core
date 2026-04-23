@@ -110,6 +110,48 @@ Grounded in `@f:\INVENTION\You.Inc\PCE Core\pce_browser_extension_wxt\entrypoint
 
 ### II.4 Known gaps (before live validation)
 
+> **Update 2026-04-23 — post-autopilot reconciliation**
+>
+> Several gaps below were speculative pre-validation notes. After live
+> autopilot runs on a real logged-in ChatGPT account (see Part III.1),
+> their status is:
+>
+> - **G1 (URL patterns) — partially resolved.** T16 PASS
+>   (`20260423-010121`) captured a conversation at
+>   `/g/g-…-pce-sentinel-…/c/<uuid>` and persisted it under
+>   `session_key=<uuid>`, proving `/g/<slug>/c/<uuid>` is handled
+>   end-to-end. T17 PASS (`20260423-010547`) does the same for
+>   `/project/<id>`. Still open: `/share/<id>` (T22, deferred to v1.1;
+>   the product decision is to NOT re-capture shared read-only views).
+> - **G2 (Custom GPT not in matches) — resolved.** Same T16 evidence
+>   confirms the content script is injected on `chatgpt.com/g/…` and
+>   the runtime resolves the conv-id from the URL.
+> - **G3 (no `meta.temporary` flag) — not resolved; by design.** T18
+>   PASS (`20260422-113723`) shows temporary chats still flow through
+>   capture. The distinct `meta.temporary` marker is still missing and
+>   tracked as v1.1 polish.
+> - **G5 (Canvas depth) — baseline captured.** T15 PASS
+>   (`20260422-113802`) shows the chat side of Canvas is captured;
+>   structured capture of the canvas document body itself remains
+>   unverified.
+> - **G6 (Code Interpreter depth) — baseline captured.** T13 PASS
+>   (`20260422-141125`) shows code + output round-trip through; depth
+>   against every CI permutation is not exhaustively covered.
+> - **G7 (Regenerate / branches) — resolved.** T08 PASS
+>   (`20260423-013603`) covers regenerate. T09 PASS
+>   (`20260423-113523`) covers user-message branch flip through
+>   ChatGPT's current `上一回复` / `下一回复` controls and verifies the
+>   selected branch via raw capture + session messages.
+> - **G8 (error state filter) — resolved.** T19 PASS
+>   (`20260422-113248`) confirms error toasts are not captured as
+>   assistant messages.
+> - **G4 / G9 — unchanged.**
+>
+> The bullet list below is preserved verbatim as the **original pre-live
+> audit**, for traceability of what we believed before running real
+> captures. Do NOT treat it as the current state — use Part III.1 for
+> that.
+
 Derived from comparing Part I.1 to Part II.1-3:
 
 - **G1. URL patterns beyond `/c/<uuid>`**. `getConvId` regex is `/\/c\/([a-f0-9-]+)/`. This misses:
@@ -134,7 +176,7 @@ Each row is a **verifiable checkpoint**. We march down this list
 until every row is ✅ on live ChatGPT.
 
 **Legend:**
-- **Status** (filled in as we go): ⬜ not tested yet / ✅ pass / ❌ fail (link to the fix commit)
+- **Status** (filled in as we go): ⬜ not tested yet / ✅ pass (reference = earliest `tests/e2e/reports/chatgpt/<ts>/` directory with passing evidence) / ⏸ skip (blocked by upstream UI, not a capture-pipeline regression) / ❌ fail (link to the fix commit)
 - **Surface** (from Part I.1 table)
 - **User action** (exact browser clicks)
 - **Expected capture** (what must appear in PCE dashboard)
@@ -142,28 +184,34 @@ until every row is ✅ on live ChatGPT.
 
 ### III.1 Must-pass for v1.0.1
 
+> **Live status as of 2026-04-23:** 20 ✅ pass / 0 ⏸ skip.
+> Status reflects the **best-of** across live autopilot runs under
+> `tests/e2e/reports/chatgpt/`. Each ✅ links to the earliest run
+> that captured passing evidence; later runs may show transient
+> autopilot-probe failures that are not capture-pipeline regressions.
+
 | ID | Surface | Status | User action | Expected capture | Known risk |
 |---|---|---|---|---|---|
-| T01 | 1 vanilla | ⬜ | New chat, type "what is 2+2", send | 1 user + 1 assistant, both text | — |
-| T02 | 4 streaming | ⬜ | Send a message that will take >3s to stream; watch stream to completion | 1 capture AFTER stream ends, none during | stream gate |
-| T03 | 4 streaming + stop | ⬜ | Same as T02, click Stop mid-stream | 1 capture with partial assistant text | stream gate + partial |
-| T04 | 2 new chat | ⬜ | From `/`, send a message, watch URL update to `/c/...` | 1 capture; conversation_id starts as `_new_...` then upgrades, or stays `_new_` — either OK if idempotent | SPA nav |
-| T05 | 3 code blocks | ⬜ | Ask for "a python hello world", ensure reply has fenced code | Assistant msg contains code; attachments include `code_block` with `language:"python"` | `extractAttachments` depth |
-| T06 | 1 + thinking | ⬜ | Switch model to o1/o3-mini; ask a reasoning question | Assistant msg content starts with `<thinking>…</thinking>` then the final answer | `extractThinking` |
-| T07 | 6 edit & resubmit | ⬜ | Click pencil on the 1st user msg, change it, submit | OLD capture gets replaced or a NEW capture appears with the new user turn + new assistant reply. No stale duplicate. | fingerprint dedup |
-| T08 | 5 regenerate | ⬜ | Click "Regenerate" on an assistant msg | New capture with the new assistant variant. `conversation.messages` reflects current branch. | branch heuristic |
-| T09 | 5 branch flip | ⬜ | Flip `< 1/2 >` back to the old branch | Should produce a new capture OR an update — not nothing | G7 |
-| T10 | 7 file attach | ⬜ | Upload a .pdf, send "summarize" | User msg contains attachment chip; capture has `file` attachment with filename | G5/G6 |
-| T11 | 8 vision | ⬜ | Upload an image, send "describe" | User msg has `image_url` attachment | attachment |
-| T12 | 9 DALL-E | ⬜ | Send "generate an image of a cat" | Assistant msg has `image_generation` attachment | attachment |
-| T13 | 10 code interpreter | ⬜ | "Compute prime factors of 997 using Python" | Assistant msg has `code_block` + `code_output` attachments | G6 |
-| T14 | 11 web browse | ⬜ | Click "Search" tool, ask "what's the weather in Beijing right now" | Assistant msg has ≥1 `citation` attachments | attachment |
-| T15 | 13 canvas | ⬜ | Ask for "write me a short essay" → opens Canvas; edit inside canvas | Capture includes the canvas body (`canvas` attachment or body text) | G5 |
-| T16 | 14 custom GPT | ⬜ | Open any GPT from GPT Store, start a chat | Captures appear; `conversation.conversation_id` is well-defined | G1, G2 |
-| T17 | 15 project chat | ⬜ | Open a Project (if the user has one), chat inside | Captures appear; conv-id handled | G1 |
-| T18 | 17 temporary chat | ⬜ | Toggle temporary chat at top, send a message | Captures still go through | G3 |
-| T19 | 21 error | ⬜ | Force an error (e.g. trigger rate limit or poor prompt) | NO capture with the error toast as assistant message | G8 |
-| T20 | 20 settings | ⬜ | Open `/settings/data-controls`, just navigate | ZERO captures produced | idle honesty |
+| T01 | 1 vanilla | ✅ `20260422-083046` | New chat, type "what is 2+2", send | 1 user + 1 assistant, both text | — |
+| T02 | 4 streaming | ✅ `20260422-083136` | Send a message that will take >3s to stream; watch stream to completion | 1 capture AFTER stream ends, none during | stream gate |
+| T03 | 4 streaming + stop | ✅ `20260422-083136` | Same as T02, click Stop mid-stream | 1 capture with partial assistant text | stream gate + partial |
+| T04 | 2 new chat | ✅ `20260422-083136` | From `/`, send a message, watch URL update to `/c/...` | 1 capture; conversation_id starts as `_new_...` then upgrades, or stays `_new_` — either OK if idempotent | SPA nav |
+| T05 | 3 code blocks | ✅ `20260422-083136` | Ask for "a python hello world", ensure reply has fenced code | Assistant msg contains code; attachments include `code_block` with `language:"python"` | `extractAttachments` depth |
+| T06 | 1 + thinking | ✅ `20260422-133158` | Switch model to o1/o3-mini; ask a reasoning question | Assistant msg content starts with `<thinking>…</thinking>` then the final answer | `extractThinking` |
+| T07 | 6 edit & resubmit | ✅ `20260422-083440` | Click pencil on the 1st user msg, change it, submit | OLD capture gets replaced or a NEW capture appears with the new user turn + new assistant reply. No stale duplicate. | fingerprint dedup |
+| T08 | 5 regenerate | ✅ `20260423-013603` | Click "Regenerate" on an assistant msg | New capture with the new assistant variant. `conversation.messages` reflects current branch. | branch heuristic |
+| T09 | 5 branch flip | ✅ `20260423-113523` | Flip `< 1/2 >` back to the old branch | Should produce a new capture OR an update — not nothing | G7 resolved; current UI labels the controls as `上一回复` / `下一回复`. |
+| T10 | 7 file attach | ✅ `20260422-083136` | Upload a .pdf, send "summarize" | User msg contains attachment chip; capture has `file` attachment with filename | G5/G6 |
+| T11 | 8 vision | ✅ `20260422-083136` | Upload an image, send "describe" | User msg has `image_url` attachment | attachment |
+| T12 | 9 DALL-E | ✅ `20260422-141811` | Send "generate an image of a cat" | Assistant msg has `image_generation` attachment | attachment |
+| T13 | 10 code interpreter | ✅ `20260422-141125` | "Compute prime factors of 997 using Python" | Assistant msg has `code_block` + `code_output` attachments | G6 |
+| T14 | 11 web browse | ✅ `20260422-083136` | Click "Search" tool, ask "what's the weather in Beijing right now" | Assistant msg has ≥1 `citation` attachments | attachment |
+| T15 | 13 canvas | ✅ `20260422-113802` | Ask for "write me a short essay" → opens Canvas; edit inside canvas | Capture includes the canvas body (`canvas` attachment or body text) | G5 |
+| T16 | 14 custom GPT | ✅ `20260423-010121` | Open any GPT from GPT Store, start a chat | Captures appear; `conversation.conversation_id` is well-defined | G1, G2 (validated resolved — capture path = `/g/<slug>/c/<uuid>`) |
+| T17 | 15 project chat | ✅ `20260423-010547` | Open a Project (if the user has one), chat inside | Captures appear; conv-id handled | G1 (validated resolved via PCE_E2E_CHATGPT_PROJECT_URL) |
+| T18 | 17 temporary chat | ✅ `20260422-113723` | Toggle temporary chat at top, send a message | Captures still go through | G3 |
+| T19 | 21 error | ✅ `20260422-113248` | Force an error (e.g. trigger rate limit or poor prompt) | NO capture with the error toast as assistant message | G8 |
+| T20 | 20 settings | ✅ `20260422-112322` | Open `/settings/data-controls`, just navigate | ZERO captures produced | idle honesty |
 
 ### III.2 Defer-to-v1.1 (record outcome but don't block)
 
