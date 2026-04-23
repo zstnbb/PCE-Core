@@ -9,8 +9,10 @@ in a finite number of iterations.
 **Audience:** the user (running the browser) + Cascade (reading and
 writing code) + the AI Studio autopilot.
 
-**Status:** **S1 tier** (developer-facing, heavy). ~20 must-pass
-T-cases for v1.0.1.
+**Status:** **S1 tier** (developer-facing, heavy). A01-A20 are the
+v1.0.1 prompt-capture bar; A21-A46 extend the definition to the broader
+AI Studio app-builder, media-generation, realtime, tool, and management
+surfaces documented by Google.
 
 **Timebox:** 1-2 evenings of autopilot runs once ChatGPT's
 scaffolding is in place.
@@ -32,8 +34,12 @@ changes coverage vs. ChatGPT / Gemini:
   schema.
 - Developers use **multi-modal** (image + video + audio + PDF)
   more heavily than consumer Gemini.
-- Developers use **Stream Realtime** (bidi audio/video). Deferred
-  to v1.1.
+- Developers use **Build mode** to create and iterate full-stack apps
+  with generated files, previews, annotations, secrets, Firebase, Cloud
+  Run, and GitHub/export flows.
+- Developers use **Stream Realtime**, **Speech**, and **Generate media**
+  (bidi audio/video, TTS, Imagen, Veo). Some are deferred to v1.1/v1.2
+  because they need media-specific schemas.
 
 ### I.1 Product surfaces
 
@@ -44,31 +50,67 @@ changes coverage vs. ChatGPT / Gemini:
 | 3 | Structured prompt | `/prompts/new_structured` → `/prompts/<id>` | example pairs + final input/output |
 | 4 | Streaming | any prompt surface | final capture only, post-Stop |
 | 5 | Code blocks | any prompt surface | `code_block` attachment |
-| 6 | Thinking (2.5 Pro Thinking) | any prompt surface | `<thinking>…</thinking>` prefix |
+| 6 | Thinking (2.5 Pro Thinking) | any prompt surface | `<thinking>...</thinking>` prefix or equivalent thinking metadata |
 | 7 | PDF upload | any prompt surface | `file` attachment |
 | 8 | Image upload | any prompt surface | `image_url` + `media_type` |
 | 9 | Video upload | any prompt surface | `file` / `video_url` + `media_type` |
-| 10 | Audio upload | any prompt surface | `audio` + transcript |
+| 10 | Audio upload | any prompt surface | `audio` + transcript if rendered |
 | 11 | System instructions | any prompt surface | `layer_meta.system_instructions`, NOT messages |
 | 12 | Grounding w/ Google Search | prompt + tools | `citation` attachments |
 | 13 | URL context tool | prompt + tools | `citation` attachments |
 | 14 | Code execution tool | prompt + tools | `code_block` + `code_output` |
-| 15 | Function calling | prompt + tools | `tool_call` + `tool_result` |
-| 16 | Imagen generation | `new_chat` w/ image model | `image_generation` attachment |
-| 17 | Veo video gen | `new_chat` w/ Veo model | `video_generation` (new type) — DEFER |
+| 15 | Function calling | prompt + tools | `tool_call` + `tool_result` attachments or rendered equivalent |
+| 16 | Imagen generation | chat / generate media | `image_generation` attachment, not uploaded `image_url` |
+| 17 | Veo video generation | chat / generate media | `video_generation` attachment with src/thumbnail/status |
 | 18 | Edit / regenerate | any prompt surface | new capture with updated content |
 | 19 | Get code modal | modal | NOT captured |
 | 20 | Save to Drive | modal | NOT captured |
-| 21 | Stream Realtime | `/stream` | **DEFER to v1.1** |
-| 22 | Speech generation | `/speech/*` | DEFER |
-| 23 | Media Gen browser | `/media/*` | DEFER |
-| 24 | Tune a model | `/tune/*` | NOT captured |
-| 25 | Prompt Gallery | `/gallery` | NOT captured |
-| 26 | Library | `/library` | NOT captured |
-| 27 | API Key management | `/apikey*` | NOT captured (sensitive) |
-| 28 | Error states | any | NO capture of error banner as assistant |
+| 21 | Stream Realtime / Live API | `/stream` or live panel | transcript/events only when rendered; raw bidi stream deferred |
+| 22 | Speech generation / TTS | `/speech/*` or model panel | `audio_generation` / `audio` attachment with text prompt |
+| 23 | Generate Media browser | `/media/*` | generated media library stays silent; opened generated item maps to image/video/audio attachment |
+| 24 | Tune a model | `/tune/*` | NOT captured unless prompt-run UI is opened |
+| 25 | Prompt Gallery | `/gallery` | browsing silent; running/remixing a template captures resulting prompt conversation |
+| 26 | Library / saved prompts | `/library` | browsing silent; opening and running saved prompt captures prompt conversation |
+| 27 | API Key management | `/apikey*` | NOT captured (sensitive); key values must never enter content |
+| 28 | Error states | any | NO capture of safety/quota/network banners as assistant |
+| 29 | Build mode prompt-to-app | `/apps/*` / build mode | user app request + assistant generated-app summary; generated files as `code_block`/`artifact` attachments |
+| 30 | Build iterative chat | build side chat | follow-up app change requests and assistant responses captured as app-conversation turns |
+| 31 | Build file tree / code editor | build workspace | code files visible in editor represented as artifacts only when generated/modified by assistant; browsing files silent |
+| 32 | Build preview / console / runtime errors | preview panel | preview chrome silent; assistant debugging response captured; runtime logs captured only if assistant surfaces them |
+| 33 | Build annotations | preview annotation mode | user annotation text/screenshot region metadata + assistant fix response |
+| 34 | Build AI chips / app capabilities | build toolbar | generated image/maps/live/API feature chips captured as artifact metadata, not as chat text |
+| 35 | Build secrets and API-key proxy | secrets/settings modal | ZERO key/secret capture; only assistant/user text around configuring secrets |
+| 36 | Build Firebase / backend / server-side runtime | build settings / generated app | generated backend/server code as artifacts; settings chrome silent |
+| 37 | Build export / GitHub / download / deploy | export/deploy modal | no duplicate capture; generated code already represented in app artifact |
+| 38 | Build app sharing / gallery / remix | app gallery/share URL | browsing/remix chrome silent; remix-generated app conversation captured once |
+| 39 | Run settings: model parameters | right-side settings | tuning knobs captured as metadata only if schema supports it; not chat text |
+| 40 | Safety settings | right-side settings/modal | safety settings captured as metadata only if schema supports it; blocks/errors not assistant messages |
+| 41 | Structured output response schema | run settings | schema captured as `layer_meta.response_schema` or equivalent; generated output as assistant text/JSON |
+| 42 | Google Maps tool | tools panel | map/place citations or rendered tool output attachments |
+| 43 | File Search / RAG tool | tools panel | file store/source citations and retrieved document references |
+| 44 | Computer Use tool | tools panel | tool actions/results if surfaced; skip with evidence if UI unavailable |
+| 45 | Usage / quota / billing diagnostics | settings/status pages | ZERO captures; quota banners only used for skip/fail evidence |
+| 46 | Documentation / cookbook / examples pages | docs links / external pages | ZERO captures inside AI Studio run unless a template is executed |
 
-### I.2 Meta invariants
+### I.2 Official source map
+
+Checked 2026-04-23 against Google-owned AI Developers documentation:
+
+- Gemini API / AI Studio overview and navigation: `https://ai.google.dev/gemini-api/docs`
+- Google AI Studio Build mode: `https://ai.google.dev/gemini-api/docs/aistudio-build-mode`
+- Image generation: `https://ai.google.dev/gemini-api/docs/image-generation`
+- Video generation / Veo: `https://ai.google.dev/gemini-api/docs/video-generation`
+- Live API / realtime: `https://ai.google.dev/gemini-api/docs/live`
+- Speech generation / TTS: `https://ai.google.dev/gemini-api/docs/speech-generation`
+- Code execution: `https://ai.google.dev/gemini-api/docs/code-execution`
+- Function calling: `https://ai.google.dev/gemini-api/docs/function-calling`
+- Grounding with Google Search: `https://ai.google.dev/gemini-api/docs/google-search`
+- URL context: `https://ai.google.dev/gemini-api/docs/url-context`
+- File Search: `https://ai.google.dev/gemini-api/docs/file-search`
+- Structured output: `https://ai.google.dev/gemini-api/docs/structured-output`
+- Safety settings: `https://ai.google.dev/gemini-api/docs/safety-settings`
+
+### I.3 Meta invariants
 
 - **Role accuracy** — ambiguous `<ms-chat-turn>` fallback ("try both") can produce ghost user turns — see A3.
 - **No duplicates** — `fingerprintConversation` + `dedupeAttachments` must agree across heavy re-render.
@@ -80,6 +122,10 @@ changes coverage vs. ChatGPT / Gemini:
 - **UI noise stripped** — `normalizeText` drops `edit` / `more_vert` / `thumb_up` / `download` / `content_copy` / etc. New mat-icon → extend drop list.
 - **Disclaimer stripped** — "Google AI models may make mistakes…" never in content.
 - **System instructions separate** — in `layer_meta`, not messages.
+- **Generated-artifact boundary** — Build/code/media artifacts are not the same thing as assistant prose; preserve both without duplicating preview/editor chrome.
+- **Secret hygiene** — API keys, secret values, OAuth tokens, and deployment credentials must never be captured.
+- **Tool metadata honesty** — tool schemas/settings may be metadata, but rendered user/assistant/tool results must still have correct roles and attachment types.
+- **Quota/account honesty** — quota, billing, plan, region, and Workspace policy blocks are `skip`/evidence states, not assistant content.
 - **Console hygiene** — no red errors.
 
 ---
@@ -179,14 +225,41 @@ No selector ladder. If `<ms-chat-turn>` is renamed, capture = 0.
 | A19 | 24/25/26 browse | 🟢 | Navigate /tune, /gallery, /library, /apikey | ZERO new captures | **A6** |
 | A20 | 28 error | 🟡 | Force a safety-block or quota error | NO capture with error banner as assistant | **A14** |
 
-### III.2 Defer-to-v1.1
+### III.2 Expanded coverage backlog
 
-| ID | Surface | Notes |
-|---|---|---|
-| A21 | 17 Veo video gen | Needs `video_generation` attachment type; negotiate schema |
-| A22 | 21 Stream Realtime | Bidi audio/video; fundamentally different capture model |
-| A23 | 22 Speech gen | Needs `audio` attachment path; deferred |
-| A24 | 23 Media Gen browser | Gallery of outputs; not chat |
+These cases complete the definition of "full AI Studio" beyond the
+A01-A20 v1.0.1 prompt-capture bar. They are staged because Build mode,
+media generation, realtime streams, deployment, and advanced tools need
+additional schemas and stronger secret-handling guarantees.
+
+| ID | Surface | Tier | Expected capture / behavior | Known risk |
+|---|---|---|---|---|
+| A21 | Veo video generation | v1.1 | Assistant/generated item has `video_generation` attachment | schema extension, async wait |
+| A22 | Stream Realtime / Live API | v1.1 | Transcript/events captured only when rendered; raw bidi stream deferred | non-DOM stream |
+| A23 | Speech generation / TTS | v1.1 | Generated speech represented as `audio_generation` / `audio` | audio schema |
+| A24 | Media Gen browser | v1.1 | Library browsing silent; opened generated item maps to media attachment | gallery chrome leakage |
+| A25 | Build mode prompt-to-app | v1.1 | User app request + generated app/code artifacts captured | artifact schema |
+| A26 | Build iterative chat | v1.1 | Follow-up edits captured as app-conversation turns | chat vs app editor split |
+| A27 | Build file tree / code editor | v1.1 | Generated/modified files as artifacts; file browsing silent | huge code payloads |
+| A28 | Build preview / console / runtime errors | v1.1 | Assistant debugging response captured; preview/runtime chrome silent | console noise |
+| A29 | Build annotations | v1.2 | Annotation region/text + assistant fix captured | screenshot/region metadata |
+| A30 | Build AI chips / app capabilities | v1.2 | Generated feature chips as artifact metadata; toolbar silent | chip DOM drift |
+| A31 | Build secrets and API-key proxy | v1.1 | ZERO secret/key capture; surrounding chat captured | secret leakage |
+| A32 | Build Firebase / backend / server runtime | v1.2 | Generated backend/server code as artifacts | deployment complexity |
+| A33 | Build export / GitHub / download / deploy | v1.2 | Export/deploy modals silent; no duplicate code capture | modal leakage |
+| A34 | Build app sharing / gallery / remix | v1.2 | Browsing silent; remix-generated app conversation captured once | read-only vs editable ambiguity |
+| A35 | Run settings: model parameters | v1.1 | Temperature/top-p/max-output captured only as metadata if schema supports it | schema gap |
+| A36 | Safety settings | v1.1 | Safety settings as metadata if schema supports it; safety blocks not assistant text | block leakage |
+| A37 | Structured output response schema | v1.1 | Schema captured in metadata; generated JSON captured as assistant output | schema vs output confusion |
+| A38 | Google Maps tool | v1.2 | Place/map references captured as citation/tool attachments | UI availability |
+| A39 | File Search / RAG tool | v1.2 | File store/source citations and retrieved document references | tool setup cost |
+| A40 | Computer Use tool | v1.2 | Tool actions/results captured if surfaced; skip if unavailable | experimental UI |
+| A41 | Usage / quota / billing diagnostics | v1.0.1 | ZERO captures; used as skip/fail evidence only | banner leakage |
+| A42 | Prompt Gallery run-from-template | v1.1 | Gallery browsing silent; executed template captures prompt conversation | route transition |
+| A43 | Library saved-prompt execution | v1.1 | Library browsing silent; executing saved prompt captures prompt conversation | stale prompt copy |
+| A44 | API key management | v1.0.1 | ZERO captures; key values never enter content | secret leakage |
+| A45 | Documentation / cookbook links | v1.0.1 | ZERO captures outside prompt execution | external-domain leakage |
+| A46 | Workspace / region / quota gates | v1.0.1 | Skip with evidence; never capture gate text as assistant | policy banner leakage |
 
 ### III.3 Regression guardrails
 
@@ -223,6 +296,14 @@ Inherits from `@f:\INVENTION\You.Inc\PCE Core\Docs\stability\CHATGPT-FULL-COVERA
   as a `pce_core` schema extension (CaptureEvent v2's `layer_meta`
   field). Escalate per ChatGPT spec IV.5 if we find the current
   CaptureEvent has no room.
+- **A21-A46 are definition-complete but staged.** Autopilot must not
+  claim "full AI Studio" until these are either passed, explicitly
+  skipped with account/quota/policy evidence, or moved to a named later
+  milestone.
+- **Build mode is higher risk than prompt mode.** It may require a new
+  artifact schema because generated apps contain many files, previews,
+  logs, secrets, deployment state, and share/export controls that are not
+  ordinary chat messages.
 
 ---
 

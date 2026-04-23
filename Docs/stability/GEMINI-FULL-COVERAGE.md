@@ -9,7 +9,9 @@ in a finite number of iterations.
 **Audience:** the user (running the browser) + Cascade (reading and
 writing code) + the Gemini autopilot.
 
-**Status:** **S1 tier** (heavy). ~15 must-pass T-cases for v1.0.1.
+**Status:** **S1 tier** (heavy). G01-G20 are the v1.0.1 must-pass
+chat-capture bar; G21-G38 extend the definition to the broader Gemini
+web app surface discovered from current Google documentation.
 Parts IV–VI inherit from `CHATGPT-FULL-COVERAGE.md` (same protocol).
 
 **Timebox:** Gemini validation + fixes targeted at **1 evening** of
@@ -19,12 +21,25 @@ autopilot runs once ChatGPT's scaffolding is in place.
 
 ## Part I — What "full coverage" means
 
-Gemini is not one chat UI. It is ~20 distinct product surfaces that
-share the same Angular shell. Full coverage means for every surface
-below, PCE captures **both sides of every exchange**, with
-**semantically-correct attachments**, **correct role attribution**,
-**correct conversation-id**, and **no duplicate or truncated
-messages**.
+Gemini is not one chat UI. It is a family of chat, research, media,
+agentic, notebook, and settings surfaces that share the same Angular
+shell. Full coverage means for every in-scope surface below, PCE
+captures **both sides of every exchange**, with **semantically-correct
+attachments**, **correct role attribution**, **correct conversation-id**,
+and **no duplicate or truncated messages**. Non-chat pages must be
+proven silent.
+
+Coverage tiers:
+
+- **v1.0.1 core capture:** ordinary chat, streaming, edit/regenerate,
+  attachments, generated images, Deep Research, Canvas, Gems,
+  Extensions, shared/history/settings/error surfaces.
+- **v1.1 generated-media + async work:** Audio Overview, Live, Deep
+  Think, Veo video, image editing, music, scheduled actions, async
+  completion notifications.
+- **v1.2 workspace/project surfaces:** NotebookLM notebooks, Drive/Photos
+  sources, GitHub/repository uploads, Canvas app/code console, export and
+  sharing flows, personalization/memory controls.
 
 ### I.1 Product surfaces PCE must handle
 
@@ -34,27 +49,60 @@ Grouped by probability-of-use (top = most common).
 |---|---|---|---|---|
 | 1 | Vanilla chat | `/app` then `/app/<hex>` | Plain back-and-forth | user text + assistant markdown |
 | 2 | New chat (pre-URL) | `/app` or `/` | First message before URL upgrades to `/app/<hex>` | user text + assistant; conv_id fallback to `_new_<ts>` |
-| 3 | Code blocks in reply | `/app/<hex>` | ```lang fenced blocks with copy button | `code_block` attachments, language, full code |
+| 3 | Code blocks in reply | `/app/<hex>` | fenced code blocks with copy button | `code_block` attachments, language, full code |
 | 4 | Long reply w/ streaming | `/app/<hex>` | Progressive streaming, Stop button visible | NO partial captures; one final capture when Stop disappears |
 | 5 | Regenerate / alt drafts | `/app/<hex>` | "Show drafts" tab strip on assistant msg | currently displayed draft only; no re-capture when switching drafts |
 | 6 | Edit & resubmit user msg | `/app/<hex>` | Pencil icon on user bubble | edited text replaces prior user turn; new assistant reply follows |
 | 7 | File attachment (user) | `/app/<hex>` | PDF/doc/csv chip above prompt | `file` attachment with name + media_type |
 | 8 | Image upload (vision) | `/app/<hex>` | Thumbnail chip above prompt | `image_url` attachment |
-| 9 | Imagen image generation | `/app/<hex>` | Assistant inline renders 1-4 generated images | `image_generation` attachment per image |
+| 9 | Image generation | `/app/<hex>` | Assistant inline renders generated images from Nano Banana / Nano Banana Pro | `image_generation` attachment per image, not plain uploaded `image_url` |
 | 10 | Deep Research | `/app/<hex>` | Long-running research, progress UI, final report | assistant message with LONG report body + `citation` attachments |
-| 11 | Canvas (docs / code) | `/app/<hex>` (side panel) | Side-by-side doc editor | `canvas` attachment with doc content |
-| 12 | Thinking (2.5 Pro Thinking) | `/app/<hex>` | `<details>Thinking…</details>` panel above reply | assistant content prefixed with `<thinking>…</thinking>` |
+| 11 | Canvas docs/apps/code | `/app/<hex>` (side panel) | Side-by-side doc/app/code editor, preview, console | `canvas` attachment with doc/app/code content; do not double-capture preview chrome |
+| 12 | Thinking model | `/app/<hex>` | Thinking panel above reply | assistant content prefixed with `<thinking>...</thinking>` or equivalent thinking metadata |
 | 13 | Gems (custom personas) | `/gem/<id>` or `/gem/<id>/chat/<hex>` | Gem-specific shell; same chat semantics | same as 1 but `/gem/...` path |
-| 14 | Extensions | `/app/<hex>` | "@Gmail find emails from X" → inline Gmail cards; same for Docs/Drive/Maps/YouTube | assistant message + `citation` or `file` attachments pointing to Google resources |
-| 15 | Audio Overview | `/app/<hex>` | Generate-audio button → inline audio player | `audio` attachment with src URL or transcript |
-| 16 | Gemini Live (voice) | dedicated route | Real-time voice; transcript in side panel | same as 1 once transcribed |
-| 17 | Shared conversation | `/share/<hex>` | Read-only view of someone else's chat | PCE should NOT re-capture — DISCUSS |
-| 18 | History list | `/app` sidebar | Non-chat surface | PCE should NOT capture (no conversation shown) |
-| 19 | Settings / Activity | `/app/settings*`, `/app/activity*` | Non-chat surfaces | PCE should NOT capture |
-| 20 | Error states | `/app/<hex>` | "Something went wrong, try again" | NO capture of the error banner as assistant message |
-| 21 | Gemini Advanced upsell | various | Paywall screen | PCE should NOT capture |
+| 14 | Extensions / connected apps | `/app/<hex>` | Gmail/Docs/Drive/Maps/YouTube cards and citations | assistant message + `citation` / `file` / card attachments pointing to Google resources |
+| 15 | Audio Overview | `/app/<hex>` | Generated podcast-style audio player from file or Deep Research report | `audio` attachment with src URL or transcript; async completion handled |
+| 16 | Gemini Live (voice) | dedicated route or modal | Real-time voice/video; transcript when available | transcript as turns; raw live audio/video deferred unless schema supports it |
+| 17 | Shared conversation | `/share/<hex>` or `g.co/gemini/share` | Read-only public/shared chat or media | PCE should NOT re-capture read-only content unless user continues the chat |
+| 18 | History list | `/app` sidebar | Recent chats, notebooks, generated media entries | PCE should NOT capture list chrome |
+| 19 | Settings / Activity | `/app/settings*`, `/app/activity*` | Activity, personalization, connected apps, scheduled actions, plan controls | PCE should NOT capture settings chrome |
+| 20 | Error states | `/app/<hex>` | "Something went wrong", safety, quota, removed media | NO capture of the error banner as assistant message |
+| 21 | Gemini Advanced / Pro / Ultra upsell | various | Paywall / plan upgrade screen | PCE should NOT capture; report account-tier skip |
+| 22 | Temporary chat | `/app` temporary mode | Incognito-style chat not saved to recent chats/activity | capture current session turns but mark temporary/private; do not assume history URL exists |
+| 23 | Model switch | prompt bar / model picker | User selects Fast / Pro / Thinking / image model | new chat or model metadata update; do not merge two model conversations under one id |
+| 24 | Deep Think | `/app/<hex>` with Deep Think tool | Ultra-tier long-running reasoning response and ready notification | async assistant response + thinking/reasoning metadata; skip if unavailable |
+| 25 | Video generation (Veo) | `/app/<hex>` | Generated short video, optional image-to-video, download/share controls | `video_generation` attachment with thumbnail/src/status; async completion handled |
+| 26 | Image editing / multi-image generation | `/app/<hex>` | Upload/edit generated or user images; multiple references | user image attachments + assistant `image_generation`; preserve input/output distinction |
+| 27 | Music generation (Lyria) | `/app/<hex>` or media entry | Generated music track from text/image/video prompt | `audio_generation` or `audio` attachment with title/src/duration; schema may need extension |
+| 28 | NotebookLM notebook source | `/app/<hex>` or file picker | Add NotebookLM notebook as context | source attachment or citation; skip for Workspace accounts if unsupported |
+| 29 | Drive / Photos / camera sources | file picker / connected app | Upload from Drive, Photos, camera, device | same semantic attachments as local upload plus source/provider metadata when visible |
+| 30 | GitHub / repository upload | file picker / upload flow | Add code repo or project files as context | `file` / `repository` attachment with repo/file names; preserve code blocks separately |
+| 31 | Scheduled actions | settings or chat-created task | User asks Gemini to perform/recurringly run a task | capture the originating prompt/assistant confirmation; settings/list pages stay silent |
+| 32 | Visual layout / dynamic view | tool response | Magazine-style or interactive coded response with tabs/media | assistant text + `interactive_view` / `canvas` attachment; screenshot-assisted if no DOM text |
+| 33 | Deep Research export/share | Canvas side panel | Export to Docs, copy content, share Canvas, audio overview from report | no duplicate capture from export modal; capture final report once |
+| 34 | Generated media download/share/export | image/video/audio card controls | Download, share public link, export to Docs | no duplicate capture from menus; preserve generated media attachment in the original turn |
+| 35 | Personalization / saved info | settings + chat side effects | Gemini remembers facts or uses personalization | capture chat turns; settings pages silent; mark personalization state only if visible in metadata |
+| 36 | Connected-app permission flows | OAuth/permission modal | Enable Gmail/Drive/Maps/YouTube access | no capture of consent/settings chrome; subsequent extension outputs captured in #14 |
+| 37 | Notifications / async ready state | sidebar/mobile/web notification | Deep Research, Deep Think, Audio Overview, video ready | when reopened, capture final result once; no partial/progress-only captures |
+| 38 | Business / Workspace policy gates | banners / disabled controls | Feature unavailable due Workspace admin, age, region, plan | skip with evidence; never capture policy banners as assistant replies |
 
-### I.2 Meta-capture invariants
+### I.2 Official source map
+
+Checked 2026-04-23 against Google-owned documentation and product pages:
+
+- Gemini Apps temporary chat and model switching: `https://support.google.com/gemini?hl=en&p=temp_chats`
+- Uploads, Drive sources, and NotebookLM notebook uploads: `https://support.google.com/gemini/answer/14903178`
+- Image generation/editing: `https://support.google.com/gemini/answer/14286560`
+- Video generation with Veo: `https://support.google.com/gemini/answer/16126339`
+- Canvas docs/apps/code: `https://support.google.com/gemini/answer/16047321`
+- Deep Research reports/export/audio handoff: `https://support.google.com/gemini/answer/15719111`
+- Audio Overviews: `https://support.google.com/gemini/answer/16047373`
+- Deep Think: `https://support.google.com/gemini/answer/16345172`
+- Visual layout / dynamic view: `https://support.google.com/gemini/answer/16741341`
+- Scheduled actions: `https://support.google.com/gemini/answer/16316416`
+- Lyria music generation: `https://gemini.google/us/overview/music-generation/`
+
+### I.3 Meta-capture invariants
 
 Independent of surface, these must hold **always**:
 
@@ -65,6 +113,10 @@ Independent of surface, these must hold **always**:
 - **SPA nav correctness** — navigating `/app/A` → `/app/B` must reset the fingerprint. Gemini uses Angular router; we rely on 5s URL polling (no pushState hook — see G1).
 - **Manual capture** — force-resend bypasses fingerprint.
 - **Model name population** — `conversation.model_name` should reflect Gemini 2.5 Pro / 2.5 Flash / 2.0 Flash / Imagen / Gem name.
+- **Generated-media semantics** — generated image/video/audio must not be misclassified as user uploads.
+- **Async completion safety** — Deep Research / Deep Think / Audio Overview / Veo may finish after the user leaves; capture only the final reopened result once.
+- **Account-capability honesty** — unsupported plan, Workspace policy, age, region, or quota states are `skip` with evidence, not `fail`.
+- **Privacy-mode tagging** — Temporary chat captures must be marked temporary/private where schema permits; never infer stable history IDs.
 - **Console hygiene** — no red errors.
 
 ---
@@ -179,13 +231,33 @@ Each row is a **verifiable checkpoint**.
 | G19 | 20 error | 🟡 | ⬜ | Force error (bad prompt / rate limit) | NO capture with error banner as assistant | error filter |
 | G20 | 18 history | 🟢 | ⬜ | Open history list from sidebar | ZERO new captures | idle honesty |
 
-### III.2 Defer-to-v1.1
+### III.2 Expanded coverage backlog
 
-| ID | Surface | Status | Notes |
-|---|---|---|---|
-| G21 | 15 Audio Overview | ⬜ | Low priority; `audio` attachment path not implemented (**G12**) |
-| G22 | 16 Live voice | ⬜ | Experimental; transcription-only path |
-| G23 | 21 Advanced upsell | ⬜ | Should silently skip; low risk |
+These cases complete the definition of "full Gemini web app" beyond the
+G01-G20 v1.0.1 chat-capture bar. They are not optional in the product
+coverage model; they are staged because several require account tier,
+region, async wait time, or schema extensions.
+
+| ID | Surface | Tier | Status | Expected capture / behavior | Known risk |
+|---|---|---|---|---|---|
+| G21 | Audio Overview | v1.1 | ⬜ | Generated audio is `audio` / `audio_generation`; report/source text captured once | audio schema, async completion |
+| G22 | Gemini Live voice/video | v1.1 | ⬜ | Transcript captured as turns when visible; raw live stream deferred | real-time UI, no stable DOM |
+| G23 | Advanced / Pro / Ultra upsell | v1.0.1 | ⬜ | ZERO captures; case records account-tier skip | paywall text leakage |
+| G24 | Temporary chat | v1.1 | ⬜ | Current turns captured with temporary/private metadata; no history assumption | no durable URL |
+| G25 | Model switch | v1.1 | ⬜ | `conversation.model_name` updates; model-change UI text not captured as a turn | model picker DOM drift |
+| G26 | Deep Think | v1.1 | ⬜ | Final answer + reasoning/thinking metadata captured once | Ultra/region gate, long wait |
+| G27 | Veo video generation | v1.1 | ⬜ | Assistant has `video_generation` attachment with thumbnail/src/status | schema extension |
+| G28 | Image editing / multi-image generation | v1.1 | ⬜ | Input image refs stay user-side; generated edits are `image_generation` | input/output confusion |
+| G29 | Lyria music generation | v1.2 | ⬜ | Assistant has `audio_generation` or `audio` attachment | product availability, schema |
+| G30 | NotebookLM notebook source | v1.2 | ⬜ | Source notebook appears as file/source attachment or citations | Workspace/region support |
+| G31 | Drive / Photos / camera sources | v1.1 | ⬜ | Same semantic attachment types as local upload plus provider metadata if visible | picker is cross-origin |
+| G32 | GitHub / repository upload | v1.2 | ⬜ | Repository/file source represented without merging code files into assistant code blocks | picker availability |
+| G33 | Scheduled actions | v1.2 | ⬜ | Chat-created task confirmation captured; schedule/settings pages silent | future execution not visible |
+| G34 | Visual layout / dynamic view | v1.2 | ⬜ | Text + interactive/canvas attachment, screenshot-assisted if necessary | non-text response DOM |
+| G35 | Deep Research export/share | v1.1 | ⬜ | Export/share menus generate ZERO duplicate captures | modal leakage |
+| G36 | Generated-media download/share/export | v1.1 | ⬜ | Menus silent; original generated media attachment remains complete | duplicate capture |
+| G37 | Personalization / saved info | v1.2 | ⬜ | Settings silent; chat turns captured; visible personalization metadata only if schema supports it | private settings data |
+| G38 | Business / Workspace policy gate | v1.0.1 | ⬜ | ZERO assistant captures; report `skip` with policy-gate evidence | banner leakage |
 
 ### III.3 Regression guardrails
 
@@ -208,6 +280,9 @@ Inherits from `@f:\INVENTION\You.Inc\PCE Core\Docs\stability\CHATGPT-FULL-COVERA
 - **Autopilot drives most cases.** G01-G05, G07-G11, G15, G17, G18, G20 = 13 cases fully automated via extended `GeminiAdapter` + `capture_verifier.wait_for_session_matching`.
 - **G06, G12, G13 require Gemini Advanced account** — autopilot skips unless user declares subscription.
 - **G14, G16, G19** use screenshot-assisted verification (Cascade `read_file`s the PNG + confirms Canvas pane visible / Extension card present / error banner visible).
+- **G21-G38 are definition-complete but staged.** Autopilot must not claim
+  "full Gemini" until these are either passed, explicitly skipped with
+  account/policy evidence, or moved to a named later milestone.
 - **Fingerprint under Angular re-render.** Gemini re-renders the turn list on nearly every interaction. If a real bug turns out to be a false-positive capture triggered by re-render, the fix is in `capture-runtime.ts`, not `gemini.content.ts` — escalate per IV.5 of the ChatGPT spec.
 
 ---
