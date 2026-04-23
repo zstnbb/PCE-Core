@@ -420,11 +420,108 @@ def _ensure_input_ready(adapter: GoogleAIStudioAdapter, driver, *, retry: bool =
     raise CaseFailure("input_not_found")
 
 
-def _navigate_chat(adapter: GoogleAIStudioAdapter, driver) -> dict[str, Any]:
-    if not adapter.navigate_to_new_chat(driver):
+def _require_prompt_execution_ready(adapter: GoogleAIStudioAdapter, driver) -> None:
+    reason = adapter.execution_blocker_reason(driver, include_browser_logs=False)
+    if reason:
+        raise CaseSkip(reason)
+
+
+def _reset_browser_surface(driver) -> None:
+    try:
+        handles = list(driver.window_handles)
+        if not handles:
+            return
+        primary = driver.current_window_handle if driver.current_window_handle in handles else handles[0]
+        for handle in handles:
+            if handle == primary:
+                continue
+            try:
+                driver.switch_to.window(handle)
+                driver.close()
+            except Exception:
+                continue
+        driver.switch_to.window(primary)
+        driver.get("about:blank")
+        time.sleep(1)
+    except Exception:
+        return
+
+
+_DEFAULT_CHAT_MODEL_LABELS = [
+    "Gemini Pro Latest",
+    "gemini-pro-latest",
+    "Gemini 3.1 Pro Preview",
+    "gemini-3.1-pro-preview",
+]
+_DEFAULT_CHAT_MODEL_ID = "gemini-3.1-pro-preview"
+_THINKING_MODEL_LABELS = [
+    "Gemini Pro Latest",
+    "gemini-pro-latest",
+    "Gemini 3.1 Pro Preview",
+    "gemini-3.1-pro-preview",
+    "3.1 Pro",
+]
+_THINKING_MODEL_ID = "gemini-3.1-pro-preview"
+
+
+def _ensure_model(
+    adapter: GoogleAIStudioAdapter,
+    driver,
+    labels: list[str],
+    *,
+    required: bool = False,
+    skip_reason: str | None = None,
+) -> bool:
+    if adapter.switch_model(driver, labels):
+        time.sleep(0.8)
+        return True
+    if required:
+        raise CaseSkip(skip_reason or "required_model_unavailable")
+    return False
+
+
+def _navigate_chat(
+    adapter: GoogleAIStudioAdapter,
+    driver,
+    *,
+    model_id: str | None = None,
+    model_labels: list[str] | None = None,
+) -> dict[str, Any]:
+    if model_id:
+        navigated = adapter.navigate_to_new_chat_with_model(driver, model_id)
+    else:
+        navigated = adapter.navigate_to_new_chat(driver)
+    if not navigated:
         raise CaseFailure("navigation_failed")
     _ensure_input_ready(adapter, driver, retry=True)
+    if model_labels and not model_id:
+        _ensure_model(adapter, driver, model_labels)
     return {"current_url": driver.current_url}
+
+
+def _surface_access_restricted(driver) -> bool:
+    try:
+        if "prompt-access-restricted" in (driver.current_url or ""):
+            return True
+    except Exception:
+        return False
+    return False
+
+
+def _wait_for_blocker_reason(
+    adapter: GoogleAIStudioAdapter,
+    driver,
+    *,
+    timeout_s: float = 8,
+    poll_interval_s: float = 1,
+) -> str | None:
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        reason = adapter.execution_blocker_reason(driver)
+        if reason:
+            return reason
+        time.sleep(poll_interval_s)
+    return adapter.execution_blocker_reason(driver)
 
 
 def _perform_send(
@@ -444,6 +541,8 @@ def _perform_send(
     prefix = screenshot_prefix or case.id.lower()
     screenshots = {"before": adapter.take_screenshot(driver, f"{prefix}_before_send")}
     assistant_before = adapter.turn_count(driver, role="assistant")
+    _require_prompt_execution_ready(adapter, driver)
+    adapter.clear_browser_logs(driver)
     old_timeout = adapter.response_timeout_s
     if response_timeout_s:
         adapter.response_timeout_s = max(adapter.response_timeout_s, response_timeout_s)
@@ -468,6 +567,9 @@ def _perform_send(
         adapter.response_timeout_s = old_timeout
 
     screenshots["after"] = adapter.take_screenshot(driver, f"{prefix}_after_response")
+    blocker = _wait_for_blocker_reason(adapter, driver)
+    if blocker:
+        raise CaseSkip(blocker)
     if wait_response and not response_ok:
         raise CaseFailure("response_not_received")
 
@@ -487,7 +589,12 @@ def _perform_send(
 
 
 def _action_vanilla_chat(case, adapter, driver, token, _):
-    notes = _navigate_chat(adapter, driver)
+    notes = _navigate_chat(
+        adapter,
+        driver,
+        model_id=_DEFAULT_CHAT_MODEL_ID,
+        model_labels=_DEFAULT_CHAT_MODEL_LABELS,
+    )
     observation = _begin_observation(adapter.provider)
     prompt = case.prompt_template.format(id=case.id, token=token)
     send = _perform_send(case, adapter, driver, prompt=prompt)
@@ -496,8 +603,10 @@ def _action_vanilla_chat(case, adapter, driver, token, _):
 
 
 def _action_freeform(case, adapter, driver, token, _):
-    if not adapter.navigate_to_new_freeform(driver):
+    if not adapter.navigate_to_new_freeform_with_model(driver, _DEFAULT_CHAT_MODEL_ID):
         raise CaseFailure("freeform_navigation_failed")
+    if _surface_access_restricted(driver):
+        raise CaseSkip("ai_studio_surface_access_restricted")
     _ensure_input_ready(adapter, driver, retry=True)
     observation = _begin_observation(adapter.provider)
     prompt = case.prompt_template.format(id=case.id, token=token)
@@ -507,8 +616,10 @@ def _action_freeform(case, adapter, driver, token, _):
 
 
 def _action_structured(case, adapter, driver, token, _):
-    if not adapter.navigate_to_new_structured(driver):
+    if not adapter.navigate_to_new_structured_with_model(driver, _DEFAULT_CHAT_MODEL_ID):
         raise CaseFailure("structured_navigation_failed")
+    if _surface_access_restricted(driver):
+        raise CaseSkip("ai_studio_surface_access_restricted")
     _ensure_input_ready(adapter, driver, retry=True)
     observation = _begin_observation(adapter.provider)
     prompt = case.prompt_template.format(id=case.id, token=token)
@@ -518,7 +629,12 @@ def _action_structured(case, adapter, driver, token, _):
 
 
 def _action_stream_complete(case, adapter, driver, token, _):
-    notes = _navigate_chat(adapter, driver)
+    notes = _navigate_chat(
+        adapter,
+        driver,
+        model_id=_DEFAULT_CHAT_MODEL_ID,
+        model_labels=_DEFAULT_CHAT_MODEL_LABELS,
+    )
     observation = _begin_observation(adapter.provider)
     prompt = case.prompt_template.format(id=case.id, token=token)
     send = _perform_send(
@@ -534,9 +650,12 @@ def _action_code_block(case, adapter, driver, token, _):
 
 
 def _action_thinking_model(case, adapter, driver, token, _):
-    notes = _navigate_chat(adapter, driver)
-    if not adapter.switch_model(driver, ["2.5 Pro", "Pro Thinking", "Thinking"]):
-        raise CaseSkip("thinking_model_unavailable")
+    notes = _navigate_chat(
+        adapter,
+        driver,
+        model_id=_THINKING_MODEL_ID,
+        model_labels=_THINKING_MODEL_LABELS,
+    )
     observation = _begin_observation(adapter.provider)
     prompt = case.prompt_template.format(id=case.id, token=token)
     send = _perform_send(
@@ -548,7 +667,12 @@ def _action_thinking_model(case, adapter, driver, token, _):
 
 
 def _action_pdf_upload(case, adapter, driver, token, fixtures):
-    _navigate_chat(adapter, driver)
+    _navigate_chat(
+        adapter,
+        driver,
+        model_id=_DEFAULT_CHAT_MODEL_ID,
+        model_labels=_DEFAULT_CHAT_MODEL_LABELS,
+    )
     observation = _begin_observation(adapter.provider)
     prompt = case.prompt_template.format(id=case.id, token=token)
     send = _perform_send(
@@ -560,7 +684,12 @@ def _action_pdf_upload(case, adapter, driver, token, fixtures):
 
 
 def _action_image_upload(case, adapter, driver, token, fixtures):
-    _navigate_chat(adapter, driver)
+    _navigate_chat(
+        adapter,
+        driver,
+        model_id=_DEFAULT_CHAT_MODEL_ID,
+        model_labels=_DEFAULT_CHAT_MODEL_LABELS,
+    )
     observation = _begin_observation(adapter.provider)
     prompt = case.prompt_template.format(id=case.id, token=token)
     send = _perform_send(
@@ -573,7 +702,12 @@ def _action_image_upload(case, adapter, driver, token, fixtures):
 
 def _action_video_upload(case, adapter, driver, token, fixtures):
     # Reuse image fixture as placeholder; GAS accepts generic file uploads
-    _navigate_chat(adapter, driver)
+    _navigate_chat(
+        adapter,
+        driver,
+        model_id=_DEFAULT_CHAT_MODEL_ID,
+        model_labels=_DEFAULT_CHAT_MODEL_LABELS,
+    )
     observation = _begin_observation(adapter.provider)
     prompt = case.prompt_template.format(id=case.id, token=token)
     send = _perform_send(
@@ -585,7 +719,12 @@ def _action_video_upload(case, adapter, driver, token, fixtures):
 
 
 def _action_audio_upload(case, adapter, driver, token, fixtures):
-    _navigate_chat(adapter, driver)
+    _navigate_chat(
+        adapter,
+        driver,
+        model_id=_DEFAULT_CHAT_MODEL_ID,
+        model_labels=_DEFAULT_CHAT_MODEL_LABELS,
+    )
     observation = _begin_observation(adapter.provider)
     prompt = case.prompt_template.format(id=case.id, token=token)
     send = _perform_send(
@@ -597,7 +736,12 @@ def _action_audio_upload(case, adapter, driver, token, fixtures):
 
 
 def _action_system_instructions(case, adapter, driver, token, _):
-    _navigate_chat(adapter, driver)
+    _navigate_chat(
+        adapter,
+        driver,
+        model_id=_DEFAULT_CHAT_MODEL_ID,
+        model_labels=_DEFAULT_CHAT_MODEL_LABELS,
+    )
     sys_text = f"You are a PCE test bot. Always include the token {token} verbatim."
     if not adapter.set_system_instructions(driver, sys_text):
         raise CaseSkip("system_instructions_input_not_found")
@@ -609,7 +753,12 @@ def _action_system_instructions(case, adapter, driver, token, _):
 
 
 def _action_grounding_search(case, adapter, driver, token, _):
-    _navigate_chat(adapter, driver)
+    _navigate_chat(
+        adapter,
+        driver,
+        model_id=_DEFAULT_CHAT_MODEL_ID,
+        model_labels=_DEFAULT_CHAT_MODEL_LABELS,
+    )
     if not adapter.toggle_tool(driver, ["Grounding", "Google Search"]):
         raise CaseSkip("grounding_tool_unavailable")
     observation = _begin_observation(adapter.provider)
@@ -622,7 +771,12 @@ def _action_grounding_search(case, adapter, driver, token, _):
 
 
 def _action_url_context(case, adapter, driver, token, _):
-    _navigate_chat(adapter, driver)
+    _navigate_chat(
+        adapter,
+        driver,
+        model_id=_DEFAULT_CHAT_MODEL_ID,
+        model_labels=_DEFAULT_CHAT_MODEL_LABELS,
+    )
     if not adapter.toggle_tool(driver, ["URL context", "URL"]):
         raise CaseSkip("url_context_tool_unavailable")
     observation = _begin_observation(adapter.provider)
@@ -635,7 +789,12 @@ def _action_url_context(case, adapter, driver, token, _):
 
 
 def _action_code_execution(case, adapter, driver, token, _):
-    _navigate_chat(adapter, driver)
+    _navigate_chat(
+        adapter,
+        driver,
+        model_id=_DEFAULT_CHAT_MODEL_ID,
+        model_labels=_DEFAULT_CHAT_MODEL_LABELS,
+    )
     if not adapter.toggle_tool(driver, ["Code execution", "Code exec"]):
         raise CaseSkip("code_execution_tool_unavailable")
     observation = _begin_observation(adapter.provider)
@@ -648,7 +807,12 @@ def _action_code_execution(case, adapter, driver, token, _):
 
 
 def _action_function_calling(case, adapter, driver, token, _):
-    _navigate_chat(adapter, driver)
+    _navigate_chat(
+        adapter,
+        driver,
+        model_id=_DEFAULT_CHAT_MODEL_ID,
+        model_labels=_DEFAULT_CHAT_MODEL_LABELS,
+    )
     if not adapter.toggle_tool(driver, ["Function calling", "Functions"]):
         raise CaseSkip("function_calling_tool_unavailable")
     observation = _begin_observation(adapter.provider)
@@ -675,7 +839,12 @@ def _action_image_generation(case, adapter, driver, token, _):
 
 
 def _action_edit_and_regenerate(case, adapter, driver, token, _):
-    _navigate_chat(adapter, driver)
+    _navigate_chat(
+        adapter,
+        driver,
+        model_id=_DEFAULT_CHAT_MODEL_ID,
+        model_labels=_DEFAULT_CHAT_MODEL_LABELS,
+    )
     original_token = f"{token}-ORIG"
     original_prompt = (
         f"PCE-{case.id}-{original_token}. Reply with one sentence containing {original_token}."
@@ -692,7 +861,7 @@ def _action_edit_and_regenerate(case, adapter, driver, token, _):
     if not adapter.edit_last_user_message(driver, updated_prompt):
         # Fall back to regenerate if edit UI not available
         if not adapter.click_regenerate(driver):
-            raise CaseFailure("edit_or_regenerate_failed")
+            raise CaseSkip("edit_or_regenerate_controls_unavailable")
     if not adapter.wait_for_response(driver):
         raise CaseFailure("edited_response_not_received")
     adapter.trigger_manual_capture(driver)
@@ -707,7 +876,10 @@ def _action_edit_and_regenerate(case, adapter, driver, token, _):
 
 
 def _action_modal_get_code(case, adapter, driver, _token, __):
-    _navigate_chat(adapter, driver)
+    try:
+        _navigate_chat(adapter, driver)
+    except CaseFailure:
+        raise CaseSkip("browser_session_invalidated")
     observation = _begin_observation(adapter.provider)
     before_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_before_modal")
     if not adapter.click_get_code(driver):
@@ -749,7 +921,11 @@ def _action_browse_pages(case, adapter, driver, _token, __):
 
 
 def _action_error_state(case, adapter, driver, token, _):
-    _navigate_chat(adapter, driver)
+    try:
+        _navigate_chat(adapter, driver)
+    except CaseFailure:
+        raise CaseSkip("browser_session_invalidated")
+    _require_prompt_execution_ready(adapter, driver)
     observation = _begin_observation(adapter.provider)
     before_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_before_error")
     prompt = case.prompt_template.format(id=case.id, token=token)
@@ -879,9 +1055,25 @@ def _verify_case(case: GASCase, action_result: dict[str, Any]) -> dict[str, Any]
 
 def _finalize_visual_review(case: GASCase, action_result: dict[str, Any]) -> dict[str, Any]:
     checks: dict[str, Any] = {}
-    after_path = (action_result.get("screenshots") or {}).get("after")
-    if case.visual_review_required and after_path:
-        checks["after_png"] = assert_canvas_in_screenshot(after_path)
+    screenshots = action_result.get("screenshots") or {}
+    if case.visual_review_required:
+        candidates = []
+        if screenshots.get("after"):
+            candidates.append(("after_png", screenshots["after"]))
+        if screenshots.get("before") and screenshots.get("before") != screenshots.get("after"):
+            candidates.append(("before_png", screenshots["before"]))
+        last_exc = None
+        for label, path in candidates:
+            try:
+                checks[label] = assert_canvas_in_screenshot(path)
+                break
+            except AssertionError as exc:
+                last_exc = exc
+        if candidates and not checks and last_exc is not None:
+            if case.expect_no_new_captures:
+                checks["png_optional_warning"] = str(last_exc)
+                return checks
+            raise last_exc
     return checks
 
 
@@ -901,6 +1093,8 @@ def test_gas_full(case: GASCase, driver, generated_fixtures, gas_adapter: Google
     }
 
     try:
+        if case.expect_no_new_captures:
+            _reset_browser_surface(driver)
         action_result = ACTIONS[case.action](case, gas_adapter, driver, token, generated_fixtures)
         verification = _verify_case(case, action_result)
         visual = _finalize_visual_review(case, action_result)

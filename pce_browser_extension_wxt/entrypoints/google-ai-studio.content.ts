@@ -26,7 +26,6 @@ import {
 } from "../utils/capture-runtime";
 import {
   extractAttachments,
-  extractReplyContent,
   extractThinking,
   isStreaming as sharedIsStreaming,
   normalizeCitationUrl,
@@ -48,9 +47,11 @@ const CONTROL_LINE_RE =
 const META_LINE_RE = /^(?:user|model)\s+\d{1,2}:\d{2}$/i;
 const DISCLAIMER_LINE_RE = /^google ai models may make mistakes/i;
 const AI_STUDIO_UI_LINE_RE =
-  /^(?:download|content_copy|expand_less|expand_more|copy code|copy)$/i;
+  /^(?:download|content_copy|expand_less|expand_more|copy code|copy|fullscreen|chevron_right)$/i;
 const SESSION_HINT_RE = /\/prompts\/([a-zA-Z0-9_-]+)/;
-const MODEL_NAME_RE = /\b(gemini-[\w.-]+)\b/i;
+const MODEL_NAME_RE = /\b((?:gemini|imagen|veo|lyria)-[\w.-]+)\b/i;
+const AI_STUDIO_ERROR_RE =
+  /(failed to generate content|permission denied|an internal error has occurred|quota|rate limit|try again)/i;
 
 // ---------------------------------------------------------------------------
 // Helpers (module-scope for testability)
@@ -257,6 +258,7 @@ export function extractLocalAttachments(
 interface CleanOptions {
   stripLinks?: boolean;
   stripCode?: boolean;
+  stripThoughts?: boolean;
 }
 
 /**
@@ -275,7 +277,13 @@ export function cleanContainerText(
     .querySelectorAll(
       "button, mat-icon, .mat-icon, [role='button'], [aria-hidden='true'], " +
         ".mat-mdc-tooltip-trigger, .chat-turn-actions, .feedback-buttons, .turn-header, " +
-        ".actions-container, .author-label, .timestamp, .turn-footer, ms-chat-turn-options",
+        ".actions-container, .author-label, .timestamp, .turn-footer, ms-chat-turn-options, " +
+        ".role-container, .model-run-time, .model-run-time-pill, .status-message, " +
+        ".header, .info-container, .feedback-container, .bottom-right-image-controls, " +
+        ".chat-hallucinations-disclaimer, .error-callout, .error-icon, .link-warning, " +
+        ".mat-expansion-indicator, .mat-expansion-panel-header-description, " +
+        ".loading-indicator, loading-indicator, .hover-or-edit, .actions, " +
+        ".material-symbols-outlined, ms-prompt-feedback",
     )
     .forEach((node) => node.remove());
   if (options.stripCode) {
@@ -283,6 +291,14 @@ export function cleanContainerText(
       .querySelectorAll(
         "pre, code, [class*='code-block'], [class*='codeblock'], [class*='code-header'], " +
           "ms-code-block, ms-md-code-block",
+      )
+      .forEach((node) => node.remove());
+  }
+  if (options.stripThoughts) {
+    clone
+      .querySelectorAll(
+        "ms-thought-chunk, .thought-panel, [class*='thought-panel'], " +
+          ".top-panel-header, .thought-summary, .thought-toggle",
       )
       .forEach((node) => node.remove());
   }
@@ -310,7 +326,8 @@ export function isStreaming(doc: Document = document): boolean {
 export function getContainer(doc: Document = document): Element | null {
   return (
     doc.querySelector(
-      ".chat-view-container, ms-chat-session, .chat-session-content, main",
+      ".chat-view-container, ms-chat-session, .chat-session-content, " +
+        "ms-prompt-renderer, ms-chunk-editor, main",
     ) || doc.body
   );
 }
@@ -325,6 +342,7 @@ export function getSessionHint(
 
 export function getModelName(doc: Document = document): string | null {
   const selectors = [
+    ".model-selector-card",
     "ms-model-selector .mat-mdc-select-value-text",
     "ms-model-selector .model-name",
     "[data-testid*='model']",
@@ -345,9 +363,101 @@ export function getModelName(doc: Document = document): string | null {
   return match ? match[1] : null;
 }
 
+function getTurnContainer(turn: Element): Element | null {
+  if (
+    turn.matches(
+      ".chat-turn-container, .virtual-scroll-container, .user-prompt-container, " +
+        ".model-prompt-container, [data-turn-role]",
+    )
+  ) {
+    return turn;
+  }
+  return (
+    turn.querySelector(".chat-turn-container") ||
+    turn.querySelector(
+      ".virtual-scroll-container, .user-prompt-container, .model-prompt-container",
+    ) ||
+    turn.querySelector("[data-turn-role]") ||
+    null
+  );
+}
+
+function querySelfOrDescendant(turn: Element, selector: string): Element | null {
+  if (turn.matches(selector)) return turn;
+  return turn.querySelector(selector);
+}
+
+function getTurnRole(turn: Element): "user" | "assistant" | null {
+  const candidates = [
+    turn,
+    getTurnContainer(turn),
+    turn.querySelector("[data-turn-role]"),
+  ].filter(Boolean) as Element[];
+
+  for (const candidate of candidates) {
+    const classText = String(candidate.className || "").toLowerCase();
+    if (/\buser\b/.test(classText)) return "user";
+    if (/\bmodel\b/.test(classText)) return "assistant";
+    const dataRole = (
+      candidate.getAttribute("data-turn-role") || ""
+    ).toLowerCase();
+    if (dataRole.includes("user")) return "user";
+    if (dataRole.includes("model")) return "assistant";
+  }
+  return null;
+}
+
+function extractAiStudioThinking(turn: Element): string {
+  const parts: string[] = [];
+  const selectors = [
+    "ms-thought-chunk .mat-expansion-panel-body",
+    "ms-thought-chunk .mat-expansion-panel-content",
+    "ms-thought-chunk .markdown",
+    "ms-thought-chunk .whitespace-pre-wrap",
+    "details .markdown",
+    "details .whitespace-pre-wrap",
+  ];
+  for (const sel of selectors) {
+    try {
+      turn.querySelectorAll(sel).forEach((node) => {
+        const text = normalizeAiStudioThinking(safeInnerText(node));
+        if (!text) return;
+        parts.push(text);
+      });
+    } catch {
+      /* skip */
+    }
+  }
+  return normalizeText(parts.join("\n"));
+}
+
+function normalizeAiStudioThinking(text: string | null | undefined): string {
+  const lines = normalizeText(text)
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !/^thoughts$/i.test(line))
+    .filter((line) => !/expand to view model thoughts/i.test(line))
+    .filter((line) => !/^chevron_right$/i.test(line));
+  return lines.join("\n").trim();
+}
+
+function isErrorTurn(el: Element): boolean {
+  const text = cleanContainerText(el, { stripThoughts: true });
+  if (!text) return false;
+  const lines = text
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return lines.length > 0 && lines.every((line) => AI_STUDIO_ERROR_RE.test(line));
+}
+
 export function extractUserText(turn: Element): string {
-  const userContainer = turn.querySelector(
-    ".chat-turn-container.user, .chat-turn-container .user",
+  const userContainer = querySelfOrDescendant(
+    turn,
+    ".chat-turn-container.user, .chat-turn-container .user, " +
+      ".virtual-scroll-container.user-prompt-container, .user-prompt-container, " +
+      "[data-turn-role='User']",
   );
   return cleanContainerText(userContainer || turn);
 }
@@ -356,10 +466,17 @@ export function extractAssistantText(
   turn: Element,
   attachments: PceAttachment[] = [],
 ): string {
-  const modelContainer = turn.querySelector(
-    ".chat-turn-container.model, .model",
-  );
+  const modelContainer = querySelfOrDescendant(
+    turn,
+    ".chat-turn-container.model, .chat-turn-container .model, " +
+      ".virtual-scroll-container.model-prompt-container, .model-prompt-container, " +
+      "[data-turn-role='Model']",
+  ) || getTurnContainer(turn);
   if (!modelContainer) return "";
+  if (getTurnRole(turn) !== "assistant" && !String(modelContainer.className).includes("model")) {
+    return "";
+  }
+  if (isErrorTurn(modelContainer)) return "";
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const hasCode = attachments.some((a: any) => a?.type === "code_block");
@@ -368,15 +485,41 @@ export function extractAssistantText(
   const cleaned = cleanContainerText(modelContainer, {
     stripCode: hasCode,
     stripLinks: hasCitation,
+    stripThoughts: true,
   });
   const reply =
-    cleaned || extractReplyContent(modelContainer) || cleanContainerText(modelContainer);
+    cleaned ||
+    cleanContainerText(modelContainer, {
+      stripLinks: hasCitation,
+      stripThoughts: true,
+    }) ||
+    attachmentOnlyText(attachments);
 
-  const thinking = normalizeText(extractThinking(modelContainer));
+  const thinking =
+    extractAiStudioThinking(modelContainer) ||
+    normalizeAiStudioThinking(extractThinking(modelContainer));
   if (thinking) {
     return `<thinking>\n${thinking}\n</thinking>\n\n${normalizeText(reply)}`.trim();
   }
   return normalizeText(reply);
+}
+
+function getPromptTurns(doc: Document): Element[] {
+  const chatTurns = Array.from(doc.querySelectorAll("ms-chat-turn"));
+  if (chatTurns.length > 0) return chatTurns;
+
+  const fallbackTurns = Array.from(
+    doc.querySelectorAll(
+      ".virtual-scroll-container.user-prompt-container, " +
+        ".virtual-scroll-container.model-prompt-container, " +
+        ".user-prompt-container, .model-prompt-container, " +
+        "[data-turn-role='User'], [data-turn-role='Model']",
+    ),
+  );
+
+  return fallbackTurns.filter(
+    (turn) => !fallbackTurns.some((other) => other !== turn && other.contains(turn)),
+  );
 }
 
 /**
@@ -389,18 +532,13 @@ export function extractMessages(
   origin: string = location.hostname,
 ): ExtractedMessage[] {
   const messages: ExtractedMessage[] = [];
-  const turns = doc.querySelectorAll("ms-chat-turn");
+  const turns = getPromptTurns(doc);
   if (turns.length === 0) return messages;
 
   turns.forEach((turn) => {
-    const turnContainer = turn.querySelector(".chat-turn-container");
-    const cls = (
-      ((turnContainer as Element)?.className ||
-        (turn as Element).className ||
-        "") as string
-    ).toString().toLowerCase();
+    const role = getTurnRole(turn);
 
-    if (cls.includes("user")) {
+    if (role === "user") {
       const content = extractUserText(turn);
       const rawAtt = [
         ...extractAttachments(turn),
@@ -426,7 +564,7 @@ export function extractMessages(
       return;
     }
 
-    if (cls.includes("model")) {
+    if (role === "assistant") {
       const rawAtt = [
         ...extractAttachments(turn),
         ...extractLocalAttachments(turn, origin),
@@ -528,7 +666,7 @@ export default defineContentScript({
       extractMessages: () => extractMessages(document),
       getSessionHint: () => getSessionHint(),
       getModelName: () => getModelName(document),
-      hookHistoryApi: false,
+      hookHistoryApi: true,
     });
 
     document.addEventListener("pce-manual-capture", () => {

@@ -184,6 +184,29 @@ describe("cleanContainerText", () => {
   it("returns empty string on null", () => {
     expect(cleanContainerText(null)).toBe("");
   });
+
+  it("strips current AI Studio action/header chrome from turn containers", () => {
+    document.body.innerHTML = `
+      <div id="x" class="chat-turn-container code-block-aligner model render ng-star-inserted">
+        <div class="actions-container">
+          <div class="actions hover-or-edit">
+            <ms-chat-turn-options>more_vert</ms-chat-turn-options>
+          </div>
+        </div>
+        <div class="turn-content">
+          <div class="author-label">Model <span class="timestamp">12:00</span></div>
+          <div class="info-container">
+            <span class="model-run-time">0.6s</span>
+          </div>
+          <div class="prompt-container">
+            <div class="markdown">The real assistant reply.</div>
+          </div>
+        </div>
+      </div>`;
+    expect(cleanContainerText(document.getElementById("x"))).toBe(
+      "The real assistant reply.",
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -318,6 +341,11 @@ describe("getModelName", () => {
     expect(getModelName(document)).toBe("gemini-2.0-flash");
   });
 
+  it("recognises non-gemini model families like imagen", () => {
+    document.body.innerHTML = `<p>using imagen-3-fast-generate-preview</p>`;
+    expect(getModelName(document)).toBe("imagen-3-fast-generate-preview");
+  });
+
   it("returns null when nothing matches", () => {
     document.body.innerHTML = `<p>nothing here</p>`;
     expect(getModelName(document)).toBeNull();
@@ -375,6 +403,52 @@ describe("extractAssistantText", () => {
       </ms-chat-turn>`;
     expect(extractAssistantText(document.getElementById("t")!)).toBe("");
   });
+
+  it("ignores collapsed AI Studio thought headers and keeps the real reply", () => {
+    document.body.innerHTML = `
+      <ms-chat-turn id="t">
+        <div class="chat-turn-container code-block-aligner model render ng-star-inserted">
+          <div class="actions-container"><ms-chat-turn-options>more_vert</ms-chat-turn-options></div>
+          <div class="turn-content">
+            <div class="author-label">Model <span class="timestamp">12:00</span></div>
+            <ms-prompt-chunk class="text-chunk ng-star-inserted">
+              <ms-thought-chunk class="ng-star-inserted">
+                <mat-accordion>
+                  <mat-expansion-panel class="mat-expansion-panel thought-panel">
+                    <mat-expansion-panel-header>
+                      <mat-panel-title>Thoughts</mat-panel-title>
+                      <span>Expand to view model thoughts</span>
+                      <span>chevron_right</span>
+                    </mat-expansion-panel-header>
+                  </mat-expansion-panel>
+                </mat-accordion>
+              </ms-thought-chunk>
+              <div class="markdown">The final assistant reply.</div>
+            </ms-prompt-chunk>
+          </div>
+        </div>
+      </ms-chat-turn>`;
+    expect(extractAssistantText(document.getElementById("t")!)).toBe(
+      "The final assistant reply.",
+    );
+  });
+
+  it("drops pure error turns instead of capturing the banner text", () => {
+    document.body.innerHTML = `
+      <ms-chat-turn id="t">
+        <div class="chat-turn-container code-block-aligner model render ng-star-inserted">
+          <div class="actions-container"><ms-chat-turn-options>more_vert</ms-chat-turn-options></div>
+          <div class="turn-content">
+            <div class="author-label">Model <span class="timestamp">12:00</span></div>
+            <div class="prompt-container">
+              <div class="error-icon">error</div>
+              <div>An internal error has occurred.</div>
+            </div>
+          </div>
+        </div>
+      </ms-chat-turn>`;
+    expect(extractAssistantText(document.getElementById("t")!)).toBe("");
+  });
 });
 
 describe("extractMessages", () => {
@@ -398,9 +472,39 @@ describe("extractMessages", () => {
     expect(msgs[1].content).toContain("Gemini is a Google AI model");
   });
 
-  it("returns [] when no ms-chat-turn nodes present", () => {
+  it("returns [] when no turn-like nodes are present", () => {
     document.body.innerHTML = `<main><p>nothing</p></main>`;
     expect(extractMessages(document)).toEqual([]);
+  });
+
+  it("captures freeform/structured virtual-scroll containers without ms-chat-turn", () => {
+    document.body.innerHTML = `
+      <main>
+        <div class="virtual-scroll-container user-prompt-container">
+          <div class="author-label">User</div>
+          <div class="turn-content">
+            <ms-prompt-chunk class="text-chunk">
+              <ms-text-chunk>
+                <ms-cmark-node class="cmark-node v3-font-body user-chunk">
+                  Prompt TOKEN-FREEFORM
+                </ms-cmark-node>
+              </ms-text-chunk>
+            </ms-prompt-chunk>
+          </div>
+        </div>
+        <div class="virtual-scroll-container model-prompt-container">
+          <div class="author-label">Model</div>
+          <div class="turn-content">
+            <div class="markdown">Reply TOKEN-FREEFORM</div>
+          </div>
+        </div>
+      </main>`;
+    const msgs = extractMessages(document, "aistudio.google.com");
+    expect(msgs).toHaveLength(2);
+    expect(msgs[0].role).toBe("user");
+    expect(msgs[0].content).toContain("Prompt TOKEN-FREEFORM");
+    expect(msgs[1].role).toBe("assistant");
+    expect(msgs[1].content).toContain("Reply TOKEN-FREEFORM");
   });
 
   // P5.B gap A3 regression: turns with no .user/.model container
@@ -478,5 +582,51 @@ describe("extractMessages", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const att = msgs[0].attachments as any[];
     expect(att.length).toBeGreaterThan(0);
+  });
+
+  it("captures current AI Studio DOM without leaking action-bar noise", () => {
+    document.body.innerHTML = `
+      <main>
+        <ms-chat-turn>
+          <div class="chat-turn-container code-block-aligner render user ng-star-inserted">
+            <div class="actions-container">
+              <div class="actions hover-or-edit">
+                <button aria-label="Edit">edit</button>
+                <ms-chat-turn-options>more_vert</ms-chat-turn-options>
+              </div>
+            </div>
+            <div class="turn-content">
+              <div class="author-label">User <span class="timestamp">12:00</span></div>
+              <ms-prompt-chunk class="text-chunk ng-star-inserted">
+                <ms-text-chunk>
+                  <ms-cmark-node class="cmark-node v3-font-body user-chunk ng-star-inserted">
+                    Reply with exactly TOKEN-123
+                  </ms-cmark-node>
+                </ms-text-chunk>
+              </ms-prompt-chunk>
+            </div>
+          </div>
+        </ms-chat-turn>
+        <ms-chat-turn>
+          <div class="chat-turn-container code-block-aligner model render ng-star-inserted">
+            <div class="actions-container">
+              <div class="actions hover-or-edit">
+                <button aria-label="Rerun this turn"></button>
+                <ms-chat-turn-options>more_vert</ms-chat-turn-options>
+              </div>
+            </div>
+            <div class="turn-content">
+              <div class="author-label">Model <span class="timestamp">12:00</span></div>
+              <div class="prompt-container">
+                <div class="markdown">ACK TOKEN-123</div>
+              </div>
+            </div>
+          </div>
+        </ms-chat-turn>
+      </main>`;
+    const msgs = extractMessages(document, "aistudio.google.com");
+    expect(msgs).toHaveLength(2);
+    expect(msgs[0].content).toBe("Reply with exactly TOKEN-123");
+    expect(msgs[1].content).toBe("ACK TOKEN-123");
   });
 });

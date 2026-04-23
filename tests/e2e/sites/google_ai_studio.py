@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import re
 import time
+from pathlib import Path
 from typing import Iterable
 
 from selenium.common.exceptions import StaleElementReferenceException, TimeoutException
@@ -43,20 +44,24 @@ class GoogleAIStudioAdapter(BaseSiteAdapter):
         'button[aria-label*="Cancel" i]'
     )
     response_container_selector = (
-        '[class*="response"], '
-        '[class*="output"], '
-        '[class*="message"], '
+        '.chat-turn-container.model, '
+        '.chat-turn-container.render.model, '
+        '.chat-session-content, '
         '.markdown, '
         '.prose, '
         'ms-chat-turn .chat-turn-container.model'
     )
     user_turn_selector = (
         'ms-chat-turn .chat-turn-container.user, '
-        '[class*="user-turn"]'
+        'ms-chat-turn .chat-turn-container.render.user, '
+        '.virtual-scroll-container.user-prompt-container, '
+        '[data-turn-role="User"]'
     )
     assistant_turn_selector = (
         'ms-chat-turn .chat-turn-container.model, '
-        '[class*="model-turn"]'
+        'ms-chat-turn .chat-turn-container.render.model, '
+        '.virtual-scroll-container.model-prompt-container, '
+        '[data-turn-role="Model"]'
     )
     file_input_selector = (
         'input[data-test-upload-file-input], '
@@ -70,6 +75,7 @@ class GoogleAIStudioAdapter(BaseSiteAdapter):
 
     page_load_wait_s = 6
     response_timeout_s = 90
+    upload_settle_delay_s = 30
 
     # --- Generic helpers (same shape as Claude/Gemini/ChatGPT) -------------
 
@@ -249,6 +255,229 @@ class GoogleAIStudioAdapter(BaseSiteAdapter):
 
     def prepare_for_upload(self, driver, kind: str = "file") -> None:
         super().prepare_for_upload(driver, kind=kind)
+        if self._accept_media_upload_terms(driver, timeout_s=1.5):
+            super().prepare_for_upload(driver, kind=kind)
+
+    def _accept_media_upload_terms(
+        self,
+        driver: WebDriver,
+        *,
+        timeout_s: float = 4,
+    ) -> bool:
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            acknowledged = self._click_first(
+                driver,
+                [
+                    'button[aria-label*="Acknowledge" i]',
+                ],
+            )
+            if not acknowledged:
+                acknowledged = self._click_first(
+                    driver,
+                    [
+                        self._xpath_contains_text(["Acknowledge", "确认", "我知道了"]),
+                    ],
+                    by=By.XPATH,
+                )
+            if acknowledged:
+                time.sleep(0.8)
+                try:
+                    driver.find_element(By.TAG_NAME, "body").send_keys(Keys.ESCAPE)
+                except Exception:
+                    pass
+                return True
+            time.sleep(0.3)
+        return False
+
+    def _media_upload_terms_visible(self, driver: WebDriver) -> bool:
+        dialog = self._first_displayed(
+            self._find_elements_safe(
+                driver,
+                By.CSS_SELECTOR,
+                "#copyright-acknowledgement-dialog, "
+                "ms-copyright-acknowledgement-dialog, "
+                ".mat-mdc-dialog-container",
+            )
+        )
+        if dialog is not None:
+            try:
+                if "start creating with media" in (dialog.text or "").lower():
+                    return True
+            except Exception:
+                pass
+        return self.page_contains_any_text(
+            driver,
+            ["Start creating with media in Google AI Studio"],
+        )
+
+    def _dismiss_transient_overlays(
+        self,
+        driver: WebDriver,
+        *,
+        timeout_s: float = 3,
+    ) -> None:
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            visible_backdrop = self._first_displayed(
+                self._find_elements_safe(
+                    driver,
+                    By.CSS_SELECTOR,
+                    ".cdk-overlay-backdrop-showing",
+                )
+            )
+            if visible_backdrop is None:
+                return
+            try:
+                driver.find_element(By.TAG_NAME, "body").send_keys(Keys.ESCAPE)
+            except Exception:
+                pass
+            time.sleep(0.4)
+
+    def _wait_for_uploaded_attachments(
+        self,
+        driver: WebDriver,
+        paths: Iterable[str],
+        *,
+        timeout_s: float = 25,
+    ) -> bool:
+        names = [Path(path).name.lower() for path in paths if path]
+        if not names:
+            return True
+
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            text = ""
+            try:
+                text = (driver.find_element(By.TAG_NAME, "body").text or "").lower()
+            except Exception:
+                pass
+
+            if all(name in text for name in names):
+                if "loading..." not in text:
+                    return True
+            time.sleep(0.5)
+        return False
+
+    def _upload_paths_once(
+        self,
+        driver: WebDriver,
+        paths: list[str],
+        *,
+        kind: str,
+        selector: str,
+    ) -> bool:
+        return super().upload_paths(driver, paths, kind=kind, selector=selector)
+
+    def send_rich_message(
+        self,
+        driver: WebDriver,
+        *,
+        message: str,
+        file_paths: list[str] | None = None,
+        image_paths: list[str] | None = None,
+    ) -> bool:
+        all_uploads: list[tuple[list[str], str]] = []
+        if image_paths:
+            all_uploads.append((list(image_paths), "image"))
+        if file_paths:
+            all_uploads.append((list(file_paths), "file"))
+
+        for paths, kind in all_uploads:
+            selector = self._upload_selector_for_kind(kind)
+            if selector:
+                if not self._upload_paths_once(driver, paths, kind=kind, selector=selector):
+                    return False
+                if self._media_upload_terms_visible(driver):
+                    if not self._accept_media_upload_terms(driver, timeout_s=5):
+                        return False
+                    self._dismiss_transient_overlays(driver, timeout_s=4)
+                    if not self._upload_paths_once(driver, paths, kind=kind, selector=selector):
+                        return False
+                if not self._wait_for_uploaded_attachments(driver, paths, timeout_s=25):
+                    return False
+                self._dismiss_transient_overlays(driver, timeout_s=4)
+            else:
+                logger.info("[%s] No file input for %s - using clipboard paste", self.name, kind)
+                if not self.upload_via_paste(driver, paths, kind=kind):
+                    return False
+
+        if all_uploads:
+            # GAS continues background processing after the attachment chip
+            # renders; sending too early frequently yields transient 403s.
+            time.sleep(self.upload_settle_delay_s)
+
+        self._accept_media_upload_terms(driver, timeout_s=4)
+        self._dismiss_transient_overlays(driver, timeout_s=3)
+        return self.send_message(driver, message=message)
+
+    def has_paid_api_key_selected(self, driver: WebDriver) -> bool:
+        blockers = self._find_elements(
+            driver,
+            'button[aria-label="No API key selected"], '
+            '.paid-api-key-button[aria-label*="No API key selected" i]',
+        )
+        for el in blockers:
+            try:
+                if el.is_displayed():
+                    return False
+            except Exception:
+                continue
+        return True
+
+    def clear_browser_logs(self, driver: WebDriver) -> None:
+        try:
+            driver.get_log("browser")
+        except Exception:
+            pass
+
+    def _browser_log_text(self, driver: WebDriver) -> str:
+        try:
+            entries = driver.get_log("browser")
+        except Exception:
+            return ""
+        parts = []
+        for entry in entries:
+            try:
+                message = entry.get("message") or ""
+            except Exception:
+                message = ""
+            if message:
+                parts.append(str(message))
+        return "\n".join(parts).lower()
+
+    def execution_blocker_reason(
+        self,
+        driver: WebDriver,
+        *,
+        include_browser_logs: bool = True,
+    ) -> str | None:
+        if self.page_contains_any_text(
+            driver,
+            [
+                "Failed to generate content: permission denied",
+                "permission denied",
+                "An internal error has occurred",
+                "rate limit",
+                "quota",
+            ],
+        ):
+            return "ai_studio_permission_or_quota_block"
+        if include_browser_logs:
+            browser_log_text = self._browser_log_text(driver)
+            if (
+                "generatecontent" in browser_log_text and "403" in browser_log_text
+            ) or "permission denied" in browser_log_text or "rate limit" in browser_log_text or "quota" in browser_log_text:
+                return "ai_studio_permission_or_quota_block"
+        return None
+
+    def take_screenshot(self, driver: WebDriver, suffix: str = "") -> str:
+        try:
+            driver.set_window_size(1440, 1200)
+            time.sleep(0.2)
+        except Exception:
+            pass
+        return super().take_screenshot(driver, suffix)
 
     # --- Core actions ------------------------------------------------------
 
@@ -265,6 +494,86 @@ class GoogleAIStudioAdapter(BaseSiteAdapter):
             )
             return True
         except TimeoutException:
+            return False
+
+    def send_message(self, driver: WebDriver, message: str = None) -> bool:
+        msg = message or self.test_message
+        input_el = self._wait_for_element(driver, self.input_selector, timeout=10)
+        if input_el is None:
+            self._dismiss_transient_overlays(driver, timeout_s=2)
+            input_el = self._wait_for_element(driver, self.input_selector, timeout=5)
+        if input_el is None:
+            logger.error("[%s] Input element not found", self.name)
+            return False
+
+        previous_user_turns = self.turn_count(driver, role="user")
+        try:
+            try:
+                input_el.click()
+            except Exception:
+                driver.execute_script("arguments[0].focus();", input_el)
+            time.sleep(0.3)
+            input_el.send_keys(msg)
+            time.sleep(0.4)
+
+            clicked = False
+            for btn in self._find_elements(driver, self.send_button_selector):
+                try:
+                    if not btn.is_displayed() or not btn.is_enabled():
+                        continue
+                except Exception:
+                    continue
+                if self._click_element(driver, btn):
+                    clicked = True
+                    break
+
+            if not clicked:
+                try:
+                    input_el.send_keys(Keys.CONTROL, Keys.ENTER)
+                    time.sleep(0.4)
+                except Exception:
+                    pass
+
+            deadline = time.time() + 5
+            while time.time() < deadline:
+                if self.turn_count(driver, role="user") > previous_user_turns:
+                    logger.info("[%s] Message sent: %s", self.name, msg[:50])
+                    time.sleep(self.post_send_settle_s)
+                    return True
+                if self.wait_for_stop_button_visible(driver, timeout_s=0.5):
+                    logger.info("[%s] Message sent (generation started): %s", self.name, msg[:50])
+                    time.sleep(self.post_send_settle_s)
+                    return True
+                time.sleep(0.3)
+
+            try:
+                input_el.send_keys(Keys.ENTER)
+                time.sleep(0.6)
+            except Exception:
+                pass
+
+            if self.turn_count(driver, role="user") > previous_user_turns or self.wait_for_stop_button_visible(driver, timeout_s=1):
+                logger.info("[%s] Message sent after Enter fallback: %s", self.name, msg[:50])
+                time.sleep(self.post_send_settle_s)
+                return True
+
+            if self.page_contains_any_text(
+                driver,
+                [
+                    "Failed to generate content",
+                    "permission denied",
+                    "An internal error has occurred",
+                    "Response ready.",
+                ],
+            ):
+                logger.info("[%s] Message reached terminal error state: %s", self.name, msg[:50])
+                time.sleep(self.post_send_settle_s)
+                return True
+
+            logger.warning("[%s] Message send did not produce a visible turn", self.name)
+            return False
+        except Exception as exc:
+            logger.error("[%s] Send failed: %s", self.name, exc)
             return False
 
     def wait_for_response(self, driver: WebDriver) -> bool:
@@ -296,6 +605,18 @@ class GoogleAIStudioAdapter(BaseSiteAdapter):
         except Exception:
             return False
 
+    def navigate_to_new_chat_with_model(
+        self,
+        driver: WebDriver,
+        model: str,
+    ) -> bool:
+        try:
+            driver.get(self.base_url + f"/prompts/new_chat?model={model}")
+            time.sleep(self.page_load_wait_s)
+            return True
+        except Exception:
+            return False
+
     def navigate_to_new_freeform(self, driver: WebDriver) -> bool:
         try:
             driver.get(self.base_url + "/prompts/new_freeform")
@@ -304,9 +625,33 @@ class GoogleAIStudioAdapter(BaseSiteAdapter):
         except Exception:
             return False
 
+    def navigate_to_new_freeform_with_model(
+        self,
+        driver: WebDriver,
+        model: str,
+    ) -> bool:
+        try:
+            driver.get(self.base_url + f"/prompts/new_freeform?model={model}")
+            time.sleep(self.page_load_wait_s)
+            return True
+        except Exception:
+            return False
+
     def navigate_to_new_structured(self, driver: WebDriver) -> bool:
         try:
             driver.get(self.base_url + "/prompts/new_structured")
+            time.sleep(self.page_load_wait_s)
+            return True
+        except Exception:
+            return False
+
+    def navigate_to_new_structured_with_model(
+        self,
+        driver: WebDriver,
+        model: str,
+    ) -> bool:
+        try:
+            driver.get(self.base_url + f"/prompts/new_structured?model={model}")
             time.sleep(self.page_load_wait_s)
             return True
         except Exception:
@@ -348,6 +693,8 @@ class GoogleAIStudioAdapter(BaseSiteAdapter):
         if self._click_first(
             driver,
             [
+                'button[aria-label*="Rerun this turn" i]',
+                'button[name="rerun-button"]',
                 'button[aria-label*="Rerun" i]',
                 'button[aria-label*="Regenerate" i]',
                 'button[aria-label*="重新" i]',
@@ -414,31 +761,71 @@ class GoogleAIStudioAdapter(BaseSiteAdapter):
             return False
 
     def switch_model(self, driver: WebDriver, labels: Iterable[str]) -> bool:
-        if not self._click_first(
-            driver,
-            [
-                'ms-model-selector button',
-                'button[aria-label*="model" i]',
-                'button[aria-label*="Model" i]',
-            ],
-        ):
+        labels = [label for label in labels if label]
+        if not labels:
             return False
-        time.sleep(0.5)
-        xpath = self._xpath_contains_text(labels)
-        found = self._find_elements_safe(driver, By.XPATH, xpath)
-        target = self._first_displayed(found)
-        if target is not None and self._click_element(driver, target):
-            time.sleep(0.8)
-            return True
+
+        trigger = self._first_displayed(
+            self._find_elements_safe(
+                driver,
+                By.CSS_SELECTOR,
+                'button.model-selector-card, '
+                'ms-model-selector button.model-selector-card, '
+                'ms-model-selector button, '
+                'button[aria-label*="model" i], '
+                'button[aria-label*="Model" i]',
+            )
+        )
+        if trigger is None:
+            return False
+        if not self._click_element(driver, trigger):
+            return False
+        time.sleep(1)
+
+        wanted = [label.lower() for label in labels]
+        deadline = time.time() + 8
+        while time.time() < deadline:
+            candidates = self._find_elements_safe(
+                driver,
+                By.CSS_SELECTOR,
+                '.ms-sliding-right-panel-dialog button.content-button, '
+                '.ms-sliding-right-panel-dialog button, '
+                '.cdk-overlay-pane button.content-button, '
+                '.cdk-overlay-pane button',
+            )
+            for candidate in candidates:
+                try:
+                    if not candidate.is_displayed():
+                        continue
+                    text = (candidate.text or "").lower()
+                except Exception:
+                    continue
+                if any(label in text for label in wanted):
+                    if self._click_element(driver, candidate):
+                        time.sleep(1.2)
+                        return True
+            time.sleep(0.4)
         return False
 
     def set_system_instructions(self, driver: WebDriver, text: str) -> bool:
         """Fill the 'System instructions' left-rail textbox."""
+        self._click_first(
+            driver,
+            [
+                'button[aria-label*="System instructions" i]',
+                '.system-instructions-card',
+            ],
+        )
+        time.sleep(0.8)
         input_el = None
         for selector in (
             'textarea[aria-label*="System instructions" i]',
             'textarea[aria-label*="system" i]',
+            'textarea[placeholder*="instruction" i]',
+            'textarea[placeholder*="system" i]',
             '[class*="system-instructions"] textarea',
+            '[class*="system"] textarea',
+            '[contenteditable="true"][aria-label*="system" i]',
         ):
             els = self._find_elements_safe(driver, By.CSS_SELECTOR, selector)
             input_el = self._first_displayed(els)
@@ -556,6 +943,8 @@ class GoogleAIStudioAdapter(BaseSiteAdapter):
             "An error occurred",
             "failed",
             "offline",
+            "permission denied",
+            "internal error",
             "出现问题",
             "出错",
             "错误",
@@ -570,6 +959,7 @@ class GoogleAIStudioAdapter(BaseSiteAdapter):
     def detect_features(self, driver: WebDriver) -> dict[str, bool]:
         features = {
             "logged_in": False,
+            "paid_api_key_selected": False,
             "freeform": False,
             "structured": False,
             "gallery": False,
@@ -581,6 +971,7 @@ class GoogleAIStudioAdapter(BaseSiteAdapter):
             if not self.navigate(driver):
                 return features
             features["logged_in"] = self.find_input(driver)
+            features["paid_api_key_selected"] = self.has_paid_api_key_selected(driver)
             page_source = (driver.page_source or "").lower()
             features["freeform"] = "new_freeform" in page_source or "freeform" in page_source
             features["structured"] = "new_structured" in page_source or "structured" in page_source

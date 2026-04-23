@@ -92,6 +92,11 @@ def _get_profile_mode() -> str:
     return "managed"
 
 
+def _force_unpacked_extension() -> bool:
+    """Return True when E2E should force-load the current unpacked build."""
+    return os.environ.get("PCE_E2E_FORCE_LOAD_EXTENSION", "").strip() == "1"
+
+
 def _get_chrome_proxy_args() -> list[str]:
     """Return Chrome proxy flags for deterministic live-site navigation."""
     proxy = os.environ.get("PCE_CHROME_PROXY", "").strip()
@@ -388,6 +393,7 @@ def driver():
     use_profile_copy = profile_mode == "clone" and debugger_address is None
     attach_existing = debugger_address is not None
     extension_preinstalled = False
+    force_unpacked_extension = _force_unpacked_extension()
 
     logger.info("Chrome user-data-dir: %s", profile_root)
     logger.info("Chrome profile directory: %s", profile_dir_name or "Default")
@@ -413,6 +419,8 @@ def driver():
             "Profile-managed PCE extension detected: %s",
             extension_preinstalled,
         )
+        if force_unpacked_extension:
+            logger.info("Force-loading current unpacked extension build")
 
     driver_path = _get_chromedriver_path()
     service = Service(driver_path) if driver_path else None
@@ -421,6 +429,7 @@ def driver():
     if attach_existing:
         options = Options()
         options.debugger_address = debugger_address
+        options.set_capability("goog:loggingPrefs", {"browser": "ALL"})
         chrome_driver = webdriver.Chrome(service=service, options=options)
     elif use_profile_copy or not _is_default_chrome_user_data_dir(profile_root):
         options = Options()
@@ -435,9 +444,12 @@ def driver():
         options.add_argument("--window-size=1280,900")
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option("useAutomationExtension", False)
+        options.set_capability("goog:loggingPrefs", {"browser": "ALL"})
 
-        if use_profile_copy or not extension_preinstalled:
+        if use_profile_copy or not extension_preinstalled or force_unpacked_extension:
             options.add_argument("--enable-extensions")
+            if force_unpacked_extension:
+                options.add_argument(f"--disable-extensions-except={ext_dir}")
             options.add_argument(f"--load-extension={ext_dir}")
             # Chrome 137+ silently ignores --load-extension unless the
             # DisableLoadExtensionCommandLineSwitch feature is turned off.
@@ -457,6 +469,7 @@ def driver():
         )
         options = Options()
         options.debugger_address = debugger_address
+        options.set_capability("goog:loggingPrefs", {"browser": "ALL"})
         chrome_driver = webdriver.Chrome(service=service, options=options)
 
     chrome_driver.implicitly_wait(0)  # We handle waits explicitly
