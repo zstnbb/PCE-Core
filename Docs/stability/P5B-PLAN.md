@@ -1,5 +1,16 @@
 # P5.B — Stability Hardening Plan
 
+> ⚠ **Tiering superseded (2026-04-25).** The "Tier 0 / 1 / 2 / P0 /
+> P1 / P2" buckets in §Inventory below were **volume-first**
+> (raw MAU). They have been replaced by the **persona-first**
+> S0 / S1 / S2 / S3 / SX taxonomy canonicalised in
+> `Docs/stability/SITE-TIER-MATRIX.md`, aligned to the
+> **$50+/mo AI-native power user** persona. Everything else in
+> this plan (per-site validation protocol, v1.0.1 exit criteria
+> philosophy, workflow-in-practice) still applies — only the
+> tier bucket labels change. When in doubt, SITE-TIER-MATRIX.md
+> wins.
+
 **Context (updated 2026-04-22):** v1.0.0 was **rejected** by Chrome Web
 Store on 2026-04-22 (transfer ID `FZSL`, Yellow Argon keyword-spam —
 the SUPPORTED SITES bullet list in the description). The rejection is

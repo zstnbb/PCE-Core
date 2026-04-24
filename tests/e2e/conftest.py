@@ -111,12 +111,9 @@ def _get_chrome_proxy_args() -> list[str]:
         if proxy_mode in {"direct", "none", "off"}:
             args.append("--no-proxy-server")
         elif proxy_mode != "system":
-            if "://" not in proxy:
-                proxy = f"http://{proxy}"
             args.append(f"--proxy-server={proxy}")
-
-    if bypass:
-        args.append(f"--proxy-bypass-list={bypass}")
+            if bypass:
+                args.append(f"--proxy-bypass-list={bypass}")
     return args
 
 
@@ -186,18 +183,15 @@ def _get_chrome_binary() -> str:
 
 def _get_chromedriver_path() -> str | None:
     """Return a usable chromedriver path without relying on Selenium Manager."""
-    cached = (
-        Path.home()
-        / ".wdm"
-        / "drivers"
-        / "chromedriver"
-        / "win64"
-        / "146.0.7680.165"
-        / "chromedriver-win32"
-        / "chromedriver.exe"
+    cache_root = Path.home() / ".wdm" / "drivers" / "chromedriver"
+    cached_drivers = sorted(
+        cache_root.glob("**/chromedriver.exe"),
+        key=lambda path: path.stat().st_mtime if path.is_file() else 0,
+        reverse=True,
     )
-    if cached.is_file():
-        return str(cached)
+    for cached in cached_drivers:
+        if cached.is_file():
+            return str(cached)
 
     try:
         from webdriver_manager.chrome import ChromeDriverManager
@@ -374,6 +368,25 @@ def _check_chrome_not_running(profile_root: str | None = None) -> bool:
     return True
 
 
+def _switch_to_valid_browser_window(chrome_driver) -> None:
+    """Select a usable top-level Chrome window after managed-profile startup."""
+    try:
+        handles = list(chrome_driver.window_handles)
+    except Exception:
+        handles = []
+    for handle in handles:
+        try:
+            chrome_driver.switch_to.window(handle)
+            chrome_driver.get_window_rect()
+            return
+        except Exception:
+            continue
+    try:
+        chrome_driver.switch_to.new_window("tab")
+    except Exception:
+        pass
+
+
 @pytest.fixture(scope="session")
 def driver():
     """Session-scoped Selenium WebDriver: Chrome with user profile + PCE extension."""
@@ -385,7 +398,7 @@ def driver():
             str(Path.home() / ".pce" / "chrome_profile"),
         )
         Path(profile_root).mkdir(parents=True, exist_ok=True)
-        profile_dir_name = None
+        profile_dir_name = _get_profile_directory_name() or "Default"
     else:
         profile_root = os.environ.get("PCE_CHROME_PROFILE", _get_chrome_profile_dir())
         profile_dir_name = _get_profile_directory_name()
@@ -473,6 +486,7 @@ def driver():
         chrome_driver = webdriver.Chrome(service=service, options=options)
 
     chrome_driver.implicitly_wait(0)  # We handle waits explicitly
+    _switch_to_valid_browser_window(chrome_driver)
 
     logger.info(
         "Chrome launched: %s",

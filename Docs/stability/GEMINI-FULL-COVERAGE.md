@@ -9,10 +9,16 @@ in a finite number of iterations.
 **Audience:** the user (running the browser) + Cascade (reading and
 writing code) + the Gemini autopilot.
 
-**Status:** **S1 tier** (heavy). G01-G20 are the v1.0.1 must-pass
+**Status:** **S1 tier** — high-value frequent use for the
+$50+/mo AI-native power user persona (Gemini Advanced / Workspace
+integration). See `Docs/stability/SITE-TIER-MATRIX.md` for the
+canonical tier definitions. G01-G20 are the v1.0 must-pass
 chat-capture bar; G21-G38 extend the definition to the broader Gemini
 web app surface discovered from current Google documentation.
-Parts IV–VI inherit from `CHATGPT-FULL-COVERAGE.md` (same protocol).
+**NotebookLM is folded into this spec** (see §I.4 and Surface 28);
+`notebooklm.google.com` does NOT get its own standalone content
+script or coverage doc. Parts IV–VI inherit from
+`CHATGPT-FULL-COVERAGE.md` (same protocol).
 
 **Timebox:** Gemini validation + fixes targeted at **1 evening** of
 autopilot runs once ChatGPT's scaffolding is in place.
@@ -74,7 +80,7 @@ Grouped by probability-of-use (top = most common).
 | 25 | Video generation (Veo) | `/app/<hex>` | Generated short video, optional image-to-video, download/share controls | `video_generation` attachment with thumbnail/src/status; async completion handled |
 | 26 | Image editing / multi-image generation | `/app/<hex>` | Upload/edit generated or user images; multiple references | user image attachments + assistant `image_generation`; preserve input/output distinction |
 | 27 | Music generation (Lyria) | `/app/<hex>` or media entry | Generated music track from text/image/video prompt | `audio_generation` or `audio` attachment with title/src/duration; schema may need extension |
-| 28 | NotebookLM notebook source | `/app/<hex>` or file picker | Add NotebookLM notebook as context | source attachment or citation; skip for Workspace accounts if unsupported |
+| 28 | NotebookLM notebook source | `/app/<hex>` or file picker (see §I.4) | Add NotebookLM notebook as context | source attachment or citation; skip for Workspace accounts if unsupported |
 | 29 | Drive / Photos / camera sources | file picker / connected app | Upload from Drive, Photos, camera, device | same semantic attachments as local upload plus source/provider metadata when visible |
 | 30 | GitHub / repository upload | file picker / upload flow | Add code repo or project files as context | `file` / `repository` attachment with repo/file names; preserve code blocks separately |
 | 31 | Scheduled actions | settings or chat-created task | User asks Gemini to perform/recurringly run a task | capture the originating prompt/assistant confirmation; settings/list pages stay silent |
@@ -101,6 +107,7 @@ Checked 2026-04-23 against Google-owned documentation and product pages:
 - Visual layout / dynamic view: `https://support.google.com/gemini/answer/16741341`
 - Scheduled actions: `https://support.google.com/gemini/answer/16316416`
 - Lyria music generation: `https://gemini.google/us/overview/music-generation/`
+- NotebookLM (folded into Gemini per §I.4): `https://notebooklm.google.com/`
 
 ### I.3 Meta-capture invariants
 
@@ -118,6 +125,53 @@ Independent of surface, these must hold **always**:
 - **Account-capability honesty** — unsupported plan, Workspace policy, age, region, or quota states are `skip` with evidence, not `fail`.
 - **Privacy-mode tagging** — Temporary chat captures must be marked temporary/private where schema permits; never infer stable history IDs.
 - **Console hygiene** — no red errors.
+
+### I.4 NotebookLM addendum — folded into Gemini
+
+**Decision (2026-04-25, tracked in `Docs/stability/SITE-TIER-MATRIX.md §4`):**
+NotebookLM does **not** get a standalone content script or E2E adapter.
+Google has integrated NotebookLM's notebook-sources UX into the main Gemini
+web app — selecting a notebook as a chat source happens inside
+`gemini.google.com`, not as a navigation to `notebooklm.google.com`.
+
+**Surface mapping:**
+
+- **Notebook-as-source inside Gemini chat** → this spec, Surface 28.
+  Capture semantics reuse the Drive-source / file-picker path (Surface
+  29). Expected representation: `file` / `citation` attachment with a
+  `source_type: "notebooklm"` hint when the DOM surfaces it.
+- **Notebook editor at `notebooklm.google.com`** → **intentionally
+  silent**. This is an authoring surface, not a chat surface — no
+  user↔assistant turn exchange happens there that we need to capture.
+  PCE does not ship a content script for this origin.
+
+**If Pro / L1 captures produce noise from the notebook editor**,
+suppress it at the host-exclusion / path-filter layer
+(`interceptor-network.ts` noise filter), **not** by inventing a
+placeholder adapter.
+
+**Re-evaluate this decision when any of the following becomes true:**
+
+1. NotebookLM launches a first-class chat route at
+   `notebooklm.google.com/chat/<id>` that Gemini web does not mirror.
+2. Workspace admins disable Gemini integration while keeping
+   NotebookLM enabled, causing captures to be lost for that slice.
+3. NotebookLM exposes a dedicated audio-overview stream at its own
+   origin before Gemini exposes it (Surface #15 here).
+
+On any of those triggers, promote NotebookLM to **S1** and create
+`Docs/stability/NOTEBOOKLM-FULL-COVERAGE.md` with its own T-cases.
+
+**Test-case coverage today** is carried by:
+
+- `G14` / Surface 14 (Extensions / connected-app cards, including
+  Drive / Docs citations — same family)
+- `G29` / Surface 29 (Drive / Photos / camera sources)
+- `G30` / Surface 30 (GitHub / repository upload — same picker shell)
+
+No new T-case is required for NotebookLM beyond asserting that
+`source_type` or the equivalent metadata flows through when the
+notebook-picker path is exercised during `G14` / `G29` runs.
 
 ---
 

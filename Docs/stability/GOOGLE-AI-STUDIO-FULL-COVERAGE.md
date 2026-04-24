@@ -9,9 +9,13 @@ in a finite number of iterations.
 **Audience:** the user (running the browser) + Cascade (reading and
 writing code) + the AI Studio autopilot.
 
-**Status:** **S1 tier** (developer-facing, heavy). A01-A20 are the
-v1.0.1 prompt-capture bar; A21-A46 extend the definition to the broader
-AI Studio app-builder, media-generation, realtime, tool, and management
+**Status:** **S1 tier** — high-value frequent use for the
+developer slice of the $50+/mo AI-native power user persona
+(direct access to Gemini 2.5 Pro Thinking / 2M context / Build
+mode). See `Docs/stability/SITE-TIER-MATRIX.md` for the
+canonical tier definitions. A01-A20 are the v1.0 prompt-capture
+bar; A21-A46 extend the definition to the broader AI Studio
+app-builder, media-generation, realtime, tool, and management
 surfaces documented by Google.
 
 **Timebox:** 1-2 evenings of autopilot runs once ChatGPT's

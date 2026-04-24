@@ -1,8 +1,20 @@
 # Microsoft 365 Copilot — Coverage Diff vs CHATGPT-FULL-COVERAGE
 
-**Tier:** S2 (Office-Web embedded AI — F2 form factor)
+> ⚠ **NOT READY for v1.0 — scaffolding only.** Under the 2026-04-25
+> realignment this surface is **SX** (DOM-unverified, account-gated).
+> The content script exists and compiles, and the spec below is
+> accurate to public docs — but **no live-DOM probe has happened**
+> against a real paid M365 Business account, and there is **no E2E
+> adapter**. Treat everything below as a blueprint until a user with
+> the right account signs off.
+
+**Tier:** **SX** — scaffolding (F2 Office-Web embedded AI).
+Out of the $50+/mo AI-native power user persona's core workflow;
+relevant only to the enterprise M365 slice. Canonical tier
+definition: `Docs/stability/SITE-TIER-MATRIX.md`.
 **Parent spec:** `CHATGPT-FULL-COVERAGE.md` (Parts IV-VI inherited verbatim)
-**Ship target:** v1.0.2
+**E2E depth:** none — blocked on account access + DOM probe
+**Ship target:** v1.1 earliest (depends on probe + adapter)
 
 ---
 

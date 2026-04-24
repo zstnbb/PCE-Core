@@ -1,8 +1,21 @@
 # Perplexity — Coverage Diff vs CHATGPT-FULL-COVERAGE
 
-**Tier:** S2
+**Tier:** **S1** — promoted from S2 under the 2026-04-25
+realignment. Perplexity Pro ($20/mo) is widely adopted by the
+$50+/mo AI-native power user persona as a primary search
+replacement. Canonical tier definition:
+`Docs/stability/SITE-TIER-MATRIX.md`.
+
+> ⚠ **Full-spec backfill pending.** S1 obligations call for a
+> ChatGPT-parity Parts I-VI document with ~20 T-cases and a
+> `test_perplexity_full.py` runner. Until those land, this diff
+> doc continues to be the working reference. Do not treat
+> absence of a full spec as permission to drop coverage.
+
 **Parent spec:** `CHATGPT-FULL-COVERAGE.md` (Parts IV-VI inherited verbatim)
-**Ship target:** v1.0.2
+**E2E depth today:** smoke in `tests/e2e/test_capture.py`
+**E2E target:** `tests/e2e/test_perplexity_full.py` (~20 T-cases, pending)
+**Ship target:** v1.0.2 (diff), v1.1 (full-spec backfill)
 
 ---
 

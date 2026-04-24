@@ -1,7 +1,11 @@
 # DeepSeek — Coverage Diff vs CHATGPT-FULL-COVERAGE
 
-**Tier:** S2
+**Tier:** **S2** — workflow-critical for the OSS-dev /
+R1-thinking researcher slice of the $50+/mo AI-native power user
+persona; also covers CN-market power users who pay for DeepSeek
+API. Canonical tier definition: `Docs/stability/SITE-TIER-MATRIX.md`.
 **Parent spec:** `CHATGPT-FULL-COVERAGE.md` (Parts IV-VI inherited verbatim)
+**E2E depth:** S2 diff runner (pending) + smoke in `tests/e2e/test_capture.py`
 **Ship target:** v1.0.2
 
 ---

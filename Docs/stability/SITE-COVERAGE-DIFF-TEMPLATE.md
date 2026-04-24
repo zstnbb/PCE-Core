@@ -1,19 +1,35 @@
-# Site Coverage — DIFF Template (S2 / S3 sites)
+# Site Coverage — DIFF Template (S2 / S3 / SX sites)
 
 **Purpose:** this template captures just the **delta** between a new
 site and `CHATGPT-FULL-COVERAGE.md`. Use it when you don't need a
 full 200-300 line spec because the site is either structurally
-similar to an already-specced site or is low-traffic (S2/S3 tier).
+similar to an already-specced site or is low-traffic (S2/S3 tier)
+or still in scaffolding (SX).
 
-**Tier reminder (from P5B plan):**
+**Canonical tier definition:** `Docs/stability/SITE-TIER-MATRIX.md`.
 
-- **S0 / S1** — use the full spec structure (`CHATGPT-FULL-COVERAGE.md`
-  / `CLAUDE-FULL-COVERAGE.md` / `GEMINI-FULL-COVERAGE.md` /
-  `GOOGLE-AI-STUDIO-FULL-COVERAGE.md`). ~20 T-cases per site.
+**Tier reminder (2026-04-25 realignment, $50+/mo AI-native power
+user persona):**
+
+- **S0** — indispensable daily drivers. FULL spec
+  (ChatGPT-parity Parts I-VI, ~20 T-cases). Runner:
+  `tests/e2e/test_<site>_full.py`.
+  Sites: ChatGPT, Claude.
+- **S1** — high-value frequent use. FULL spec same format.
+  Runner: same.
+  Sites: Gemini (incl. NotebookLM in-app), Google AI Studio,
+  Perplexity (full-spec backfill pending).
 - **S2 (this template, ~40 lines)** — 8-12 T-cases, diff-from-S0
-  listing. Target: Copilot, M365-Copilot, Perplexity, DeepSeek.
-- **S3 (this template, shorter, ~15 lines)** — 3-5 T-cases smoke. Target:
-  Grok, Kimi, ZhiPu, Mistral, Manus, Poe, HuggingFace, Figma, Notion, Gmail.
+  listing. Runner: `tests/e2e/test_<site>_diff.py` (pending) or
+  smoke fallback in `tests/e2e/test_capture.py`.
+  Target: Copilot, Grok, DeepSeek.
+- **S3 (short template, ~15 lines)** — 3-5 T-cases smoke. Runner:
+  smoke round-trip in `tests/e2e/test_capture.py`.
+  Target: HuggingFace, Poe, Kimi, ZhiPu, Mistral, Manus.
+- **SX** — scaffolding, DOM-unverified, account-gated. STUB +
+  action-item list with NOT READY banner. No runner until live
+  probe unblocks.
+  Target: M365 Copilot, Notion AI, Gmail Help-me-write, Figma AI.
 
 ---
 

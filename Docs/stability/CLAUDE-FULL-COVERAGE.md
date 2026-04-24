@@ -9,8 +9,11 @@ bar in a finite number of iterations.
 **Audience:** the user (running the browser) + Cascade (reading and
 writing code) + the Claude autopilot.
 
-**Status:** **S1 tier** (heavy, core chat surface). ~20 must-pass
-T-cases for v1.0.1.
+**Status:** **S0 tier** — indispensable daily driver alongside
+ChatGPT for the $50+/mo AI-native power user persona. Promoted
+from S1 under the 2026-04-25 realignment (see
+`Docs/stability/SITE-TIER-MATRIX.md`). ~20 must-pass T-cases for
+v1.0.
 
 **Timebox:** 1-2 evenings of autopilot runs once ChatGPT's
 scaffolding is in place.

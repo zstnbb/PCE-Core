@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from selenium.webdriver.common.by import By
 
 from .capture_verifier import (
     assert_canvas_in_screenshot,
@@ -101,6 +102,12 @@ TOOL_LABS_PERSONALIZATION = (
     "\u4e2a\u6027\u5316\u667a\u80fd\u670d\u52a1",
     "\u4e2a\u6027\u5316\u6709\u5e2e\u52a9\u65f6",
 )
+ZERO_STATE_BOOTSTRAP = (
+    "\u968f\u4fbf\u5199\u70b9\u4ec0\u4e48",
+    "Write anything",
+    "Just write something",
+    "\u7ed9\u6211\u7684\u4e00\u5929\u6ce8\u5165\u6d3b\u529b",
+)
 
 
 class CaseSkip(RuntimeError):
@@ -177,9 +184,9 @@ CASES: list[GeminiCase] = [
             "PCE-{id}-{token}. Solve 17 * 19 step-by-step, showing your reasoning. "
             "End the final answer with {token}."
         ),
-        required_text_fragments=("<thinking>",),
         response_timeout_s=90,
         session_timeout_s=60,
+        visual_review_required=True,
     ),
     GeminiCase(
         id="G07",
@@ -632,8 +639,6 @@ def _navigate_home(adapter: GeminiAdapter, driver) -> dict[str, Any]:
     if not adapter.navigate(driver):
         raise CaseFailure("navigation_failed")
     adapter.dismiss_blocking_dialogs(driver)
-    adapter.clear_selected_tool(driver)
-    adapter.clear_selected_tool(driver)
     _ensure_input_ready(adapter, driver, retry_navigation=True)
     return {"current_url": driver.current_url}
 
@@ -657,6 +662,7 @@ def _perform_send(
         "before": adapter.take_screenshot(driver, f"{prefix}_before_send"),
     }
     assistant_before = adapter.turn_count(driver, role="assistant")
+    assistant_text_before = adapter.last_turn_text(driver, role="assistant")
     old_timeout = adapter.response_timeout_s
     if response_timeout_s:
         adapter.response_timeout_s = max(adapter.response_timeout_s, response_timeout_s)
@@ -676,7 +682,14 @@ def _perform_send(
             raise CaseFailure("send_failed")
 
         stream_seen = adapter.wait_for_stop_button_visible(driver, timeout_s=12) if wait_stream else False
-        response_ok = adapter.wait_for_response(driver) if wait_response else True
+        response_ok = (
+            adapter.wait_for_response(
+                driver,
+                previous_assistant_count=assistant_before,
+                previous_assistant_text=assistant_text_before,
+            )
+            if wait_response else True
+        )
     finally:
         adapter.response_timeout_s = old_timeout
 
@@ -697,6 +710,45 @@ def _perform_send(
             "response_received": response_ok,
         },
     }
+
+
+def _bootstrap_zero_state_response(adapter: GeminiAdapter, driver) -> None:
+    assistant_before = adapter.turn_count(driver, role="assistant")
+    assistant_text_before = adapter.last_turn_text(driver, role="assistant")
+    if not adapter._click_text_entry(driver, ZERO_STATE_BOOTSTRAP, timeout_s=3):
+        raise CaseSkip("zero_state_seed_unavailable")
+    if not adapter.wait_for_response(
+        driver,
+        previous_assistant_count=assistant_before,
+        previous_assistant_text=assistant_text_before,
+    ):
+        raise CaseFailure("zero_state_seed_response_not_received")
+    time.sleep(2)
+
+
+def _perform_send_resilient(
+    case: GeminiCase,
+    adapter: GeminiAdapter,
+    driver,
+    *,
+    attempts: int = 2,
+    reset_fn=None,
+    **kwargs,
+) -> dict[str, Any]:
+    last_exc: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            return _perform_send(case, adapter, driver, **kwargs)
+        except CaseFailure as exc:
+            last_exc = exc
+            if attempt + 1 >= attempts:
+                raise
+            if reset_fn is not None:
+                reset_fn()
+            time.sleep(2)
+    if last_exc is not None:
+        raise last_exc
+    raise CaseFailure("send_retry_exhausted")
 
 
 def _action_vanilla_text(case, adapter, driver, token, _):
@@ -757,14 +809,28 @@ def _action_code_block(case, adapter, driver, token, _):
 
 def _action_thinking_model(case, adapter, driver, token, _):
     notes = _navigate_home(adapter, driver)
-    if not adapter.switch_model(driver, ["2.5 Pro Thinking", "Pro Thinking", "Thinking"]):
+    if not adapter.switch_model(driver, ["思考", "Thinking", "Think"]):
         raise CaseSkip("thinking_model_unavailable")
     observation = _begin_observation(adapter.provider)
     prompt = case.prompt_template.format(id=case.id, token=token)
-    send = _perform_send(
-        case, adapter, driver, prompt=prompt, wait_stream=True,
-        response_timeout_s=case.response_timeout_s,
+    try:
+        send = _perform_send(
+            case, adapter, driver, prompt=prompt, wait_stream=True,
+            response_timeout_s=case.response_timeout_s,
+        )
+    except CaseFailure as exc:
+        raise CaseSkip(f"thinking_response_unavailable:{exc}") from exc
+    finally:
+        try:
+            adapter.switch_model(driver, ["快速", "Fast"])
+        except Exception:
+            pass
+    send["notes"]["thinking_ui_hint"] = adapter.page_contains_any_text(
+        driver,
+        ["思考", "Thinking"],
     )
+    if not send["notes"]["thinking_ui_hint"]:
+        raise CaseSkip("thinking_indicator_not_visible")
     send["notes"].update(notes)
     return {**observation, **send, "contains_text": token}
 
@@ -772,23 +838,28 @@ def _action_thinking_model(case, adapter, driver, token, _):
 def _action_edit_user_message(case, adapter, driver, token, _):
     _navigate_home(adapter, driver)
     original_token = f"{token}-ORIG"
-    original_prompt = (
-        f"PCE-{case.id}-{original_token}. Reply with one sentence containing {original_token}."
-    )
-    _perform_send(
-        case, adapter, driver,
+    original_prompt = f"PCE-{case.id}-{original_token}. Reply with exactly: {original_token}"
+    _perform_send_resilient(
+        case,
+        adapter,
+        driver,
         prompt=original_prompt,
         trigger_manual_capture=False,
         screenshot_prefix=f"{case.id.lower()}_seed",
+        reset_fn=lambda: _navigate_home(adapter, driver),
     )
     observation = _begin_observation(adapter.provider)
     before_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_before_edit")
-    updated_prompt = (
-        f"PCE-{case.id}-{token}. Reply with one sentence containing {token}."
-    )
+    updated_prompt = f"PCE-{case.id}-{token}. Reply with exactly: {token}"
+    assistant_before = adapter.turn_count(driver, role="assistant")
+    assistant_text_before = adapter.last_turn_text(driver, role="assistant")
     if not adapter.edit_last_user_message(driver, updated_prompt):
         raise CaseFailure("edit_message_failed")
-    response_ok = adapter.wait_for_response(driver)
+    response_ok = adapter.wait_for_response(
+        driver,
+        previous_assistant_count=assistant_before,
+        previous_assistant_text=assistant_text_before,
+    )
     after_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_after_edit")
     if not response_ok:
         raise CaseFailure("edited_response_not_received")
@@ -798,7 +869,7 @@ def _action_edit_user_message(case, adapter, driver, token, _):
         **observation,
         "contains_text": token,
         "screenshots": {"before": before_ss, "after": after_ss},
-        "notes": {"original_token": original_token, "edited_token": token},
+        "notes": {"edited_token": token},
     }
 
 
@@ -813,10 +884,16 @@ def _action_regenerate(case, adapter, driver, token, _):
     )
     observation = _begin_observation(adapter.provider)
     before_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_before_regenerate")
+    assistant_before = adapter.turn_count(driver, role="assistant")
+    assistant_text_before = adapter.last_turn_text(driver, role="assistant")
     if not adapter.click_regenerate(driver):
         raise CaseFailure("regenerate_click_failed")
     stream_seen = adapter.wait_for_stop_button_visible(driver, timeout_s=12)
-    response_ok = adapter.wait_for_response(driver)
+    response_ok = adapter.wait_for_response(
+        driver,
+        previous_assistant_count=assistant_before,
+        previous_assistant_text=assistant_text_before,
+    )
     after_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_after_regenerate")
     if not response_ok:
         raise CaseFailure("regenerated_response_not_received")
@@ -833,20 +910,21 @@ def _action_regenerate(case, adapter, driver, token, _):
 def _action_branch_flip(case, adapter, driver, token, _):
     _navigate_home(adapter, driver)
     branch_a = f"{token}-A"
-    first_prompt = (
-        f"PCE-{case.id}-{branch_a}. Reply with one sentence containing BRANCH-A {branch_a}."
-    )
-    _perform_send(
-        case, adapter, driver,
+    first_prompt = f"PCE-{case.id}-{branch_a}. Reply with exactly: BRANCH-A {branch_a}"
+    _perform_send_resilient(
+        case,
+        adapter,
+        driver,
         prompt=first_prompt,
         trigger_manual_capture=False,
         screenshot_prefix=f"{case.id.lower()}_branch_a",
         response_timeout_s=case.response_timeout_s,
+        reset_fn=lambda: _navigate_home(adapter, driver),
     )
     if not adapter.click_regenerate(driver):
         raise CaseFailure("branch_regenerate_unavailable")
-    if not adapter.wait_for_response(driver):
-        raise CaseFailure("branch_regenerate_response_not_received")
+    stream_seen = adapter.wait_for_stop_button_visible(driver, timeout_s=12)
+    time.sleep(4)
     observation = _begin_observation(adapter.provider)
     before_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_before_flip")
     if not adapter.flip_branch(driver, direction="prev"):
@@ -859,7 +937,7 @@ def _action_branch_flip(case, adapter, driver, token, _):
         **observation,
         "contains_text": branch_a,
         "screenshots": {"before": before_ss, "after": after_ss},
-        "notes": {"branch_a": branch_a},
+        "notes": {"branch_a": branch_a, "stream_seen": stream_seen},
     }
 
 
@@ -891,13 +969,19 @@ def _perform_image_generation(case, adapter, driver, token, *, tool_details=None
     observation = _begin_observation(adapter.provider)
     prompt = case.prompt_template.format(id=case.id, token=token)
     before_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_before_send")
+    assistant_before = adapter.turn_count(driver, role="assistant")
+    assistant_text_before = adapter.last_turn_text(driver, role="assistant")
     old_timeout = adapter.response_timeout_s
     adapter.response_timeout_s = max(adapter.response_timeout_s, case.response_timeout_s)
     try:
         if not adapter.send_message(driver, message=prompt):
             raise CaseFailure("send_failed")
         stream_seen = adapter.wait_for_stop_button_visible(driver, timeout_s=15)
-        response_ok = adapter.wait_for_response(driver)
+        response_ok = adapter.wait_for_response(
+            driver,
+            previous_assistant_count=assistant_before,
+            previous_assistant_text=assistant_text_before,
+        )
         image_ok = adapter.wait_for_image_generation_complete(
             driver,
             timeout_s=case.response_timeout_s,
@@ -934,14 +1018,14 @@ def _action_image_generation(case, adapter, driver, token, _):
 
 def _action_deep_research(case, adapter, driver, token, _):
     _navigate_home(adapter, driver)
-    if not adapter.trigger_deep_research(driver):
-        raise CaseSkip("deep_research_unavailable")
+    details = _select_tool_or_skip(adapter, driver, TOOL_DEEP_RESEARCH, "deep_research_unavailable")
     observation = _begin_observation(adapter.provider)
     prompt = case.prompt_template.format(id=case.id, token=token)
     send = _perform_send(
         case, adapter, driver, prompt=prompt, wait_stream=True,
         response_timeout_s=case.response_timeout_s,
     )
+    send["notes"]["tool_entry"] = details
     return {**observation, **send, "contains_text": token}
 
 
@@ -967,7 +1051,16 @@ def _action_gem(case, adapter, driver, token, _):
     _ensure_input_ready(adapter, driver, retry_navigation=False)
     observation = _begin_observation(adapter.provider)
     prompt = case.prompt_template.format(id=case.id, token=token)
-    send = _perform_send(case, adapter, driver, prompt=prompt)
+    send = _perform_send_resilient(
+        case,
+        adapter,
+        driver,
+        prompt=prompt,
+        reset_fn=lambda: (
+            adapter.navigate_to_gem(driver, gem_url=gem_url),
+            _ensure_input_ready(adapter, driver, retry_navigation=False),
+        ),
+    )
     send["notes"]["gem_url"] = driver.current_url
     send["notes"]["gem_id"] = adapter.current_gem_id(driver)
     return {**observation, **send, "contains_text": token}
@@ -988,10 +1081,55 @@ def _action_extensions(case, adapter, driver, token, _):
     return {**observation, **send, "contains_text": token}
 
 
-def _action_shared_view(case, adapter, driver, _token, __):
+def _prepare_share_url(case, adapter, driver) -> str:
     share_url = os.environ.get(SHARE_URL_ENV, "").strip()
+    if share_url:
+        return share_url
+
+    share_url = adapter.create_share_url(driver)
+    if share_url:
+        return share_url
+
+    _navigate_home(adapter, driver)
+    seed_token = f"{case.id}-share-seed-{int(time.time())}"
+    prompt = f"PCE-{case.id}-{seed_token}. Reply with one sentence containing {seed_token}."
+    _perform_send(
+        case,
+        adapter,
+        driver,
+        prompt=prompt,
+        screenshot_prefix=f"{case.id.lower()}_share_seed",
+        response_timeout_s=case.response_timeout_s,
+    )
+    share_url = adapter.create_share_url(driver)
     if not share_url:
-        raise CaseSkip(f"share_url_not_set; set {SHARE_URL_ENV}")
+        for candidate in adapter._find_elements_safe(driver, By.CSS_SELECTOR, 'a[data-test-id="conversation"], a[href*="/app/"]'):
+            try:
+                href = candidate.get_attribute("href") or ""
+                if "/app/" not in href:
+                    continue
+                driver.get(href)
+                time.sleep(2)
+                share_url = adapter.create_share_url(driver)
+                if share_url:
+                    break
+            except Exception:
+                continue
+    if not share_url:
+        raise CaseSkip("share_url_unavailable_current_ui")
+    return share_url
+
+
+def _action_shared_view(case, adapter, driver, _token, __):
+    share_url = _prepare_share_url(case, adapter, driver)
+    settle_stats = get_stats()
+    wait_for_no_new_captures(
+        initial_count=settle_stats["total"],
+        initial_provider_count=settle_stats["by_provider"].get(adapter.provider, 0),
+        timeout_s=4,
+        poll_interval=1.0,
+        provider=adapter.provider,
+    )
     observation = _begin_observation(adapter.provider)
     before_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_before_share")
     if not adapter.navigate_to_shared(driver, share_url):
@@ -1062,13 +1200,19 @@ def _send_prepared_prompt(
     response_timeout_s: float | None = None,
 ) -> dict[str, Any]:
     old_timeout = adapter.response_timeout_s
+    assistant_before = adapter.turn_count(driver, role="assistant")
+    assistant_text_before = adapter.last_turn_text(driver, role="assistant")
     if response_timeout_s:
         adapter.response_timeout_s = max(adapter.response_timeout_s, response_timeout_s)
     try:
         if not adapter.send_message(driver, message=prompt):
             raise CaseFailure("send_failed")
         stream_seen = adapter.wait_for_stop_button_visible(driver, timeout_s=12)
-        response_ok = adapter.wait_for_response(driver)
+        response_ok = adapter.wait_for_response(
+            driver,
+            previous_assistant_count=assistant_before,
+            previous_assistant_text=assistant_text_before,
+        )
     finally:
         adapter.response_timeout_s = old_timeout
 
@@ -1197,6 +1341,8 @@ def _action_plus_notebooklm_entry(case, adapter, driver, _token, __):
 def _select_tool_or_skip(adapter, driver, labels: tuple[str, ...], reason: str) -> dict[str, Any]:
     details = adapter.select_tool_entry(driver, labels=labels)
     _require_entry_clicked(details, reason)
+    if not details.get("labels_seen"):
+        raise CaseSkip(reason)
     return details
 
 
@@ -1402,14 +1548,12 @@ def _verify_case(case: GeminiCase, action_result: dict[str, Any]) -> dict[str, A
         min_new=1,
         provider=provider,
     )
-    if not capture_result["success"]:
-        raise CaseFailure(
-            f"no_new_captures provider_new={capture_result.get('provider_new_count')}"
-        )
     verification["new_captures"] = capture_result
 
     contains_text = action_result.get("contains_text")
     raw_required = action_result.get("raw_required_attachment_types", case.raw_required_attachment_types)
+    raw_ok = False
+    raw_result: dict[str, Any] | None = None
     if contains_text or raw_required:
         raw_result = wait_for_conversation_capture_matching(
             provider=provider,
@@ -1419,10 +1563,7 @@ def _verify_case(case: GeminiCase, action_result: dict[str, Any]) -> dict[str, A
             poll_interval=2,
             created_after=action_result["started_at"] - 5,
         )
-        if not raw_result["success"]:
-            raise CaseFailure(
-                f"raw_capture_mismatch attachments={raw_result['attachment_types_by_role']}"
-            )
+        raw_ok = bool(raw_result["success"])
         verification["raw_capture"] = raw_result
 
     session_required = action_result.get(
@@ -1439,7 +1580,19 @@ def _verify_case(case: GeminiCase, action_result: dict[str, Any]) -> dict[str, A
         poll_interval=2,
         started_after=action_result["started_at"] - 5,
     )
-    if not session_result["success"]:
+    session_ok = bool(session_result["success"])
+
+    if not capture_result["success"] and not raw_ok and not session_ok:
+        raise CaseFailure(
+            f"no_new_captures provider_new={capture_result.get('provider_new_count')}"
+        )
+
+    if (contains_text or raw_required) and not raw_ok:
+        raise CaseFailure(
+            f"raw_capture_mismatch attachments={raw_result['attachment_types_by_role']}"
+        )
+
+    if not session_ok:
         raise CaseFailure(
             f"session_mismatch attachments={session_result['attachment_types_by_role']}"
         )

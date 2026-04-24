@@ -9,6 +9,12 @@ bar in a finite number of iterations.
 **Audience:** the user (running the browser) + Cascade (reading and
 writing code).
 
+**Status:** **S0 tier** — indispensable daily driver for the
+$50+/mo AI-native power user persona. See
+`Docs/stability/SITE-TIER-MATRIX.md` for the canonical tier
+definitions. T01-T20 are the v1.0 must-pass matrix; live status
+is maintained in Part III.1.
+
 **Timebox:** ChatGPT validation + fixes targeted at 2-3 evening
 sessions spread over the Chrome Web Store review window.
 

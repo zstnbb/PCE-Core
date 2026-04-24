@@ -135,6 +135,62 @@ class GoogleAIStudioAdapter(BaseSiteAdapter):
                 return True
         return False
 
+    def _dismiss_cookie_banner(self, driver: WebDriver) -> None:
+        for label in ("OK, got it", "Accept all", "Accept", "I agree", "同意"):
+            xpath = (
+                ".//button[contains(normalize-space(.), "
+                f"{self._xpath_literal(label)})]"
+            )
+            if self._click_first(driver, [xpath], by=By.XPATH):
+                time.sleep(0.8)
+                return
+
+    def _prepare_playground_ui(self, driver: WebDriver) -> None:
+        self._ensure_valid_window(driver)
+        try:
+            driver.set_window_size(1440, 1200)
+            time.sleep(0.3)
+        except Exception:
+            pass
+        self._dismiss_cookie_banner(driver)
+        if self._first_displayed(
+            self._find_elements_safe(
+                driver,
+                By.CSS_SELECTOR,
+                '.system-instructions-card, '
+                'button[aria-label="System instructions"], '
+                'button[role="switch"][aria-label*="Code execution" i]',
+            )
+        ):
+            return
+        if self._click_first(
+            driver,
+            [
+                'button[aria-label*="Toggle run settings" i]',
+                'button[aria-label*="Run settings" i]',
+                'button.runsettings-toggle-button',
+            ],
+        ):
+            time.sleep(1)
+
+    def _ensure_valid_window(self, driver: WebDriver) -> bool:
+        try:
+            handles = list(driver.window_handles)
+        except Exception:
+            handles = []
+        for handle in reversed(handles):
+            try:
+                driver.switch_to.window(handle)
+                driver.get_window_rect()
+                return True
+            except Exception:
+                continue
+        try:
+            driver.switch_to.new_window("tab")
+            return True
+        except Exception:
+            return False
+
     def _xpath_literal(self, value: str) -> str:
         if "'" not in value:
             return f"'{value}'"
@@ -472,6 +528,7 @@ class GoogleAIStudioAdapter(BaseSiteAdapter):
         return None
 
     def take_screenshot(self, driver: WebDriver, suffix: str = "") -> str:
+        self._ensure_valid_window(driver)
         try:
             driver.set_window_size(1440, 1200)
             time.sleep(0.2)
@@ -599,8 +656,11 @@ class GoogleAIStudioAdapter(BaseSiteAdapter):
 
     def navigate_to_new_chat(self, driver: WebDriver) -> bool:
         try:
+            if not self._ensure_valid_window(driver):
+                return False
             driver.get(self.base_url + "/prompts/new_chat")
             time.sleep(self.page_load_wait_s)
+            self._prepare_playground_ui(driver)
             return True
         except Exception:
             return False
@@ -611,16 +671,22 @@ class GoogleAIStudioAdapter(BaseSiteAdapter):
         model: str,
     ) -> bool:
         try:
+            if not self._ensure_valid_window(driver):
+                return False
             driver.get(self.base_url + f"/prompts/new_chat?model={model}")
             time.sleep(self.page_load_wait_s)
+            self._prepare_playground_ui(driver)
             return True
         except Exception:
             return False
 
     def navigate_to_new_freeform(self, driver: WebDriver) -> bool:
         try:
+            if not self._ensure_valid_window(driver):
+                return False
             driver.get(self.base_url + "/prompts/new_freeform")
             time.sleep(self.page_load_wait_s)
+            self._prepare_playground_ui(driver)
             return True
         except Exception:
             return False
@@ -631,16 +697,22 @@ class GoogleAIStudioAdapter(BaseSiteAdapter):
         model: str,
     ) -> bool:
         try:
+            if not self._ensure_valid_window(driver):
+                return False
             driver.get(self.base_url + f"/prompts/new_freeform?model={model}")
             time.sleep(self.page_load_wait_s)
+            self._prepare_playground_ui(driver)
             return True
         except Exception:
             return False
 
     def navigate_to_new_structured(self, driver: WebDriver) -> bool:
         try:
+            if not self._ensure_valid_window(driver):
+                return False
             driver.get(self.base_url + "/prompts/new_structured")
             time.sleep(self.page_load_wait_s)
+            self._prepare_playground_ui(driver)
             return True
         except Exception:
             return False
@@ -651,15 +723,20 @@ class GoogleAIStudioAdapter(BaseSiteAdapter):
         model: str,
     ) -> bool:
         try:
+            if not self._ensure_valid_window(driver):
+                return False
             driver.get(self.base_url + f"/prompts/new_structured?model={model}")
             time.sleep(self.page_load_wait_s)
+            self._prepare_playground_ui(driver)
             return True
         except Exception:
             return False
 
     def navigate_to_gallery(self, driver: WebDriver) -> bool:
         try:
-            driver.get(self.base_url + "/gallery")
+            if not self._ensure_valid_window(driver):
+                return False
+            driver.get(self.base_url + "/apps?source=showcase")
             time.sleep(self.page_load_wait_s)
             return True
         except Exception:
@@ -667,6 +744,8 @@ class GoogleAIStudioAdapter(BaseSiteAdapter):
 
     def navigate_to_library(self, driver: WebDriver) -> bool:
         try:
+            if not self._ensure_valid_window(driver):
+                return False
             driver.get(self.base_url + "/library")
             time.sleep(self.page_load_wait_s)
             return True
@@ -675,7 +754,9 @@ class GoogleAIStudioAdapter(BaseSiteAdapter):
 
     def navigate_to_tune(self, driver: WebDriver) -> bool:
         try:
-            driver.get(self.base_url + "/tune")
+            if not self._ensure_valid_window(driver):
+                return False
+            driver.get(self.base_url + "/apps?source=user")
             time.sleep(self.page_load_wait_s)
             return True
         except Exception:
@@ -683,7 +764,9 @@ class GoogleAIStudioAdapter(BaseSiteAdapter):
 
     def navigate_to_apikey(self, driver: WebDriver) -> bool:
         try:
-            driver.get(self.base_url + "/apikey")
+            if not self._ensure_valid_window(driver):
+                return False
+            driver.get(self.base_url + "/api-keys")
             time.sleep(self.page_load_wait_s)
             return True
         except Exception:
@@ -809,28 +892,38 @@ class GoogleAIStudioAdapter(BaseSiteAdapter):
 
     def set_system_instructions(self, driver: WebDriver, text: str) -> bool:
         """Fill the 'System instructions' left-rail textbox."""
-        self._click_first(
+        self._prepare_playground_ui(driver)
+        opened = self._click_first(
             driver,
             [
                 'button[aria-label*="System instructions" i]',
                 '.system-instructions-card',
             ],
         )
-        time.sleep(0.8)
+        if not opened:
+            self._prepare_playground_ui(driver)
+            opened = self._click_first(driver, ['.system-instructions-card'])
+        if not opened:
+            return False
+        time.sleep(1.2)
         input_el = None
-        for selector in (
-            'textarea[aria-label*="System instructions" i]',
-            'textarea[aria-label*="system" i]',
-            'textarea[placeholder*="instruction" i]',
-            'textarea[placeholder*="system" i]',
-            '[class*="system-instructions"] textarea',
-            '[class*="system"] textarea',
-            '[contenteditable="true"][aria-label*="system" i]',
-        ):
-            els = self._find_elements_safe(driver, By.CSS_SELECTOR, selector)
-            input_el = self._first_displayed(els)
-            if input_el is not None:
-                break
+        deadline = time.time() + 5
+        while time.time() < deadline and input_el is None:
+            for selector in (
+                'textarea[aria-label*="System instructions" i]',
+                'textarea[aria-label*="system" i]',
+                'textarea[placeholder*="instruction" i]',
+                'textarea[placeholder*="system" i]',
+                '[class*="system-instructions"] textarea',
+                '[class*="system"] textarea',
+                '[contenteditable="true"][aria-label*="system" i]',
+            ):
+                els = self._find_elements_safe(driver, By.CSS_SELECTOR, selector)
+                input_el = self._first_displayed(els)
+                if input_el is not None:
+                    break
+            if input_el is None:
+                time.sleep(0.3)
         if input_el is None:
             return False
         try:
@@ -844,10 +937,55 @@ class GoogleAIStudioAdapter(BaseSiteAdapter):
         time.sleep(0.2)
         input_el.send_keys(text)
         time.sleep(0.3)
+        self._click_first(
+            driver,
+            [
+                '//mat-dialog-container//button[contains(normalize-space(.), "close")]',
+                '//mat-dialog-container//button[contains(@aria-label, "Close")]',
+                '//mat-dialog-container//button[contains(@aria-label, "关闭")]',
+                '//mat-dialog-container//button[contains(@class, "ms-button-icon")]',
+            ],
+            by=By.XPATH,
+        )
+        time.sleep(0.8)
         return True
 
     def toggle_tool(self, driver: WebDriver, tool_labels: Iterable[str]) -> bool:
-        """Toggle a developer tool (Grounding / Code exec / URL context / Function calling)."""
+        """Enable a developer tool (Grounding / Code exec / URL context / Function calling)."""
+        self._prepare_playground_ui(driver)
+        wanted = [label.lower() for label in tool_labels if label]
+        if not wanted:
+            return False
+        for selector in (
+            'button[role="switch"], '
+            '[role="switch"], '
+            'mat-slide-toggle, '
+            'button[aria-label]',
+        ):
+            for target in self._find_elements_safe(driver, By.CSS_SELECTOR, selector):
+                try:
+                    if not target.is_displayed():
+                        continue
+                    haystack = " ".join(
+                        [
+                            target.text or "",
+                            target.get_attribute("aria-label") or "",
+                            target.get_attribute("class") or "",
+                        ]
+                    ).lower()
+                    if not any(label in haystack for label in wanted):
+                        continue
+                    checked = (target.get_attribute("aria-checked") or "").lower()
+                    if checked == "true":
+                        return True
+                    if self._click_element(driver, target):
+                        time.sleep(0.8)
+                        return True
+                except StaleElementReferenceException:
+                    continue
+                except Exception:
+                    continue
+
         xpath = self._xpath_contains_text(tool_labels)
         found = self._find_elements_safe(driver, By.XPATH, xpath)
         target = self._first_displayed(found)

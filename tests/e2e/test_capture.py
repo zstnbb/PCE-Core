@@ -43,8 +43,10 @@ from .sites.deepseek import DeepSeekAdapter
 from .sites.gemini import GeminiAdapter
 from .sites.google_ai_studio import GoogleAIStudioAdapter
 from .sites.grok import GrokAdapter
+from .sites.huggingface import HuggingFaceAdapter
 from .sites.kimi import KimiAdapter
 from .sites.manus import ManusAdapter
+from .sites.mistral import MistralAdapter
 from .sites.perplexity import PerplexityAdapter
 from .sites.poe import PoeAdapter
 from .sites.zhipu import ZhiPuAdapter
@@ -59,18 +61,29 @@ logger = logging.getLogger("pce.e2e.test")
 # All available site adapters
 # ---------------------------------------------------------------------------
 
+# Tier alignment: see Docs/stability/SITE-TIER-MATRIX.md.
+# S0 = ChatGPT, Claude (full runner also exists: test_chatgpt_full.py / test_claude_full.py)
+# S1 = Gemini, Google AI Studio, Perplexity (full runners exist for Gemini / GAS)
+# S2 = DeepSeek, Grok  (Copilot smoke pending adapter expansion)
+# S3 = HuggingFace, Kimi, Manus, Mistral, Poe, ZhiPu
 ALL_SITES = {
+    # S0
     "chatgpt": ChatGPTAdapter(),
     "claude": ClaudeAdapter(),
-    "deepseek": DeepSeekAdapter(),
-    "zhipu": ZhiPuAdapter(),
+    # S1
     "gemini": GeminiAdapter(),
     "googleaistudio": GoogleAIStudioAdapter(),
+    "perplexity": PerplexityAdapter(),
+    # S2
+    "deepseek": DeepSeekAdapter(),
     "grok": GrokAdapter(),
+    # S3
+    "huggingface": HuggingFaceAdapter(),
     "kimi": KimiAdapter(),
     "manus": ManusAdapter(),
-    "perplexity": PerplexityAdapter(),
+    "mistral": MistralAdapter(),
     "poe": PoeAdapter(),
+    "zhipu": ZhiPuAdapter(),
 }
 
 

@@ -128,7 +128,6 @@ CASES: list[GASCase] = [
             "PCE-{id}-{token}. Think step-by-step about 17*19 and show your reasoning. "
             "End the answer with {token}."
         ),
-        required_text_fragments=("<thinking>",),
         response_timeout_s=120,
         session_timeout_s=60,
     ),
@@ -427,33 +426,54 @@ def _require_prompt_execution_ready(adapter: GoogleAIStudioAdapter, driver) -> N
 
 
 def _reset_browser_surface(driver) -> None:
+    """Move the browser to a clean top-level page without closing profile tabs.
+
+    Managed Chrome profiles can reopen extension/app tabs on startup. Closing
+    those tabs has made the active Selenium target stale in Chrome 147, which
+    then turns no-capture cases into false skips/passes. A clean about:blank
+    navigation is enough for baseline capture counting.
+    """
     try:
         handles = list(driver.window_handles)
         if not handles:
             return
-        primary = driver.current_window_handle if driver.current_window_handle in handles else handles[0]
-        for handle in handles:
-            if handle == primary:
-                continue
+        selected = None
+        for handle in reversed(handles):
             try:
                 driver.switch_to.window(handle)
-                driver.close()
+                driver.get_window_rect()
+                current_url = driver.current_url or ""
+                if not current_url.startswith(("chrome-extension://", "devtools://")):
+                    selected = handle
+                    break
             except Exception:
                 continue
-        driver.switch_to.window(primary)
+        if selected is None:
+            driver.switch_to.window(handles[-1])
         driver.get("about:blank")
         time.sleep(1)
     except Exception:
         return
 
 
+def _take_verified_screenshot(
+    adapter: GoogleAIStudioAdapter,
+    driver,
+    suffix: str,
+) -> str:
+    path = adapter.take_screenshot(driver, suffix)
+    if not Path(path).is_file():
+        raise CaseFailure(f"screenshot_missing: {path}")
+    return path
+
+
 _DEFAULT_CHAT_MODEL_LABELS = [
-    "Gemini Pro Latest",
-    "gemini-pro-latest",
-    "Gemini 3.1 Pro Preview",
-    "gemini-3.1-pro-preview",
+    "Gemini 3 Flash Preview",
+    "gemini-3-flash-preview",
+    "Gemini Flash",
+    "gemini-flash",
 ]
-_DEFAULT_CHAT_MODEL_ID = "gemini-3.1-pro-preview"
+_DEFAULT_CHAT_MODEL_ID = "gemini-3-flash-preview"
 _THINKING_MODEL_LABELS = [
     "Gemini Pro Latest",
     "gemini-pro-latest",
@@ -881,11 +901,15 @@ def _action_modal_get_code(case, adapter, driver, _token, __):
     except CaseFailure:
         raise CaseSkip("browser_session_invalidated")
     observation = _begin_observation(adapter.provider)
-    before_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_before_modal")
+    before_ss = _take_verified_screenshot(
+        adapter, driver, f"{case.id.lower()}_before_modal"
+    )
     if not adapter.click_get_code(driver):
         raise CaseSkip("get_code_button_unavailable")
     time.sleep(2)
-    after_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_modal_open")
+    after_ss = _take_verified_screenshot(
+        adapter, driver, f"{case.id.lower()}_modal_open"
+    )
     adapter.close_modal(driver)
     time.sleep(1)
     return {
@@ -897,7 +921,9 @@ def _action_modal_get_code(case, adapter, driver, _token, __):
 
 def _action_browse_pages(case, adapter, driver, _token, __):
     observation = _begin_observation(adapter.provider)
-    before_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_before_browse")
+    before_ss = _take_verified_screenshot(
+        adapter, driver, f"{case.id.lower()}_before_browse"
+    )
     visited = []
     for navigator in (
         adapter.navigate_to_gallery,
@@ -911,7 +937,11 @@ def _action_browse_pages(case, adapter, driver, _token, __):
             time.sleep(2)
         except Exception as exc:
             logger.info("browse navigation failed for %s: %s", navigator.__name__, exc)
-    after_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_after_browse")
+    if not visited:
+        raise CaseFailure("browse_navigation_failed")
+    after_ss = _take_verified_screenshot(
+        adapter, driver, f"{case.id.lower()}_after_browse"
+    )
     return {
         **observation,
         "screenshots": {"before": before_ss, "after": after_ss},

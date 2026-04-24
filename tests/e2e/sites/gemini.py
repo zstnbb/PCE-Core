@@ -37,9 +37,12 @@ class GeminiAdapter(BaseSiteAdapter):
     send_button_selector = (
         'button[aria-label*="Send" i], '
         'button[aria-label*="发送"], '
+        'button[aria-label*="提交"], '
         'button.send-button, '
+        'button[data-test-id*="send"], '
         'button[mattooltip*="Send" i], '
         'button[mattooltip*="发送"], '
+        'button[mattooltip*="提交"], '
         'button.submit'
     )
     stop_button_selector = (
@@ -296,7 +299,7 @@ class GeminiAdapter(BaseSiteAdapter):
         return False
 
     def clear_prompt(self, driver: WebDriver) -> bool:
-        input_el = self._wait_for_element(driver, self.input_selector, timeout=10)
+        input_el = self._best_input_element(driver, timeout=10)
         if not input_el:
             return False
         try:
@@ -310,12 +313,103 @@ class GeminiAdapter(BaseSiteAdapter):
         time.sleep(0.2)
         return True
 
+    def _visible_input_elements(self, driver: WebDriver) -> list[WebElement]:
+        inputs: list[WebElement] = []
+        for el in self._find_elements_safe(driver, By.CSS_SELECTOR, self.input_selector):
+            try:
+                if not el.is_displayed():
+                    continue
+                rect = el.rect or {}
+                if float(rect.get("width") or 0) < 40 or float(rect.get("height") or 0) < 12:
+                    continue
+                inputs.append(el)
+            except Exception:
+                continue
+        return inputs
+
+    def _best_input_element(
+        self,
+        driver: WebDriver,
+        *,
+        timeout: float = 10,
+    ) -> WebElement | None:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            inputs = self._visible_input_elements(driver)
+            if inputs:
+                def _sort_key(el: WebElement) -> tuple[float, float]:
+                    try:
+                        rect = el.rect or {}
+                        y = float(rect.get("y") or 0)
+                        area = float(rect.get("width") or 0) * float(rect.get("height") or 0)
+                        return (y, area)
+                    except Exception:
+                        return (0.0, 0.0)
+
+                return sorted(inputs, key=_sort_key, reverse=True)[0]
+            time.sleep(0.25)
+        return None
+
+    def _current_input_text(
+        self,
+        driver: WebDriver,
+        input_el: WebElement | None = None,
+    ) -> str:
+        element = input_el
+        if element is None:
+            element = self._best_input_element(driver, timeout=2)
+        if not element:
+            return ""
+        try:
+            text = (
+                element.get_attribute("innerText")
+                or element.get_attribute("textContent")
+                or element.get_attribute("value")
+                or element.text
+                or ""
+            )
+        except Exception:
+            return ""
+        return text.strip()
+
+    def _wait_for_send_effect(
+        self,
+        driver: WebDriver,
+        *,
+        previous_user_count: int,
+        previous_assistant_count: int,
+        previous_conversation_id: str | None,
+        message: str,
+        input_el: WebElement | None = None,
+        timeout_s: float = 10,
+    ) -> bool:
+        expected = (message or "").strip()
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            current_user_count = self.turn_count(driver, role="user")
+            current_assistant_count = self.turn_count(driver, role="assistant")
+            current_conversation_id = self.current_conversation_id(driver)
+            current_input_text = self._current_input_text(driver, input_el)
+            if current_user_count > previous_user_count:
+                return True
+            if current_assistant_count > previous_assistant_count:
+                return True
+            if (
+                current_conversation_id
+                and current_conversation_id != previous_conversation_id
+                and current_input_text != expected
+            ):
+                return True
+            time.sleep(0.5)
+        return False
+
     # --- Core actions ------------------------------------------------------
 
     def _click_send_button(self, driver: WebDriver) -> bool:
         selectors = [
             self.send_button_selector,
             'button[aria-label="发送"]',
+            'button[aria-label="提交"]',
             'button[class*="send-button"]',
             'button[class*="submit"]',
         ]
@@ -325,8 +419,10 @@ class GeminiAdapter(BaseSiteAdapter):
         xpath = (
             ".//button[.//mat-icon[@fonticon='send' or @data-mat-icon-name='send'] "
             "or contains(@aria-label, '发送') "
+            "or contains(@aria-label, '提交') "
             "or contains(@aria-label, 'Send') "
             "or contains(@mattooltip, '发送') "
+            "or contains(@mattooltip, '提交') "
             "or contains(@mattooltip, 'Send')]"
         )
         buttons = self._find_elements_safe(driver, By.XPATH, xpath)
@@ -362,17 +458,19 @@ class GeminiAdapter(BaseSiteAdapter):
                 input_el.send_keys(Keys.ENTER)
                 time.sleep(0.5)
 
-            if not self.wait_for_turn_count(
+            if not self._wait_for_send_effect(
                 driver,
-                user_turns_before,
-                role="user",
+                previous_count=user_turns_before,
+                message=msg,
+                input_el=input_el,
                 timeout_s=8,
             ):
                 if self._click_send_button(driver):
-                    if not self.wait_for_turn_count(
+                    if not self._wait_for_send_effect(
                         driver,
-                        user_turns_before,
-                        role="user",
+                        previous_count=user_turns_before,
+                        message=msg,
+                        input_el=input_el,
                         timeout_s=8,
                     ):
                         return False
@@ -1016,6 +1114,7 @@ class GeminiAdapter(BaseSiteAdapter):
         if self._click_first(
             driver,
             [
+                'button[data-test-id="regenerate-button"]',
                 'button[aria-label*="Regenerate" i]',
                 'button[aria-label*="重新生成"]',
                 'button[aria-label*="重做"]',
@@ -1057,8 +1156,10 @@ class GeminiAdapter(BaseSiteAdapter):
 
         # Try "Modify response" or "Show drafts" in Gemini
         more_btn_sel = (
+            'button[data-test-id="more-menu-button"], '
             'button[aria-label*="More" i], '
             'button[aria-label*="更多"], '
+            'button[aria-label*="显示更多选项"], '
             'button[aria-label*="options" i]'
         )
         if not self._click_first(driver, [more_btn_sel]):
@@ -1164,12 +1265,34 @@ class GeminiAdapter(BaseSiteAdapter):
                 time.sleep(self.page_load_wait_s)
                 return True
 
-            driver.get(self.base_url + "/gems")
+            driver.get(self.base_url + "/gems/view")
             time.sleep(self.page_load_wait_s + 1)
-            gem_links = self._find_elements(driver, 'a[href*="/gem/"]')
-            target = self._first_displayed(gem_links)
-            if target is None:
+            visible_links = []
+            for link in self._find_elements(driver, 'a[href*="/gem/"]'):
+                try:
+                    if link.is_displayed() and link.get_attribute("href"):
+                        visible_links.append(link)
+                except Exception:
+                    continue
+            if not visible_links:
                 return False
+            preferred_slugs = [
+                "/gem/coding-partner",
+                "/gem/learning-coach",
+                "/gem/writing-editor",
+                "/gem/productivity-helper",
+            ]
+            target = None
+            for slug in preferred_slugs:
+                for link in visible_links:
+                    href = link.get_attribute("href") or ""
+                    if slug in href:
+                        target = link
+                        break
+                if target is not None:
+                    break
+            if target is None:
+                target = visible_links[0]
             href = target.get_attribute("href")
             if not href:
                 return False
@@ -1187,11 +1310,48 @@ class GeminiAdapter(BaseSiteAdapter):
         except Exception:
             return False
 
+    def create_share_url(self, driver: WebDriver, timeout_s: float = 8) -> str | None:
+        deadline = time.time() + timeout_s
+        clicked = False
+        while time.time() < deadline:
+            if not clicked:
+                clicked = self._click_first(
+                    driver,
+                    [
+                        'button[data-test-id="share-button"]',
+                        'button[aria-label*="Share" i]',
+                        'button[aria-label*="分享"]',
+                    ],
+                )
+                if clicked:
+                    time.sleep(1.0)
+
+            anchors = self._find_elements_safe(driver, By.CSS_SELECTOR, 'a[href*="/share/"]')
+            target = self._first_displayed(anchors)
+            if target is not None:
+                href = target.get_attribute("href")
+                if href:
+                    return href
+
+            body = self._visible_body_text(driver)
+            match = re.search(r"https://gemini\.google\.com/share/[a-z0-9]+", body, re.IGNORECASE)
+            if match:
+                return match.group(0)
+            match = re.search(r"gemini\.google\.com/share/[a-z0-9]+", body, re.IGNORECASE)
+            if match:
+                return "https://" + match.group(0).lstrip("/")
+            time.sleep(0.5)
+        return None
+
     def switch_model(self, driver: WebDriver, labels: Iterable[str]) -> bool:
-        """Switch between Gemini 2.5 Flash / 2.5 Pro / 2.5 Pro Thinking."""
+        """Switch between Gemini modes such as Fast / Thinking / Pro."""
         if not self._click_first(
             driver,
             [
+                'button[data-test-id="bard-mode-menu-button"]',
+                'button[aria-label*="模式选择器"]',
+                'button[aria-label*="模式"]',
+                'button[aria-label*="Mode" i]',
                 'button[data-test-id*="model"]',
                 'button[aria-label*="Model" i]',
                 'button[aria-label*="模型" i]',
@@ -1238,6 +1398,21 @@ class GeminiAdapter(BaseSiteAdapter):
                 return False
 
         try:
+            input_el = self._wait_for_element(driver, self.input_selector, timeout=10)
+            if not input_el:
+                return False
+            try:
+                input_el.click()
+            except Exception:
+                driver.execute_script("arguments[0].focus();", input_el)
+            time.sleep(0.2)
+            input_el.send_keys(Keys.CONTROL, "a")
+            time.sleep(0.1)
+            input_el.send_keys(Keys.DELETE)
+            time.sleep(0.2)
+            input_el.send_keys(message)
+            time.sleep(0.5)
+
             driver.execute_cdp_cmd("Network.enable", {})
             driver.execute_cdp_cmd(
                 "Network.emulateNetworkConditions",
@@ -1249,8 +1424,9 @@ class GeminiAdapter(BaseSiteAdapter):
                     "connectionType": "none",
                 },
             )
-            if not self.send_message(driver, message=message):
-                return False
+            if not self._click_send_button(driver):
+                input_el.send_keys(Keys.ENTER)
+                time.sleep(0.5)
             return self.wait_for_error_state(driver, timeout_s=20)
         finally:
             try:
@@ -1275,6 +1451,8 @@ class GeminiAdapter(BaseSiteAdapter):
             "Retry",
             "offline",
             "failed",
+            "出了点问题",
+            "出了一点问题",
             "出现问题",
             "出错",
             "错误",
@@ -1285,6 +1463,493 @@ class GeminiAdapter(BaseSiteAdapter):
             if self.page_contains_any_text(driver, needles):
                 return True
             time.sleep(0.5)
+        return False
+
+    def _send_button_is_clickable(self, element: WebElement) -> bool:
+        try:
+            if not element.is_displayed() or not element.is_enabled():
+                return False
+            if element.get_attribute("disabled") is not None:
+                return False
+            if (element.get_attribute("aria-disabled") or "").strip().lower() == "true":
+                return False
+            return True
+        except Exception:
+            return False
+
+    def _click_send_button(self, driver: WebDriver) -> bool:
+        ranked: list[tuple[float, float, WebElement]] = []
+        seen_ids: set[str] = set()
+
+        def _add_candidate(element: WebElement) -> None:
+            if not self._send_button_is_clickable(element):
+                return
+            element_id = getattr(element, "id", None) or str(id(element))
+            if element_id in seen_ids:
+                return
+            seen_ids.add(element_id)
+            try:
+                rect = element.rect or {}
+                y = float(rect.get("y") or 0)
+                area = float(rect.get("width") or 0) * float(rect.get("height") or 0)
+            except Exception:
+                y = 0.0
+                area = 0.0
+            ranked.append((y, area, element))
+
+        selectors = [
+            self.send_button_selector,
+            'button[aria-label="发送"]',
+            'button[aria-label="提交"]',
+            'button[class*="send-button"]',
+            'button[class*="submit"]',
+        ]
+        for selector in selectors:
+            for candidate in self._find_elements_safe(driver, By.CSS_SELECTOR, selector):
+                _add_candidate(candidate)
+
+        xpath = (
+            ".//button[.//mat-icon[@fonticon='send' or @data-mat-icon-name='send'] "
+            "or contains(@aria-label, '发送') "
+            "or contains(@aria-label, '提交') "
+            "or contains(@aria-label, 'Send') "
+            "or contains(@mattooltip, '发送') "
+            "or contains(@mattooltip, '提交') "
+            "or contains(@mattooltip, 'Send')]"
+        )
+        for target in self._find_elements_safe(driver, By.XPATH, xpath):
+            _add_candidate(target)
+
+        for _, _, target in sorted(ranked, key=lambda item: (item[0], item[1]), reverse=True):
+            if self._click_element(driver, target):
+                return True
+        return False
+
+    def send_message(self, driver: WebDriver, message: str = None) -> bool:
+        msg = message or self.test_message
+        try:
+            input_el = self._best_input_element(driver, timeout=10)
+            if not input_el:
+                return False
+
+            try:
+                input_el.click()
+            except Exception:
+                driver.execute_script("arguments[0].focus();", input_el)
+            time.sleep(0.3)
+
+            input_el.send_keys(msg)
+            time.sleep(0.5)
+
+            user_turns_before = self.turn_count(driver, role="user")
+            assistant_turns_before = self.turn_count(driver, role="assistant")
+            conversation_id_before = self.current_conversation_id(driver)
+
+            clicked = False
+            deadline = time.time() + 20
+            while time.time() < deadline and not clicked:
+                clicked = self._click_send_button(driver)
+                if not clicked:
+                    time.sleep(0.5)
+            if not clicked:
+                input_el.send_keys(Keys.ENTER)
+                time.sleep(0.5)
+
+            if not self._wait_for_send_effect(
+                driver,
+                previous_user_count=user_turns_before,
+                previous_assistant_count=assistant_turns_before,
+                previous_conversation_id=conversation_id_before,
+                message=msg,
+                input_el=input_el,
+                timeout_s=10,
+            ):
+                if self._click_send_button(driver):
+                    if not self._wait_for_send_effect(
+                        driver,
+                        previous_user_count=user_turns_before,
+                        previous_assistant_count=assistant_turns_before,
+                        previous_conversation_id=conversation_id_before,
+                        message=msg,
+                        input_el=input_el,
+                        timeout_s=10,
+                    ):
+                        return False
+                else:
+                    return False
+
+            logger.info("[%s] Message sent: %s", self.name, msg[:80])
+            time.sleep(self.post_send_settle_s)
+            return True
+
+        except Exception as e:
+            logger.error("[%s] Send failed: %s", self.name, e)
+            return False
+
+    def _has_visible_stop_button(self, driver: WebDriver) -> bool:
+        selectors = [
+            'button[aria-label*="Stop" i]',
+            'button[mattooltip*="Stop" i]',
+        ]
+        for selector in selectors:
+            if self._first_displayed(self._find_elements_safe(driver, By.CSS_SELECTOR, selector)):
+                return True
+        xpath = (
+            ".//button[.//mat-icon[@fonticon='stop' "
+            "or @data-mat-icon-name='stop']]"
+        )
+        return self._first_displayed(self._find_elements_safe(driver, By.XPATH, xpath)) is not None
+
+    def wait_for_stop_button_visible(
+        self,
+        driver: WebDriver,
+        timeout_s: float = 12,
+    ) -> bool:
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            if self._has_visible_stop_button(driver):
+                return True
+            time.sleep(0.25)
+        return False
+
+    def last_turn_text(self, driver: WebDriver, role: str) -> str:
+        turn = self.last_turn(driver, role)
+        if turn is None:
+            return ""
+        try:
+            text = (
+                turn.get_attribute("innerText")
+                or turn.get_attribute("textContent")
+                or turn.text
+                or ""
+            )
+        except Exception:
+            return ""
+        return text.strip()
+
+    def wait_for_response(
+        self,
+        driver: WebDriver,
+        *,
+        previous_assistant_count: int | None = None,
+        previous_assistant_text: str | None = None,
+    ) -> bool:
+        """Wait until Gemini has produced fresh assistant content."""
+        deadline = time.time() + self.response_timeout_s
+        last_text = previous_assistant_text or ""
+        stable_since: float | None = None
+        response_started = False
+
+        while time.time() < deadline:
+            current_count = self.turn_count(driver, role="assistant")
+            current_text = self.last_turn_text(driver, "assistant")
+            stop_visible = self._has_visible_stop_button(driver)
+
+            if previous_assistant_count is None and current_text:
+                response_started = True
+            elif previous_assistant_count is not None and current_count > previous_assistant_count:
+                response_started = True
+            elif previous_assistant_text is not None and current_text and current_text != previous_assistant_text:
+                response_started = True
+
+            if response_started:
+                if current_text != last_text or stop_visible:
+                    last_text = current_text
+                    stable_since = time.time()
+                elif stable_since is None:
+                    stable_since = time.time()
+                elif not stop_visible and (time.time() - stable_since) >= 2.0:
+                    logger.info("[%s] Response complete (fresh assistant content)", self.name)
+                    return True
+
+            time.sleep(0.5)
+
+        return response_started and bool(last_text.strip())
+
+    def _click_text_entry(
+        self,
+        driver: WebDriver,
+        labels: Iterable[str],
+        *,
+        timeout_s: float = 6,
+    ) -> bool:
+        xpath = self._xpath_contains_text(labels)
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            candidates = self._find_elements_safe(driver, By.XPATH, xpath)
+            ranked_targets: list[tuple[int, float, WebElement]] = []
+            seen_ids: set[str] = set()
+            for candidate in candidates:
+                try:
+                    if not candidate.is_displayed():
+                        continue
+                    click_target = candidate
+                    ancestors = self._find_elements_safe(
+                        candidate,
+                        By.XPATH,
+                        (
+                            "./ancestor-or-self::*[self::button or self::a "
+                            "or @role='menuitem' or @role='button' "
+                            "or contains(@class, 'chip') or contains(@class, 'suggestion')][1]"
+                        ),
+                    )
+                    if ancestors:
+                        click_target = ancestors[0]
+                    element_id = getattr(click_target, "id", None) or str(id(click_target))
+                    if element_id in seen_ids:
+                        continue
+                    seen_ids.add(element_id)
+                    rect = click_target.rect or {}
+                    y = float(rect.get("y") or 0)
+                    text_blob = " ".join(
+                        part
+                        for part in [
+                            (candidate.text or "").strip(),
+                            (candidate.get_attribute("aria-label") or "").strip(),
+                            (candidate.get_attribute("mattooltip") or "").strip(),
+                        ]
+                        if part
+                    )
+                    exact_match = any(label.lower() == text_blob.lower() for label in labels if label)
+                    ranked_targets.append((1 if exact_match else 0, y, click_target))
+                except StaleElementReferenceException:
+                    continue
+                except Exception:
+                    continue
+            for _, _, click_target in sorted(ranked_targets, key=lambda item: (item[0], item[1]), reverse=True):
+                if self._click_element(driver, click_target):
+                    time.sleep(0.8)
+                    return True
+            time.sleep(0.25)
+        return False
+
+    def select_tool_entry(
+        self,
+        driver: WebDriver,
+        *,
+        labels: Iterable[str],
+    ) -> dict[str, object]:
+        clicked = self.click_tool_menu_entry(driver, labels)
+        time.sleep(1)
+        body_text = self._visible_body_text(driver)
+        labels_seen = [
+            label for label in labels
+            if label.lower() in body_text.lower()
+        ]
+        return {
+            "clicked": clicked,
+            "labels_seen": labels_seen,
+            "dialog_count": self._displayed_dialog_count(driver),
+            "current_url": driver.current_url,
+        }
+
+    def force_error(self, driver: WebDriver, message: str) -> bool:
+        if not self.find_input(driver):
+            if not self.navigate(driver):
+                return False
+            if not self.find_input(driver):
+                return False
+
+        try:
+            input_el = self._best_input_element(driver, timeout=10)
+            if not input_el:
+                return False
+            try:
+                input_el.click()
+            except Exception:
+                driver.execute_script("arguments[0].focus();", input_el)
+            time.sleep(0.2)
+            input_el.send_keys(Keys.CONTROL, "a")
+            time.sleep(0.1)
+            input_el.send_keys(Keys.DELETE)
+            time.sleep(0.2)
+            input_el.send_keys(message)
+            time.sleep(0.5)
+
+            driver.execute_cdp_cmd("Network.enable", {})
+            driver.execute_cdp_cmd(
+                "Network.emulateNetworkConditions",
+                {
+                    "offline": True,
+                    "latency": 0,
+                    "downloadThroughput": 0,
+                    "uploadThroughput": 0,
+                    "connectionType": "none",
+                },
+            )
+            if not self._click_send_button(driver):
+                input_el.send_keys(Keys.ENTER)
+                time.sleep(0.5)
+            return self.wait_for_error_state(driver, timeout_s=20)
+        finally:
+            try:
+                driver.execute_cdp_cmd(
+                    "Network.emulateNetworkConditions",
+                    {
+                        "offline": False,
+                        "latency": 0,
+                        "downloadThroughput": -1,
+                        "uploadThroughput": -1,
+                        "connectionType": "wifi",
+                    },
+                )
+            except Exception:
+                pass
+
+    def click_edit_last_user_message(self, driver: WebDriver) -> bool:
+        turn = self.last_turn(driver, "user")
+        if turn is None:
+            fallback = self._visible_turns_for_selectors(
+                driver,
+                ["user-query", "user-query-content", ".query-content"],
+            )
+            turn = fallback[-1] if fallback else None
+        if turn is None:
+            return False
+
+        self._hover(driver, turn)
+        try:
+            turn_y = float((turn.rect or {}).get("y") or 0)
+        except Exception:
+            turn_y = 0.0
+
+        candidates: list[tuple[float, WebElement]] = []
+        selectors = [
+            'button[data-test-id="prompt-edit-button"]',
+            'button[aria-label*="修改"]',
+            'button[mattooltip*="修改"]',
+            'button[aria-label*="Edit" i]',
+            'button[mattooltip*="edit" i]',
+        ]
+        for selector in selectors:
+            for button in self._find_elements_safe(driver, By.CSS_SELECTOR, selector):
+                try:
+                    if not button.is_displayed():
+                        continue
+                    button_y = float((button.rect or {}).get("y") or 0)
+                    candidates.append((abs(button_y - turn_y), button))
+                except Exception:
+                    continue
+
+        xpath = self._xpath_contains_aria(["Edit", "编辑", "編輯", "Modify", "修改"])
+        for button in self._find_elements_safe(driver, By.XPATH, xpath):
+            try:
+                if not button.is_displayed():
+                    continue
+                button_y = float((button.rect or {}).get("y") or 0)
+                candidates.append((abs(button_y - turn_y), button))
+            except Exception:
+                continue
+
+        for _, button in sorted(candidates, key=lambda item: item[0]):
+            if self._click_element(driver, button):
+                time.sleep(0.8)
+                return True
+        return False
+
+    def edit_last_user_message(self, driver: WebDriver, new_message: str) -> bool:
+        if not self.click_edit_last_user_message(driver):
+            return False
+
+        editor: WebElement | None = None
+        try:
+            active = driver.switch_to.active_element
+            if active and active.is_displayed():
+                tag = (active.tag_name or "").lower()
+                if tag == "textarea" or active.get_attribute("contenteditable") == "true":
+                    editor = active
+        except Exception:
+            editor = None
+
+        if editor is None:
+            candidates = self._visible_input_elements(driver)
+            if candidates:
+                editor = sorted(
+                    candidates,
+                    key=lambda el: float((el.rect or {}).get("y") or 0),
+                )[0]
+        if editor is None:
+            return False
+
+        try:
+            editor.click()
+        except Exception:
+            driver.execute_script("arguments[0].focus();", editor)
+        time.sleep(0.3)
+        editor.send_keys(Keys.CONTROL, "a")
+        time.sleep(0.1)
+        editor.send_keys(Keys.DELETE)
+        time.sleep(0.2)
+        editor.send_keys(new_message)
+        time.sleep(0.4)
+
+        selectors = [
+            'button[aria-label*="Update" i]',
+            'button[aria-label*="Save" i]',
+            'button[aria-label*="提交"]',
+            'button[aria-label*="发送"]',
+            'button[class*="send-button"]',
+        ]
+        for selector in selectors:
+            for button in self._find_elements_safe(driver, By.CSS_SELECTOR, selector):
+                try:
+                    if not self._send_button_is_clickable(button):
+                        continue
+                    if self._click_element(driver, button):
+                        time.sleep(0.8)
+                        return True
+                except Exception:
+                    continue
+
+        try:
+            editor.send_keys(Keys.ENTER)
+            time.sleep(0.8)
+            return True
+        except Exception:
+            return False
+
+    def navigate_to_gem(self, driver: WebDriver, gem_url: str | None = None) -> bool:
+        preferred_urls = []
+        if gem_url:
+            preferred_urls.append(gem_url)
+        preferred_urls.extend(
+            [
+                self.base_url + "/gem/coding-partner",
+                self.base_url + "/gem/learning-coach",
+                self.base_url + "/gem/writing-editor",
+                self.base_url + "/gem/productivity-helper",
+            ]
+        )
+
+        for candidate_url in preferred_urls:
+            try:
+                driver.get(candidate_url)
+                time.sleep(self.page_load_wait_s + 1)
+                body = self._visible_body_text(driver)
+                if self.find_input(driver) or self.page_contains_any_text(
+                    driver,
+                    ["创建者", "近期对话", "Gem", "Gems", "编码助手", "学习教练"],
+                ):
+                    return True
+            except Exception:
+                continue
+
+        try:
+            driver.get(self.base_url + "/gems/view")
+            time.sleep(self.page_load_wait_s + 1)
+            for link in self._find_elements(driver, 'a[href*="/gem/"]'):
+                try:
+                    href = link.get_attribute("href") or ""
+                    if not href:
+                        continue
+                    driver.get(href)
+                    time.sleep(self.page_load_wait_s)
+                    if self.find_input(driver) or "/gem/" in driver.current_url:
+                        return True
+                except Exception:
+                    continue
+        except Exception:
+            return False
         return False
 
     def detect_features(self, driver: WebDriver) -> dict[str, bool]:

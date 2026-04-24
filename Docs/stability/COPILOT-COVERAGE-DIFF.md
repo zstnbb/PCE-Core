@@ -1,7 +1,11 @@
 # Copilot — Coverage Diff vs CHATGPT-FULL-COVERAGE
 
-**Tier:** S2
+**Tier:** **S2** — workflow-critical for the enterprise /
+researcher slice of the $50+/mo AI-native power user persona
+(Bing grounding + M365 ecosystem). Canonical tier definition:
+`Docs/stability/SITE-TIER-MATRIX.md`.
 **Parent spec:** `CHATGPT-FULL-COVERAGE.md` (Parts IV-VI inherited verbatim)
+**E2E depth:** S2 diff runner (pending) + smoke via `test_capture.py` (pending)
 **Ship target:** v1.0.2
 
 ---
