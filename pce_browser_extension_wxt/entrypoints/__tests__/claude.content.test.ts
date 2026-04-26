@@ -14,6 +14,7 @@ import {
   getContainer,
   getModelName,
   getSessionHint,
+  isConversationPath,
   isStreaming,
 } from "../claude.content";
 
@@ -154,17 +155,101 @@ describe("isStreaming", () => {
 });
 
 // ---------------------------------------------------------------------------
-// extractMessages — /share/ URL skip (P5.B gap C9 regression)
+// isConversationPath — conversation-surface whitelist (P5.B gap C19)
 // ---------------------------------------------------------------------------
 
-describe("extractMessages — /share/ URL skip (C9)", () => {
-  it("returns [] on /share/<uuid> paths regardless of DOM content", () => {
+describe("isConversationPath", () => {
+  it("accepts /chat/<uuid>", () => {
+    expect(isConversationPath("/chat/abcd1234-ef56-7890")).toBe(true);
+  });
+
+  it("accepts /project/<id>/chat/<uuid>", () => {
+    expect(
+      isConversationPath("/project/proj-xyz/chat/abcd1234-ef56-7890"),
+    ).toBe(true);
+  });
+
+  it("accepts the transient /new", () => {
+    expect(isConversationPath("/new")).toBe(true);
+  });
+
+  it("rejects root /", () => {
+    expect(isConversationPath("/")).toBe(false);
+  });
+
+  it("rejects /settings and subpaths", () => {
+    expect(isConversationPath("/settings")).toBe(false);
+    expect(isConversationPath("/settings/account")).toBe(false);
+    expect(isConversationPath("/settings/profile")).toBe(false);
+  });
+
+  it("rejects /share/<uuid>", () => {
+    expect(isConversationPath("/share/abcd1234-uuid")).toBe(false);
+  });
+
+  it("rejects /recents", () => {
+    expect(isConversationPath("/recents")).toBe(false);
+  });
+
+  it("rejects /organizations/<id>/...", () => {
+    expect(
+      isConversationPath("/organizations/d6fc1819-93d4-/interviews/foo"),
+    ).toBe(false);
+  });
+
+  it("rejects /project/<id> landing (no chat segment)", () => {
+    expect(isConversationPath("/project/proj-xyz")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// extractMessages — non-conversation path skip (C19 + C9 regression)
+// ---------------------------------------------------------------------------
+
+describe("extractMessages — non-conversation path skip", () => {
+  // C19 — settings page DOM must never produce captures (idle honesty).
+  it("returns [] on /settings/account regardless of DOM content", () => {
+    document.body.innerHTML = `
+      <main>
+        <div data-testid="human-turn">PCE-C01-7421. Reply with...</div>
+        <div data-testid="assistant-turn"> ACK 7421</div>
+      </main>`;
+    expect(extractMessages(document, "/settings/account")).toEqual([]);
+  });
+
+  it("returns [] on root / even if Strategy 2 selectors match", () => {
+    document.body.innerHTML = `
+      <main>
+        <div class="user-message">stale content</div>
+        <div class="assistant-message">stale reply</div>
+      </main>`;
+    expect(extractMessages(document, "/")).toEqual([]);
+  });
+
+  it("returns [] on /recents", () => {
+    document.body.innerHTML = `
+      <main>
+        <div data-testid="human-turn">recent thread preview</div>
+      </main>`;
+    expect(extractMessages(document, "/recents")).toEqual([]);
+  });
+
+  // C9 (kept) — read-only shared conversations stay silent.
+  it("returns [] on /share/<uuid>", () => {
     document.body.innerHTML = `
       <main>
         <div data-testid="human-turn">someone else's question</div>
         <div data-testid="assistant-turn">someone else's answer</div>
       </main>`;
     expect(extractMessages(document, "/share/abcd1234-uuid")).toEqual([]);
+  });
+
+  it("returns [] on /project/<id> landing (no chat segment)", () => {
+    document.body.innerHTML = `
+      <main>
+        <div class="message">project description</div>
+      </main>`;
+    expect(extractMessages(document, "/project/proj-xyz")).toEqual([]);
   });
 
   it("still captures on normal /chat/<uuid> with the same DOM", () => {
@@ -177,6 +262,29 @@ describe("extractMessages — /share/ URL skip (C9)", () => {
       extractMessages(document, "/chat/abcd1234-uuid").length,
     ).toBeGreaterThan(0);
   });
+
+  it("captures on /project/<id>/chat/<uuid> (Projects chat)", () => {
+    document.body.innerHTML = `
+      <main>
+        <div data-testid="human-turn">project question</div>
+        <div data-testid="assistant-turn">project answer</div>
+      </main>`;
+    expect(
+      extractMessages(
+        document,
+        "/project/proj-xyz/chat/abcd1234-uuid",
+      ).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("captures on transient /new", () => {
+    document.body.innerHTML = `
+      <main>
+        <div data-testid="human-turn">first message</div>
+        <div data-testid="assistant-turn">first reply</div>
+      </main>`;
+    expect(extractMessages(document, "/new").length).toBeGreaterThan(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -184,13 +292,15 @@ describe("extractMessages — /share/ URL skip (C9)", () => {
 // ---------------------------------------------------------------------------
 
 describe("extractMessages — dedicated selectors", () => {
+  const CHAT_PATH = "/chat/test-uuid";
+
   it("captures a human + assistant pair", () => {
     document.body.innerHTML = `
       <main>
         <div data-testid="human-turn">hi Claude</div>
         <div data-testid="assistant-turn">hello, I'm Claude</div>
       </main>`;
-    const msgs = extractMessages(document);
+    const msgs = extractMessages(document, CHAT_PATH);
     expect(msgs).toHaveLength(2);
     expect(msgs[0].role).toBe("user");
     expect(msgs[0].content).toBe("hi Claude");
@@ -209,7 +319,7 @@ describe("extractMessages — dedicated selectors", () => {
           answer text
         </div>
       </main>`;
-    const msgs = extractMessages(document);
+    const msgs = extractMessages(document, CHAT_PATH);
     const assistant = msgs.find((m) => m.role === "assistant")!;
     expect(assistant.content).toContain("<thinking>");
     expect(assistant.content).toContain("reasoning body");
@@ -222,7 +332,7 @@ describe("extractMessages — dedicated selectors", () => {
         <div class="font-user-message">user via font class</div>
         <div class="font-claude-message">claude via font class</div>
       </main>`;
-    const msgs = extractMessages(document);
+    const msgs = extractMessages(document, CHAT_PATH);
     expect(msgs).toHaveLength(2);
     expect(msgs[0].role).toBe("user");
     expect(msgs[1].role).toBe("assistant");
@@ -234,13 +344,15 @@ describe("extractMessages — dedicated selectors", () => {
 // ---------------------------------------------------------------------------
 
 describe("extractMessages — generic message blocks", () => {
+  const CHAT_PATH = "/chat/test-uuid";
+
   it("detects role from class keyword", () => {
     document.body.innerHTML = `
       <main>
         <div class="some-human-message">hi</div>
         <div class="some-assistant-message">hello</div>
       </main>`;
-    const msgs = extractMessages(document);
+    const msgs = extractMessages(document, CHAT_PATH);
     expect(msgs).toHaveLength(2);
     expect(msgs[0].role).toBe("user");
     expect(msgs[1].role).toBe("assistant");
@@ -252,7 +364,7 @@ describe("extractMessages — generic message blocks", () => {
         <div class="message" data-role="user">u</div>
         <div class="message" data-role="assistant">a</div>
       </main>`;
-    const msgs = extractMessages(document);
+    const msgs = extractMessages(document, CHAT_PATH);
     expect(msgs).toHaveLength(2);
     expect(msgs[0].role).toBe("user");
     expect(msgs[1].role).toBe("assistant");
@@ -264,7 +376,7 @@ describe("extractMessages — generic message blocks", () => {
         <div class="message" aria-label="Human message">u</div>
         <div class="message" aria-label="Claude response">a</div>
       </main>`;
-    const msgs = extractMessages(document);
+    const msgs = extractMessages(document, CHAT_PATH);
     expect(msgs.length).toBeGreaterThanOrEqual(2);
     expect(msgs.some((m) => m.role === "user")).toBe(true);
     expect(msgs.some((m) => m.role === "assistant")).toBe(true);
@@ -275,7 +387,7 @@ describe("extractMessages — generic message blocks", () => {
       <main>
         <div class="message">ambiguous</div>
       </main>`;
-    expect(extractMessages(document)).toEqual([]);
+    expect(extractMessages(document, CHAT_PATH)).toEqual([]);
   });
 });
 
@@ -284,6 +396,8 @@ describe("extractMessages — generic message blocks", () => {
 // ---------------------------------------------------------------------------
 
 describe("extractMessages — container direct-children fallback", () => {
+  const CHAT_PATH = "/chat/test-uuid";
+
   it("alternates user/assistant by index", () => {
     document.body.innerHTML = `
       <main class="flex flex-col">
@@ -291,7 +405,7 @@ describe("extractMessages — container direct-children fallback", () => {
         <div>long enough second turn</div>
         <div>long enough third turn</div>
       </main>`;
-    const msgs = extractMessages(document);
+    const msgs = extractMessages(document, CHAT_PATH);
     expect(msgs).toHaveLength(3);
     expect(msgs[0].role).toBe("user");
     expect(msgs[1].role).toBe("assistant");
@@ -300,6 +414,6 @@ describe("extractMessages — container direct-children fallback", () => {
 
   it("returns [] when nothing matches any strategy", () => {
     document.body.innerHTML = `<main><span>x</span></main>`;
-    expect(extractMessages(document)).toEqual([]);
+    expect(extractMessages(document, CHAT_PATH)).toEqual([]);
   });
 });

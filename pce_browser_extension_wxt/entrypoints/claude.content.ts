@@ -49,6 +49,18 @@ declare global {
 
 const SESSION_HINT_RE = /\/chat\/([a-f0-9-]+)/;
 
+// Conversation paths that PCE captures from. Anything else (root,
+// /settings/*, /share/*, /recents, /organizations/*, project landing
+// without a chat) is idle by definition and must produce zero
+// captures (closes P5.B C19 settings-noise gap).
+//
+// Allowed:
+//   /new                                  — transient new chat
+//   /chat/<uuid>                          — vanilla chat
+//   /project/<id>/chat/<uuid>             — Projects chat
+const CONVERSATION_PATH_RE =
+  /^\/(?:new(?:$|\/)|chat\/|project\/[^/]+\/chat\/)/i;
+
 // Claude model families (matches "Claude 3.5 Sonnet", "Claude Opus 4",
 // "Haiku 3", etc.). Case-insensitive.
 const MODEL_NAME_RE = /claude\s+(?:[\d.]+\s+)?(haiku|sonnet|opus)(?:\s+[\d.]+)?/i;
@@ -58,6 +70,21 @@ export function getSessionHint(
 ): string | null {
   const m = pathname.match(SESSION_HINT_RE);
   return m ? m[1] : null;
+}
+
+/**
+ * Returns true when the current path is a Claude conversation surface
+ * (chat / projects chat / transient /new). Anything else — including
+ * /settings/*, /share/*, /recents, /organizations/*, project landing
+ * pages, and root — is idle and must NOT produce captures.
+ *
+ * Closes P5.B C19 (settings-noise) at the extractor layer; the
+ * runtime-level ``requireSessionHint: true`` is defence in depth.
+ */
+export function isConversationPath(
+  pathname: string = typeof location !== "undefined" ? location.pathname : "/",
+): boolean {
+  return CONVERSATION_PATH_RE.test(pathname);
 }
 
 /**
@@ -180,10 +207,11 @@ export function extractMessages(
   doc: Document = document,
   pathname: string = typeof location !== "undefined" ? location.pathname : "/",
 ): ExtractedMessage[] {
-  // Closes P5.B gap **C9**: read-only shared conversations
-  // (`claude.ai/share/<uuid>`) must NOT be captured as if authored by
-  // the current user.
-  if (/^\/share\//i.test(pathname)) return [];
+  // Closes P5.B C19 (settings-noise) and C9 (shared-chat skip):
+  // restrict capture to conversation surfaces. /share/, /settings/*,
+  // /recents, /organizations/*, project landing pages, and root all
+  // fail this guard and produce zero captures.
+  if (!isConversationPath(pathname)) return [];
 
   // Strategy 1
   const humanTurns = doc.querySelectorAll(HUMAN_TURN_SELECTORS);
@@ -324,6 +352,11 @@ export default defineContentScript({
       getSessionHint: () => getSessionHint(),
       getModelName: () => getModelName(document),
       hookHistoryApi: false,
+      // Defence in depth (closes P5.B C19): even if extractMessages
+      // somehow returns content on a non-conversation path (e.g. a
+      // future DOM-extractor regression), the runtime defers capture
+      // until getSessionHint() returns a real /chat/<uuid>.
+      requireSessionHint: true,
     });
 
     // Closes P5.B gap **C6**: wire the shared ``pce-manual-capture`` DOM

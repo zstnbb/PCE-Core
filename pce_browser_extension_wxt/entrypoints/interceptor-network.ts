@@ -162,12 +162,64 @@ export default defineUnlistedScript(() => {
     /\/realtime\/status/i,
     /\/connectors\/check/i,
     /\/sentry/i,
+    // Closes B3 (Claude C19 audit): vendor-specific non-chat endpoints
+    // observed leaking into the capture pipeline on claude.ai.
+    /^\/api\/v2\/rum/i, // Datadog RUM intake
+    /^\/v1\/m\/?$/i, // Anthropic metrics
+    /^\/api\/directory\//i, // Anthropic MCP directory
+    /^\/api\/organizations\/[^/]+\/interviews\//i, // Claude feature flags
+    /^\/api\/stripe\//i, // Claude billing
+    /^\/api\/feature[-_]flags?/i, // Generic feature flag endpoints
+    // Closes B3 v5 (Claude C02 audit): Growthbook / Statsig style A/B
+    // experiment + event-logging telemetry on claude.ai. Body shape is
+    // ``{events: [{event_type: "GrowthbookExperimentEvent", …}]}``,
+    // hits ``/api/event_logging/batch`` and similar.
+    /^\/api\/event_logging\b/i, // Claude Growthbook batch
+    /^\/api\/(account_)?statsig\//i, // Statsig A/B test logging
+    /^\/api\/track_event\b/i, // Generic event tracking
+    /^\/api\/log_event\b/i, // Generic event logging
+    // Root path — never a chat-completion endpoint. Catches SPA
+    // shell re-fetches (claude.ai/) seen on settings/recents nav.
+    /^\/$/,
+  ];
+
+  // Hosts that are confirmed telemetry / analytics / monitoring
+  // backends. Any fetch to one of these from an AI page is noise, even
+  // if its body happens to look JSON-shaped. Closes B3 — Datadog RUM
+  // hits previously got tagged with the page's provider (anthropic) and
+  // persisted as captures.
+  const NOISE_HOST_PATTERNS: RegExp[] = [
+    /(^|\.)datadoghq\.(com|eu)$/i,
+    /(^|\.)browser-intake[\w-]*\.datadoghq\./i,
+    /(^|\.)sentry\.io$/i,
+    /(^|\.)sentry-cdn\.com$/i,
+    /(^|\.)mixpanel\.com$/i,
+    /(^|\.)segment\.(io|com)$/i,
+    /(^|\.)amplitude\.com$/i,
+    /(^|\.)hotjar\.com$/i,
+    /(^|\.)fullstory\.com$/i,
+    /(^|\.)googletagmanager\.com$/i,
+    /(^|\.)google-analytics\.com$/i,
+    /(^|\.)intercom\.(io|com)$/i,
+    /(^|\.)intercomcdn\.com$/i,
+    /(^|\.)bugsnag\.com$/i,
+    /(^|\.)newrelic\.com$/i,
+    /(^|\.)launchdarkly\.com$/i,
+    /(^|\.)statsig\.com$/i,
   ];
 
   function isNoisePath(path: string | null): boolean {
     if (!path) return false;
     for (const re of NOISE_PATH_PATTERNS) {
       if (re.test(path)) return true;
+    }
+    return false;
+  }
+
+  function isNoiseHost(host: string | null): boolean {
+    if (!host) return false;
+    for (const re of NOISE_HOST_PATTERNS) {
+      if (re.test(host)) return true;
     }
     return false;
   }
@@ -265,21 +317,42 @@ export default defineUnlistedScript(() => {
       }
     }
 
+    // Universal noise filter (B3 v2): runs BEFORE isAIRequest so it
+    // catches even known-AI hosts (api.anthropic.com, claude.ai)
+    // hitting non-chat endpoints like /api/directory/, /api/v2/rum,
+    // root /, etc. Previously this only fired in aggressive mode,
+    // letting AI-host noise through.
+    //
+    // B3 v4: use ``new URL(url, location.href)`` so RELATIVE URLs
+    // (e.g. SPA shell does ``fetch("/")`` or ``fetch("/api/foo")``)
+    // also normalize to absolute. Without the base, ``new URL("/")``
+    // throws and the catch silently let noise leak through.
+    try {
+      const parsedNoiseCheck = new URL(url, location.href);
+      if (isNoiseHost(parsedNoiseCheck.hostname)) {
+        return _origFetch.apply(this, originalArgs);
+      }
+      if (isNoisePath(parsedNoiseCheck.pathname)) {
+        return _origFetch.apply(this, originalArgs);
+      }
+    } catch {
+      /* ignore — if URL parse fails we'll fall through to normal handling */
+    }
+
     const reqBodyObj = safeJsonParse(reqBodyStr);
     let match: MatchState = patterns.isAIRequest(url, reqBodyObj) as MatchState;
 
     // ── Aggressive mode: on confirmed AI pages, also capture POST
     // requests with AI-like JSON bodies, even if URL is unknown ──
     if (!match.isAI && isConfirmedAIPage()) {
-      // Skip known noise paths
-      if (match.path && isNoisePath(match.path)) {
+      // Defence in depth — the universal filter above already covers
+      // these, but re-check via match.host/path in case the body-parse
+      // path populated them differently.
+      if (match.host && isNoiseHost(match.host)) {
         return _origFetch.apply(this, originalArgs);
       }
-      try {
-        const parsed = new URL(url);
-        if (isNoisePath(parsed.pathname)) return _origFetch.apply(this, originalArgs);
-      } catch {
-        /* ignore */
+      if (match.path && isNoisePath(match.path)) {
+        return _origFetch.apply(this, originalArgs);
       }
 
       const method =
@@ -582,6 +655,24 @@ export default defineUnlistedScript(() => {
 
     const url = this.__pce_url;
     const method = this.__pce_method || "GET";
+
+    // Universal noise filter (B3 v3): mirrors fetch path — catches
+    // AI-host XHRs to non-chat endpoints (root /, /api/stripe/, etc.).
+    // B3 v4: relative-URL safe via ``location.href`` base.
+    if (url) {
+      try {
+        const parsedXhrNoise = new URL(url, location.href);
+        if (
+          isNoiseHost(parsedXhrNoise.hostname) ||
+          isNoisePath(parsedXhrNoise.pathname)
+        ) {
+          return _origXHRSend.call(this, body);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
     const reqBodyStr = extractBodyString(body);
     const reqBodyObj = safeJsonParse(reqBodyStr);
     const match = patterns.isAIRequest(url || "", reqBodyObj);
@@ -823,6 +914,10 @@ export default defineUnlistedScript(() => {
       return ws;
     }
 
+    // Universal noise filter (B3 v3) — reject WS to telemetry hosts /
+    // non-chat paths even on AI domains.
+    if (isNoiseHost(wsHost) || isNoisePath(wsPath)) return ws;
+
     const isAIDomain = patterns.AI_API_DOMAINS.has(wsHost);
     if (!isAIDomain) return ws;
 
@@ -1014,6 +1109,21 @@ export default defineUnlistedScript(() => {
 
       const patterns = getPatterns();
       if (!patterns) return es;
+
+      // Universal noise filter (B3 v3) — reject EventSource to
+      // telemetry hosts / non-chat paths before any matching.
+      // B3 v4: relative-URL safe via ``location.href`` base.
+      try {
+        const parsedEsNoise = new URL(url, location.href);
+        if (
+          isNoiseHost(parsedEsNoise.hostname) ||
+          isNoisePath(parsedEsNoise.pathname)
+        ) {
+          return es;
+        }
+      } catch {
+        /* ignore */
+      }
 
       const urlMatch = patterns.matchUrl(url);
 

@@ -33,10 +33,12 @@ interface HarnessOptions {
   hookHistoryApi?: boolean;
   sessionHint?: string | null;
   modelName?: string | null;
+  layerMeta?: Record<string, unknown> | null;
   resolveConvId?: (msgs: ExtractedMessage[]) => string | null;
   debounceMs?: number;
   streamCheckMs?: number;
   requireBothRoles?: boolean;
+  requireSessionHint?: boolean;
 }
 
 function buildHarness(options: HarnessOptions = {}) {
@@ -77,12 +79,17 @@ function buildHarness(options: HarnessOptions = {}) {
       const source = options.messages ?? [];
       return typeof source === "function" ? source() : source;
     },
-    getSessionHint: () => options.sessionHint ?? "session-abc",
+    getSessionHint: () =>
+      Object.prototype.hasOwnProperty.call(options, "sessionHint")
+        ? options.sessionHint ?? null
+        : "session-abc",
     getModelName: () => options.modelName ?? null,
+    getLayerMeta: () => options.layerMeta ?? null,
     isStreaming: options.isStreaming,
     resolveConversationId: options.resolveConvId,
     hookHistoryApi: options.hookHistoryApi ?? false,
     requireBothRoles: options.requireBothRoles ?? false,
+    requireSessionHint: options.requireSessionHint ?? false,
 
     chromeRuntime: chromeStub,
     logger: { log: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -161,6 +168,21 @@ describe("createCaptureRuntime — basic capture", () => {
     expect(payload.meta.capture_mode).toBe("message_delta");
     expect(payload.meta.new_message_count).toBe(2);
     expect(payload.meta.total_message_count).toBe(2);
+  });
+
+  it("includes layer_meta when supplied", () => {
+    const { runtime, sendMessage } = buildHarness({
+      messages: [
+        { role: "user", content: "hi" },
+        { role: "assistant", content: "hello" },
+      ],
+      layerMeta: { system_instructions: "stay brief" },
+    });
+    runtime.triggerCapture();
+    const payload = (sendMessage.mock.calls[0][0] as {
+      payload: { layer_meta?: Record<string, unknown> };
+    }).payload;
+    expect(payload.layer_meta).toEqual({ system_instructions: "stay brief" });
   });
 
   it("populates meta fields for full mode", () => {
@@ -381,6 +403,24 @@ describe("createCaptureRuntime — observer", () => {
     await new Promise((r) => setTimeout(r, 30));
     expect(sendMessage.mock.calls.length).toBe(callCount);
   });
+
+  it("history hook ignores same-URL replaceState calls", async () => {
+    const { runtime, sendMessage } = buildHarness({
+      messages: [
+        { role: "user", content: "hi" },
+        { role: "assistant", content: "hello" },
+      ],
+      hookHistoryApi: true,
+      debounceMs: 15,
+    });
+    runtime.start();
+    await new Promise((r) => setTimeout(r, 40));
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+
+    window.history.replaceState({}, "", window.location.href);
+    await new Promise((r) => setTimeout(r, 40));
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
 });
 
 // --- requireBothRoles guard -------------------------------------------
@@ -430,6 +470,38 @@ describe("createCaptureRuntime — requireBothRoles", () => {
     });
     runtime.triggerCapture();
     expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
+});
+
+// --- requireSessionHint guard -----------------------------------------
+
+describe("createCaptureRuntime session hint guard", () => {
+  it("defers capture until getSessionHint returns a real value", () => {
+    const { runtime, sendMessage } = buildHarness({
+      messages: [
+        { role: "user", content: "hi" },
+        { role: "assistant", content: "hello" },
+      ],
+      sessionHint: null,
+      requireSessionHint: true,
+      debounceMs: 5,
+      streamCheckMs: 20,
+    });
+
+    runtime.triggerCapture();
+    expect(sendMessage).not.toHaveBeenCalled();
+    runtime.disconnect();
+
+    const ready = buildHarness({
+      messages: [
+        { role: "user", content: "hi" },
+        { role: "assistant", content: "hello" },
+      ],
+      sessionHint: "session-ready",
+      requireSessionHint: true,
+    });
+    ready.runtime.triggerCapture();
+    expect(ready.sendMessage).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -33,6 +33,17 @@ declare global {
 // Tables + types (module-scope for testability)
 // ---------------------------------------------------------------------------
 
+// Hosts owned by PCE itself (Core dashboard, ingest API). The detector
+// MUST NOT classify them as AI pages — otherwise it'd inject the
+// universal extractor into our own dashboard and self-pollute the
+// database (closes B2 from the Claude C19 audit).
+export const PCE_OWN_HOSTS: ReadonlySet<string> = new Set([
+  "127.0.0.1",
+  "localhost",
+  "0.0.0.0",
+  "::1",
+]);
+
 export const KNOWN_AI_DOMAINS: ReadonlySet<string> = new Set([
   "chatgpt.com",
   "chat.openai.com",
@@ -180,6 +191,19 @@ export function detectAIPage(
 ): DetectionResult {
   const lowerPath = pathname.toLowerCase();
 
+  // Hard skip: PCE's own Core dashboard / ingest API. Detecting it as
+  // an AI page would inject the universal extractor and create a
+  // self-feeding loop into our own database (closes B2).
+  if (PCE_OWN_HOSTS.has(hostname)) {
+    return {
+      detected: false,
+      confidence: "none",
+      domain: hostname,
+      score: 0,
+      signals: ["pce_own_host"],
+    };
+  }
+
   // Fast path: known AI domain.
   if (KNOWN_AI_DOMAINS.has(hostname)) {
     return {
@@ -283,6 +307,11 @@ export default defineContentScript({
     "https://kimi.moonshot.cn/*",
     "https://www.kimi.com/*",
     "https://kimi.com/*",
+    // PCE Core dashboard & API (any port). Manifest match patterns
+    // ignore port, so these cover :9800 too. Belt to the
+    // ``PCE_OWN_HOSTS`` braces inside ``detectAIPage``.
+    "*://127.0.0.1/*",
+    "*://localhost/*",
   ],
   runAt: "document_idle",
   main() {

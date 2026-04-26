@@ -61,6 +61,7 @@ export interface CapturePayload {
   path: string;
   model_name: string | null;
   session_hint: string | null;
+  layer_meta?: Record<string, unknown>;
   conversation: {
     conversation_id?: string;
     messages: ExtractedMessage[];
@@ -100,6 +101,7 @@ export interface CaptureRuntimeOptions {
   extractMessages: () => ExtractedMessage[];
   getSessionHint: () => string | null;
   getModelName?: () => string | null;
+  getLayerMeta?: () => Record<string, unknown> | null;
 
   // --- Behaviour flags ---
   /**
@@ -110,6 +112,14 @@ export interface CaptureRuntimeOptions {
    * pattern).
    */
   hookHistoryApi?: boolean;
+
+  /**
+   * If true, the runtime waits until `getSessionHint()` returns a real
+   * identifier before sending. This is useful for sites that briefly render a
+   * completed first turn under a transient "new chat" URL, then assign the
+   * durable conversation URL a few seconds later.
+   */
+  requireSessionHint?: boolean;
 
   /**
    * If true, the runtime defers capture (at ``streamCheckMs``
@@ -232,6 +242,7 @@ export function createCaptureRuntime(
     const convId = options.resolveConversationId
       ? options.resolveConversationId(allMsgs)
       : sessionHint;
+    const layerMeta = options.getLayerMeta ? options.getLayerMeta() : null;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const behavior: Record<string, unknown> = (() => {
@@ -273,7 +284,7 @@ export function createCaptureRuntime(
       meta.message_count = allMsgs.length;
     }
 
-    return {
+    const payload: CapturePayload = {
       provider: options.provider,
       source_name: options.sourceName,
       host: win.location.hostname,
@@ -283,6 +294,10 @@ export function createCaptureRuntime(
       conversation,
       meta,
     };
+    if (layerMeta && Object.keys(layerMeta).length > 0) {
+      payload.layer_meta = layerMeta;
+    }
+    return payload;
   }
 
   function captureNow(): void {
@@ -300,6 +315,11 @@ export function createCaptureRuntime(
       return;
     }
     if (!Array.isArray(allMsgs) || allMsgs.length === 0) return;
+
+    if (options.requireSessionHint && !options.getSessionHint()) {
+      schedule(STREAM_CHECK_MS);
+      return;
+    }
 
     // Require-both-roles guard: defer capture when DOM briefly reveals
     // only one side (Poe / Grok pattern).
@@ -443,15 +463,17 @@ export function createCaptureRuntime(
     const history = win.history;
     const origPush = history.pushState;
     history.pushState = function (...args: Parameters<History["pushState"]>) {
+      const before = win.location.href;
       origPush.apply(this, args);
-      onNavChange();
+      if (win.location.href !== before) onNavChange();
     };
     const origReplace = history.replaceState;
     history.replaceState = function (
       ...args: Parameters<History["replaceState"]>
     ) {
+      const before = win.location.href;
       origReplace.apply(this, args);
-      onNavChange();
+      if (win.location.href !== before) onNavChange();
     };
     win.addEventListener("popstate", () => onNavChange());
   }

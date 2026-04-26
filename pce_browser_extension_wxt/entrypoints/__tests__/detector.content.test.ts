@@ -12,6 +12,7 @@ import {
   KNOWN_AI_DOMAINS,
   KNOWN_AI_PATH_PREFIXES,
   META_KEYWORDS,
+  PCE_OWN_HOSTS,
   TITLE_KEYWORDS,
 } from "../detector.content";
 
@@ -77,6 +78,47 @@ describe("detectAIPage — known domain fast path", () => {
     expect(r.domain).toBe("chatgpt.com");
     expect(r.score).toBe(100);
     expect(r.signals).toContain("known_domain");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PCE-own-host hard skip (closes B2 from Claude C19 audit)
+// ---------------------------------------------------------------------------
+
+describe("PCE_OWN_HOSTS", () => {
+  it("includes loopback IPs and localhost", () => {
+    expect(PCE_OWN_HOSTS.has("127.0.0.1")).toBe(true);
+    expect(PCE_OWN_HOSTS.has("localhost")).toBe(true);
+    expect(PCE_OWN_HOSTS.has("0.0.0.0")).toBe(true);
+    expect(PCE_OWN_HOSTS.has("::1")).toBe(true);
+  });
+});
+
+describe("detectAIPage — PCE own host hard skip (B2)", () => {
+  it("never detects 127.0.0.1 even when DOM looks AI-ish", () => {
+    document.body.innerHTML = `
+      <div data-message-author-role="user">q</div>
+      <div data-message-author-role="assistant">a</div>
+      <textarea placeholder="Ask anything"></textarea>`;
+    document.title = "PCE Dashboard";
+    const r = detectAIPage(document, "127.0.0.1", "/dashboard");
+    expect(r.detected).toBe(false);
+    expect(r.signals).toContain("pce_own_host");
+    expect(r.score).toBe(0);
+  });
+
+  it("never detects localhost even with chat-like DOM signals", () => {
+    document.body.innerHTML = `<div class="chat-message">x</div>`;
+    const r = detectAIPage(document, "localhost", "/");
+    expect(r.detected).toBe(false);
+    expect(r.signals).toContain("pce_own_host");
+  });
+
+  it("does not skip a real AI host that happens to share other traits", () => {
+    document.body.innerHTML = `<div data-message-author-role="user">q</div>`;
+    const r = detectAIPage(document, "claude.ai", "/chat/abc");
+    expect(r.detected).toBe(true);
+    expect(r.signals).not.toContain("pce_own_host");
   });
 });
 
