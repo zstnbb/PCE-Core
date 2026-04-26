@@ -119,21 +119,32 @@ Three-tier ladder. First non-empty result wins.
 
 ### II.4 Known gaps
 
-**Status snapshot** — updated after P5.B static-analysis sweep:
+**Status snapshot** — updated after P5.B C01-C20 manual run on 2026-04-26 (see Part III.bis below).
 
-| Gap | Status | Commit |
+| Gap | Status | Commit / Source |
 |---|---|---|
 | **C2** streaming gate | ✅ CLOSED | `c49d3de` — `isStreaming` wired + stop-button detection + regression tests |
 | **C3** Projects URL | 🔸 CLARIFIED | `11f4da0` — unanchored regex already matches `/project/<id>/chat/<uuid>` via substring; tests lock behaviour |
 | **C5** `getModelName` | ✅ CLOSED | `8d7c1df` — Haiku/Sonnet/Opus family regex + 3-tier fallback |
 | **C6** manual-capture bridge | ✅ CLOSED | `db55169` — `installManualCaptureBridge` + listener added |
 | **C9** `/share/` URL not skipped | ✅ CLOSED | `702bf0e` — `extractMessages` returns `[]` for `/share/...` paths + regression tests |
-| C1, C4, C7, C8, C10, C11, C12 | ⬜ OPEN | Need live DOM probe (C4 Artifacts is biggest) / autopilot |
+| **B1** Non-chat surfaces leak captures (C18 share, C19 settings, root) | ✅ CLOSED | `2285a3e` — `claude.content.ts` path whitelist (`/chat/`, `/new`, `/project/<id>/chat/`) + `requireSessionHint: true` defence-in-depth |
+| **B2** PCE Core dashboard self-detected as AI page | ✅ CLOSED | `2285a3e` — `detector.content.ts` excludes `127.0.0.1` / `localhost` |
+| **B3 v1-v5** Cross-AI telemetry noise (Datadog RUM, Sentry, Statsig, Growthbook event_logging, Anthropic `/interviews`, `/api/stripe`, `/api/v2/rum`, root `/`) | ✅ CLOSED | `2285a3e` — `interceptor-network.ts` universal `NOISE_HOST_PATTERNS` + `NOISE_PATH_PATTERNS`; runs before `isAIRequest`; covers fetch + XHR + WebSocket + EventSource; relative-URL safe |
+| **C1** No pushState hook | 🔸 EMPIRICALLY OK | C02 manual run — 3s URL polling caught `/new → /chat/<uuid>` upgrade within 1-2 cycles. Code unchanged (`hookHistoryApi: false`). Revisit if cross-Project nav surfaces issues. |
+| **C4** Artifacts body not extracted | ⬜ OPEN — pivot | C14 manual run found body **in SSE** as `content_block_delta.tool_use.input_json_delta` events, NOT only DOM side panel as originally assumed. Session reconciler can extract from existing network captures without DOM probe. Tracked as **`fu_recon_join`** (also covers C10). |
+| **C7** Computer Use outputs | 🔵 DEFER v1.1 | unchanged |
+| **C8** Writing Style → `layer_meta.style` | ⬜ OPEN | C17 untested |
+| **C10** Strategy 3 mis-classify | ⬜ OPEN | not exercised by C01-C20 manual run |
+| **C11** Position-sort under virtualization | ⬜ OPEN | needs long-conversation test |
+| **C12** `captureMode: "full"` bandwidth | 🔵 BY DESIGN | not a bug |
+| **fu_branch** Regenerate / Edit branch semantics | 📋 ADR PROPOSED | `36735b9` — `Docs/docs/decisions/2026-04-26-regenerate-edit-branch-semantics.md` (Option D two-tier model) |
+| **fu_recon_join** Session reconciler — tool_use deltas + file uuid join | ⬜ OPEN | unifies C10 + C14 + future C11/C12/C15 fixes |
 
-- **C1. No pushState hook.** `/chat/A` → `/chat/B` within 3s escapes URL polling. Claude navigates via client-side router for most transitions.
+- **C1. No pushState hook.** `/chat/A` → `/chat/B` within 3s escapes URL polling. Claude navigates via client-side router for most transitions. *Empirically OK as of 2026-04-26 P5.B C02 manual run* — `/new → /chat/<uuid>` upgrade caught by the 3s polling within 1-2 cycles. Revisit if cross-Project nav (`/project/<a>` → `/project/<b>`) surfaces issues.
 - **C2. No streaming gate.** `isStreaming` is not passed to `createCaptureRuntime`. Partial captures mid-stream are possible when the 2s debounce fires before streaming ends. Same problem as Gemini G2 — likely the same one-line fix.
 - **C3. Projects URL not in regex.** `SESSION_HINT_RE = /\/chat\/([a-f0-9-]+)/` doesn't match `/project/<id>` or `/project/<id>/chat/<uuid>`. Projects chats land with `conv_id = null`, which breaks fingerprint on Project-scoped chats.
-- **C4. Artifacts body not extracted.** The side panel containing the artifact (code/HTML/React/markdown/SVG/Mermaid) lives in a DOM subtree OUTSIDE the chat turn. Current extractor captures only the assistant's in-chat prose ("I've created an artifact…") and misses the actual content entirely. This is the largest single-surface gap for Claude.
+- **C4. Artifacts body not extracted.** The side panel containing the artifact (code/HTML/React/markdown/SVG/Mermaid) lives in a DOM subtree OUTSIDE the chat turn. Current extractor captures only the assistant's in-chat prose ("I've created an artifact…") and misses the actual content entirely. **Pivot finding from 2026-04-26 P5.B C14 manual run:** the artifact body is **also fully present in the SSE `completion` response body** as a sequence of `content_block_delta` events with `type: tool_use.input_json_delta` — Claude's `create_file` MCP tool streams `partial_json` chunks that concat to the artifact source. The session reconciler can extract this from existing `raw_captures` rows without needing a DOM probe of the side panel; this is a strictly cheaper fix than the original plan. Tracked as **`fu_recon_join`**, which also covers C10 (file attachment join). C15 (React artifact) likely follows the same pattern.
 - **C5. `getModelName` not implemented.** No Haiku/Sonnet/Opus detection. `conversation.model_name` always empty. Compare ChatGPT and Gemini which both populate this.
 - **C6. No manual-capture bridge.** The Claude file header explicitly preserves this legacy omission. As a result, force-resend from the PCE tray does not work on Claude. Low user-facing impact today, but asymmetric with other sites.
 - **C7. Computer Use outputs not handled.** Screenshots + terminal outputs from agentic Claude tool-use render via a separate tool-output component; current extractor sees the wrapper but not the structured attachment. Deferred to v1.1.
@@ -190,6 +201,43 @@ Three invariants must get dedicated regression tests before v1.0.1:
 - **C3 Projects URL**: `getSessionHint("/project/abc/chat/uuid")` returns a stable session hint.
 - **C4 Artifact extraction**: a fixture with side-panel artifact produces an `artifact` attachment on the assistant turn.
 - **C5 Model name**: new `getModelName` helper returns "Sonnet"/"Opus"/"Haiku" for each Claude model badge variant.
+
+---
+
+## Part III.bis — Manual run results (2026-04-26)
+
+P5.B sweep — 10 of the 20 must-pass cases manually validated against
+production `claude.ai`. **All raw-layer evidence intact** (forensics
+view PASS); session-layer UX gaps grouped into two follow-ups
+(`fu_recon_join` + ADR `2026-04-26`).
+
+| Case | Surface | Result | Notes |
+|---|---|---|---|
+| C01 | vanilla | ✅ PASS | clean 1u + 1a, no telemetry leak |
+| C02 | new chat URL upgrade | ✅ PASS | 3s polling caught `/new → /chat/<uuid>` (informs **C1**) |
+| C03 | streaming complete | ✅ PASS | `isStreaming` gate holds (locks **C2** closed) |
+| C04 | streaming + stop | ✅ PASS | partial assistant text + `/stop_response` capture |
+| C07 | edit user message | ⚠️ PARTIAL | raw layer has both prompts; session has orphan asst_v2 (user_v1 only). → ADR `2026-04-26` Option D |
+| C08 | regenerate | ⚠️ PARTIAL | raw layer has both replies; session flat-appends 3 rows. Same ADR. |
+| C10 | PDF upload | ⚠️ PARTIAL | `wiggle/upload-file` response captured (filename/uuid/size); completion request has `files: [<uuid>]`; but `session.user.attachments=[]`. → **`fu_recon_join`** |
+| C14 | artifact (markdown todo list) | ⚠️ PARTIAL | full markdown in SSE `tool_use.input_json_delta` deltas; assistant text has only the chat shell ("Done! I created Todo-9152..."). → **`fu_recon_join`** (informs **C4** pivot) |
+| C18 | shared `/share/<uuid>` | ✅ PASS | path whitelist + extractor short-circuit (locks **C9** + **B1**) |
+| C19 | settings | ✅ PASS | path whitelist + `requireSessionHint` + detector self-exclusion + network noise filter (closes **B1** + **B2** + **B3**) |
+
+**Bug fixes shipped this round** (`2285a3e` → pushed):
+- **B1** Claude path whitelist + `requireSessionHint` (`claude.content.ts`)
+- **B2** Detector PCE-Core-host exclusion (`detector.content.ts`)
+- **B3 v1-v5** Universal cross-AI noise filter (`interceptor-network.ts`)
+
+**ADR shipped** (`36735b9` → pushed):
+- `Docs/docs/decisions/2026-04-26-regenerate-edit-branch-semantics.md`
+  — proposes Option D (two-tier branch model) to close C07/C08
+  session-layer gaps without losing forensic fidelity.
+
+**Untested in this round, deferred to autopilot:**
+**C05** code block, **C06** extended thinking, **C09** branch flip,
+**C11** image, **C12** CSV, **C13** Projects, **C15** React artifact,
+**C16** model switch, **C17** Writing Style, **C20** rate-limit error.
 
 ---
 
