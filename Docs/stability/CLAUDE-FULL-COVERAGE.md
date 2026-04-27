@@ -134,12 +134,15 @@ Three-tier ladder. First non-empty result wins.
 | **C1** No pushState hook | 🔸 EMPIRICALLY OK | C02 manual run — 3s URL polling caught `/new → /chat/<uuid>` upgrade within 1-2 cycles. Code unchanged (`hookHistoryApi: false`). Revisit if cross-Project nav surfaces issues. |
 | **C4** Artifacts body not extracted | ⬜ OPEN — pivot | C14 manual run found body **in SSE** as `content_block_delta.tool_use.input_json_delta` events, NOT only DOM side panel as originally assumed. Session reconciler can extract from existing network captures without DOM probe. Tracked as **`fu_recon_join`** (also covers C10). |
 | **C7** Computer Use outputs | 🔵 DEFER v1.1 | unchanged |
-| **C8** Writing Style → `layer_meta.style` | ⬜ OPEN | C17 untested |
+| **C8** Writing Style → `layer_meta.style` | 🔸 SCOPED | C17 manual run 2026-04-27: raw has full `personalized_styles[]` payload (type/key/name/prompt). Session schema does not yet surface it. Folded into **`fu_recon_join`** as **N11** (see Part III.ter). |
 | **C10** Strategy 3 mis-classify | ⬜ OPEN | not exercised by C01-C20 manual run |
 | **C11** Position-sort under virtualization | ⬜ OPEN | needs long-conversation test |
 | **C12** `captureMode: "full"` bandwidth | 🔵 BY DESIGN | not a bug |
-| **fu_branch** Regenerate / Edit branch semantics | 📋 ADR PROPOSED | `36735b9` — `Docs/docs/decisions/2026-04-26-regenerate-edit-branch-semantics.md` (Option D two-tier model) |
-| **fu_recon_join** Session reconciler — tool_use deltas + file uuid join | ⬜ OPEN | unifies C10 + C14 + future C11/C12/C15 fixes |
+| **fu_branch** Regenerate / Edit branch semantics | 📋 ADR PROPOSED + reconfirmed | `36735b9` — `Docs/docs/decisions/2026-04-26-regenerate-edit-branch-semantics.md` (Option D two-tier model). C09 manual run 2026-04-27 reconfirms scope. |
+| **fu_recon_join** Session reconciler — multi-source data join | ⬜ OPEN | scope (post Round 2): (1) `tool_use.input_json_delta` accumulation (C04/C10/C14/C15) · (2) cross-capture `file_uuid` join via `/wiggle/upload-file` response (C10/C11/C12) · (3) new `files:[]` schema variant alongside legacy `attachments:[{file_uuid}]` · (4) `thinking_delta` accumulation as separate `reasoning` field (C06) · (5) `personalized_styles` extraction → `layer_meta.style` (C17 / **N11**, closes **C8**) |
+| **N9** `model_name` 15-char truncation | ⬜ OPEN — medium | 2026-04-27 C16: user-visible model label truncated to 15 chars (`"Claude Haiku 4.5"` → `"Claude Haiku 4."`). API model id (`claude-haiku-4-5-20251001`) unaffected. Likely varchar(15) column or serializer cap. |
+| **N10** Multi-turn / branch user msg dropped | ⬜ OPEN — **HIGH** | 2026-04-27 C16 + C09 both reproduce: 2nd user message reaches raw layer but never lands in `session.messages`. Reconciler dedup is too aggressive. Suggested fix: switch primary key from `(chat_uuid, role, position)` (or content-hash) to `(chat_uuid, message_uuid)` — Claude's SSE carries `user_message_uuid` + `assistant_message_uuid` per turn. |
+| **N11** Writing Style not in `session.layer_meta` | ⬜ OPEN — low | 2026-04-27 C17. See `fu_recon_join` row above (item 5). Same fix closes **C8**. |
 
 - **C1. No pushState hook.** `/chat/A` → `/chat/B` within 3s escapes URL polling. Claude navigates via client-side router for most transitions. *Empirically OK as of 2026-04-26 P5.B C02 manual run* — `/new → /chat/<uuid>` upgrade caught by the 3s polling within 1-2 cycles. Revisit if cross-Project nav (`/project/<a>` → `/project/<b>`) surfaces issues.
 - **C2. No streaming gate.** `isStreaming` is not passed to `createCaptureRuntime`. Partial captures mid-stream are possible when the 2s debounce fires before streaming ends. Same problem as Gemini G2 — likely the same one-line fix.
@@ -234,10 +237,46 @@ view PASS); session-layer UX gaps grouped into two follow-ups
   — proposes Option D (two-tier branch model) to close C07/C08
   session-layer gaps without losing forensic fidelity.
 
-**Untested in this round, deferred to autopilot:**
+**Untested in this round, picked up by Round 2 (2026-04-27, see Part III.ter below):**
 **C05** code block, **C06** extended thinking, **C09** branch flip,
 **C11** image, **C12** CSV, **C13** Projects, **C15** React artifact,
-**C16** model switch, **C17** Writing Style, **C20** rate-limit error.
+**C16** model switch, **C17** Writing Style. Only **C20** rate-limit
+still pending (would require burst traffic to trigger).
+
+---
+
+## Part III.ter — Manual run results (2026-04-27, Round 2)
+
+Round 2 sweep — 9 of the 10 cases deferred from 2026-04-26 manually
+validated against production `claude.ai`. **Raw-layer evidence intact**
+in all cases; session-layer gaps fold cleanly into existing follow-ups
+(`fu_recon_join`, `fu_branch_v1`, ADR `2026-04-26`) plus three new
+findings (N9 / N10 / N11) — all logged in Part II.4 above.
+
+| Case | Surface | Result | Notes |
+|---|---|---|---|
+| C05 | code block | ✅ PASS | `language: python` detected; assistant text contains complete code fence; token in user msg |
+| C06 | extended thinking | ✅ PASS | raw SSE has `thinking_delta` × 15 events; final answer (1784 chars) in `session.assistant`; internal monologue only in raw → folds into **`fu_recon_join`** item 4 |
+| C09 | branch flip (edit) | ⚠️ PARTIAL | 2 completions captured at raw (one per branch); session has 3 messages instead of 4 — branch-B user msg dropped (same root as **N10**); branch tree flattened (existing **`fu_branch_v1`**) |
+| C11 | image upload (vision) | ✅ PASS | `/conversations/<id>/wiggle/upload-file` response has full metadata (`file_uuid`, `file_name`, `file_kind=image`, `size_bytes`, thumbnail/preview URLs, dimensions, `primary_color`); completion body references `files:[<uuid>]`; Claude vision OCR'd the embedded token verbatim |
+| C12 | CSV upload | ✅ PASS | same upload endpoint; `file_kind=blob` (third variant alongside `image`/`document`); CSV content also inlined into completion body; no `code_execution` for the trivial lookup; assistant quoted target row verbatim |
+| C13 | Projects chat | ✅ PASS | `/project/<id>/chat/<uuid>` URL pattern matches; session attached to project namespace; closes **C3** empirically |
+| C15 | React artifact | ✅ PASS | full React source streams via `tool_use.input_json_delta` — same shape as C14 markdown; reconciler join → **`fu_recon_join`** item 1 |
+| C16 | model switch (mid-conversation) | ⚠️ PARTIAL | per-msg model attribution **correct** (haiku→sonnet); 2 completions captured. **N9**: user-visible label truncated to ~15 chars. **N10**: 2nd-turn user msg lost — `message_count=3` should be 4 |
+| C17 | Writing Style | ✅ PASS | raw body has full `personalized_styles[].{type,key,name,prompt}` — including the entire system prompt for "Concise" mode. Session schema does not yet surface style → **N11**, folded into **`fu_recon_join`** item 5 (closes **C8**) |
+
+**Confirmed-clean upload mechanics (consolidates C10/C11/C12 across both rounds):**
+
+- Single endpoint: `POST /api/organizations/<org>/conversations/<chat-uuid>/wiggle/upload-file`
+- Request body serialized as `[FormData]` placeholder — binary multipart not extracted (intentional; metadata is sufficient + binary would be PII risk). Tracked as **N8** if explicit binary capture is ever required.
+- Response: full metadata including `file_uuid`, `file_name`, `file_kind` ∈ {`image`, `document`, `blob`}, `size_bytes`, `thumbnail_url`, `preview_url`, `image_width/height` (when applicable), `primary_color`
+- Schema reference in completion body: `"files":[<uuid>]` array (newer) **or** `"attachments":[{file_uuid: <uuid>}]` (legacy) — `fu_recon_join` must handle both.
+
+**Round 2 net deltas:**
+- 19 / 20 must-pass cases now exercised against production (only C20 still pending; deferrable).
+- 3 new findings (**N9** / **N10** / **N11**) added to gap table.
+- Existing follow-up **`fu_recon_join`** scope expanded from 2 items (C10 + C14) to **5 items** covering all session-layer reconciler gaps observed across both rounds.
+- No new code shipped this round (manual validation only). Bug fixes from Round 1 still hold (`2285a3e` + `36735b9` + `5f6abf0`).
 
 ---
 
