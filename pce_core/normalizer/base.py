@@ -37,6 +37,12 @@ class NormalizedResult:
     messages: list[NormalizedMessage] = field(default_factory=list)
     confidence: float = 0.5  # 0.0–1.0, higher = more confident parse
     normalizer_name: Optional[str] = None  # which normalizer produced this
+    # Provider-specific session metadata captured from the request/response
+    # envelope (NOT per-message). Surfaced into session.oi_attributes_json
+    # under the ``pce.layer_meta`` namespace by ``persist_result``.
+    # Examples: Anthropic ``personalized_styles``, file_uuid manifest,
+    # system prompt, response_schema, etc.
+    layer_meta: Optional[dict] = None
 
 
 class BaseNormalizer(ABC):

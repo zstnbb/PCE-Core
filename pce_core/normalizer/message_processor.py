@@ -133,40 +133,57 @@ def normalize_message_text_for_dedup(text: str) -> str:
     return "\n".join(lines).strip()
 
 
-def get_existing_message_hash_map(
+def get_existing_message_hash_buckets(
     session_id: str,
     db_path: Optional[Path] = None,
-) -> dict[str, dict]:
-    """Return a dict mapping dedup hash → msg info for a session.
+) -> dict[str, list[dict]]:
+    """Return ``{dedup_hash → [msg_info, ...]}`` for a session, ts-ordered.
 
-    This allows the persist logic to detect existing messages that can be
-    enriched with newly-extracted content_json (e.g. attachments from a
-    page refresh after the extraction code was improved).
+    Multiple messages can share the same dedup hash legitimately when the
+    user repeats themselves across turns ("go on", "yes", "tell me more")
+    or when the same prompt is sent on different branches. The bucket list
+    preserves chronological order so the persist loop can match incoming
+    messages positionally (incoming[N] ↔ existing[N]) instead of
+    collapsing them onto the first hit. Closes **N10** (multi-turn /
+    branch user msg dropped).
     """
-    hash_map: dict[str, dict] = {}
+    buckets: dict[str, list[dict]] = {}
     try:
         conn = get_connection(db_path)
         conn.row_factory = __import__("sqlite3").Row
         try:
             rows = conn.execute(
-                "SELECT id, role, content_text, content_json, model_name, token_estimate FROM messages WHERE session_id = ?",
+                "SELECT id, role, content_text, content_json, model_name, token_estimate, ts "
+                "FROM messages WHERE session_id = ? ORDER BY ts ASC, id ASC",
                 (session_id,),
             ).fetchall()
             for r in rows:
                 h = message_hash(r["role"], r["content_text"])
-                hash_map[h] = {
+                buckets.setdefault(h, []).append({
                     "id": r["id"],
                     "role": r["role"],
                     "content_text": r["content_text"],
                     "content_json": r["content_json"],
                     "model_name": r["model_name"],
                     "token_estimate": r["token_estimate"],
-                }
+                })
         finally:
             conn.close()
     except Exception:
-        logger.exception("Failed to fetch existing message hashes")
-    return hash_map
+        logger.exception("Failed to fetch existing message hash buckets")
+    return buckets
+
+
+# Backwards-compat shim. Prior callers got a flat ``dict[hash → msg_info]``
+# which silently dropped duplicates. Returning ``buckets[h][0]`` preserves
+# that shape but consumers that need full-fidelity dedup must migrate to
+# :func:`get_existing_message_hash_buckets` directly.
+def get_existing_message_hash_map(
+    session_id: str,
+    db_path: Optional[Path] = None,
+) -> dict[str, dict]:
+    buckets = get_existing_message_hash_buckets(session_id, db_path=db_path)
+    return {h: lst[0] for h, lst in buckets.items() if lst}
 
 
 # ---------------------------------------------------------------------------
@@ -333,21 +350,32 @@ def persist_result(
         )
         return None
 
-    # Build dedup map from existing messages (only for existing sessions)
-    existing_hash_map: dict[str, dict] = {}
+    # Build dedup buckets from existing messages (only for existing sessions).
+    # Each bucket holds chronologically-ordered duplicates of the same
+    # ``message_hash`` so we can position-match instead of collapsing them.
+    existing_buckets: dict[str, list[dict]] = {}
     if is_existing:
-        existing_hash_map = get_existing_message_hash_map(session_id, db_path=db_path)
+        existing_buckets = get_existing_message_hash_buckets(session_id, db_path=db_path)
 
-    # Insert new messages or enrich existing ones (quality-aware via reconciler)
+    # Cursor per dedup hash — incoming[N] for hash H matches existing
+    # bucket[H][N]. Once we run past the bucket length, subsequent
+    # identical-hash incoming messages insert as fresh rows. This is the
+    # core N10 fix: legitimate repeats survive instead of getting eaten
+    # by an over-eager dedup.
+    incoming_cursor: dict[str, int] = {}
+
     msg_count = 0
     enriched_count = 0
     for msg in result.messages:
         msg_h = message_hash(msg.role, msg.content_text)
+        cursor = incoming_cursor.get(msg_h, 0)
+        bucket = existing_buckets.get(msg_h, [])
 
-        if msg_h in existing_hash_map:
-            # Message already exists — use reconciler quality scoring to
-            # decide whether the incoming capture improves on the existing.
-            existing = existing_hash_map[msg_h]
+        if cursor < len(bucket):
+            # Position-matched: enrich the corresponding existing message.
+            existing = bucket[cursor]
+            incoming_cursor[msg_h] = cursor + 1
+
             existing_msg = NormalizedMessage(
                 role=existing.get("role", msg.role),
                 content_text=existing.get("content_text"),
@@ -405,11 +433,10 @@ def persist_result(
                         existing["token_estimate"] = new_tokens
             continue
 
-        existing_hash_map[msg_h] = {
-            "id": "",
-            "content_text": msg.content_text,
-            "content_json": msg.content_json,
-        }  # prevent within-batch dupes
+        # No matching existing message at this position — INSERT as new.
+        # Advance the cursor so a *later* incoming msg with the same hash
+        # within this same batch maps to a different position.
+        incoming_cursor[msg_h] = cursor + 1
 
         token_est = msg.token_estimate or estimate_tokens(msg.content_text)
         oi_fields = _compute_message_oi_fields(
@@ -437,7 +464,16 @@ def persist_result(
         )
         if msg_id:
             msg_count += 1
-            existing_hash_map[msg_h]["id"] = msg_id
+            # Add a synthetic bucket entry so we don't try to enrich this
+            # row from a later incoming msg that hashes to the same key.
+            existing_buckets.setdefault(msg_h, []).append({
+                "id": msg_id,
+                "role": msg.role,
+                "content_text": msg.content_text,
+                "content_json": msg.content_json,
+                "model_name": msg.model_name or result.model_name,
+                "token_estimate": token_est,
+            })
 
     # Upgrade metadata on existing sessions when a better capture arrives later.
     if is_existing:
@@ -471,6 +507,19 @@ def persist_result(
         created_via=created_via,
         db_path=db_path,
     )
+
+    # Surface provider-specific session metadata (e.g. Claude Writing
+    # Style, file_uuid manifest) into the same OI attribute JSON under a
+    # ``pce.layer_meta`` namespace. No schema change required — the column
+    # is plain TEXT/JSON. Closes fu_recon_join items 2/3/5 by making
+    # ``personalized_styles`` and the unified ``files`` manifest visible
+    # at the session level.
+    if getattr(result, "layer_meta", None):
+        _merge_layer_meta_into_session(
+            session_id=session_id,
+            layer_meta=result.layer_meta or {},
+            db_path=db_path,
+        )
 
     # Secondary OTLP channel (ADR-007). Fails-open if exporter is off or
     # anything throws. Only emits for pairs that produced at least one
@@ -560,6 +609,78 @@ def _compute_message_oi_fields(
         }
 
 
+def _merge_layer_meta_into_session(
+    *,
+    session_id: str,
+    layer_meta: dict,
+    db_path: Optional[Path],
+) -> None:
+    """Merge ``layer_meta`` into ``sessions.oi_attributes_json``.
+
+    Stored under the ``pce.layer_meta.<key>`` flat-attribute namespace so
+    it round-trips through the OpenInference exporter without polluting
+    canonical OI fields.  Existing keys are union-merged so newer captures
+    don't clobber an already-recorded style or file manifest.
+    """
+    if not layer_meta:
+        return
+    try:
+        conn = get_connection(db_path)
+        try:
+            conn.row_factory = __import__("sqlite3").Row
+            row = conn.execute(
+                "SELECT oi_attributes_json FROM sessions WHERE id = ? LIMIT 1",
+                (session_id,),
+            ).fetchone()
+            current_json = row["oi_attributes_json"] if row else None
+        finally:
+            conn.close()
+
+        try:
+            attrs = json.loads(current_json) if current_json else {}
+        except (json.JSONDecodeError, TypeError):
+            attrs = {}
+        if not isinstance(attrs, dict):
+            attrs = {}
+
+        existing_meta = attrs.get("pce.layer_meta")
+        if not isinstance(existing_meta, dict):
+            existing_meta = {}
+
+        for key, value in layer_meta.items():
+            if value in (None, "", [], {}):
+                continue
+            # Deep-merge lists by appending unique entries (file manifest
+            # accumulates across captures) and shallow-overwrite scalars
+            # / dicts (newer style wins).
+            if isinstance(value, list) and isinstance(existing_meta.get(key), list):
+                merged_list = list(existing_meta[key])
+                seen = {
+                    json.dumps(x, sort_keys=True, ensure_ascii=False)
+                    for x in merged_list if isinstance(x, dict)
+                }
+                for entry in value:
+                    if isinstance(entry, dict):
+                        sig = json.dumps(entry, sort_keys=True, ensure_ascii=False)
+                        if sig in seen:
+                            continue
+                        seen.add(sig)
+                    merged_list.append(entry)
+                existing_meta[key] = merged_list
+            else:
+                existing_meta[key] = value
+
+        attrs["pce.layer_meta"] = existing_meta
+
+        update_session_oi_attributes(
+            session_id,
+            json.dumps(attrs, ensure_ascii=False, sort_keys=True),
+            db_path=db_path,
+        )
+    except Exception as exc:
+        logger.debug("layer_meta merge failed for session %s: %s", session_id[:8], exc)
+
+
 def _refresh_session_oi_cache(
     *,
     session_id: str,
@@ -595,7 +716,25 @@ def _refresh_session_oi_cache(
                 "model_names": result.model_name,
             }
 
+        # Preserve any sticky non-OI namespaces (e.g. ``pce.layer_meta``)
+        # that prior captures wrote into the attribute blob. The OI mapper
+        # only emits canonical OI fields, so without this carry-over the
+        # ``pce.*`` extensions get clobbered on every cache refresh.
+        prior_attrs: dict = {}
+        try:
+            prior_json = session_dict.get("oi_attributes_json")
+            if prior_json:
+                parsed = json.loads(prior_json)
+                if isinstance(parsed, dict):
+                    prior_attrs = parsed
+        except (json.JSONDecodeError, TypeError):
+            prior_attrs = {}
+
         attrs = session_to_oi_attributes(session_dict)
+        for key, value in prior_attrs.items():
+            if key.startswith("pce.") and key not in attrs:
+                attrs[key] = value
+
         update_session_oi_attributes(
             session_id,
             json.dumps(attrs, ensure_ascii=False, sort_keys=True),
