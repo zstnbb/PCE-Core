@@ -39,6 +39,9 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 
+from tests.e2e._stealth import apply_stealth
+from tests.e2e._humanizer import MouseJiggler
+
 logger = logging.getLogger("pce.e2e")
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -407,6 +410,7 @@ def driver():
     attach_existing = debugger_address is not None
     extension_preinstalled = False
     force_unpacked_extension = _force_unpacked_extension()
+    install_extension_via_bidi = False
 
     logger.info("Chrome user-data-dir: %s", profile_root)
     logger.info("Chrome profile directory: %s", profile_dir_name or "Default")
@@ -434,6 +438,9 @@ def driver():
         )
         if force_unpacked_extension:
             logger.info("Force-loading current unpacked extension build")
+        install_extension_via_bidi = (
+            use_profile_copy or not extension_preinstalled or force_unpacked_extension
+        )
 
     driver_path = _get_chromedriver_path()
     service = Service(driver_path) if driver_path else None
@@ -459,17 +466,12 @@ def driver():
         options.add_experimental_option("useAutomationExtension", False)
         options.set_capability("goog:loggingPrefs", {"browser": "ALL"})
 
-        if use_profile_copy or not extension_preinstalled or force_unpacked_extension:
-            options.add_argument("--enable-extensions")
-            if force_unpacked_extension:
-                options.add_argument(f"--disable-extensions-except={ext_dir}")
-            options.add_argument(f"--load-extension={ext_dir}")
-            # Chrome 137+ silently ignores --load-extension unless the
-            # DisableLoadExtensionCommandLineSwitch feature is turned off.
-            # See https://developer.chrome.com/blog/flag-changes-chrome-137.
-            options.add_argument(
-                "--disable-features=DisableLoadExtensionCommandLineSwitch"
-            )
+        if install_extension_via_bidi:
+            # Chrome 147 no longer reliably honours --load-extension for
+            # branded Chrome. Selenium's WebDriver BiDi webExtension.install
+            # is the supported path for live E2E extension loading.
+            options.enable_webextensions = True
+            options.enable_bidi = True
 
         logger.info("Launching Chrome via Selenium...")
         chrome_driver = webdriver.Chrome(service=service, options=options)
@@ -487,6 +489,23 @@ def driver():
 
     chrome_driver.implicitly_wait(0)  # We handle waits explicitly
     _switch_to_valid_browser_window(chrome_driver)
+
+    # Inject browser-fingerprint stealth patches BEFORE any live-site
+    # navigation. Cloudflare Turnstile / OpenAI / Anthropic / Perplexity
+    # detect Selenium via JS-level signals (navigator.webdriver, cdc_*
+    # globals, missing plugins, WebGL vendor) that the Chrome
+    # ``--disable-blink-features=AutomationControlled`` flag alone does
+    # not hide. See ``tests/e2e/_stealth.py`` for the full payload.
+    apply_stealth(chrome_driver, label="conftest:driver")
+
+    if install_extension_via_bidi:
+        try:
+            result = chrome_driver.webextension.install(path=ext_dir)
+            logger.info("Installed PCE extension via WebDriver BiDi: %s", result)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Unable to install PCE extension via WebDriver BiDi: {exc}"
+            ) from exc
 
     logger.info(
         "Chrome launched: %s",
@@ -518,3 +537,55 @@ def driver():
         except Exception:
             pass
     logger.info("Chrome closed")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def mouse_jiggler(driver):
+    """Session-scoped ambient mouse-movement source.
+
+    Cloudflare / xAI / Anthropic bot scoring uses temporal density of
+    input events as a feature: a tab with zero ``mousemove`` events
+    for 30+ seconds, even one with valid cookies, gets de-trusted.
+    Real users constantly nudge the mouse without realising. This
+    fixture starts a daemon thread that emits a low-rate ``mousemove``
+    stream throughout the entire pytest session so the page sees
+    continuous interaction telemetry rather than long silences
+    between explicit ``find_element.click()`` calls.
+
+    ``autouse=True`` means every test that depends (transitively) on
+    ``driver`` automatically gets ambient telemetry. Set
+    ``PCE_E2E_HUMANIZE=0`` to disable (makes ``MouseJiggler.start()``
+    a no-op).
+    """
+    j = MouseJiggler(driver).start()
+    try:
+        yield j
+    finally:
+        j.stop()
+
+
+@pytest.fixture(scope="session")
+def humanizer():
+    """Bundle the human-behaviour primitives so tests don't need to
+    import them individually. Returned as an attribute namespace so
+    test code reads naturally::
+
+        def test_send_message(driver, humanizer):
+            humanizer.read_pause(3.0, 6.0)
+            humanizer.human_click(driver, send_btn)
+            humanizer.human_type(driver, prompt_box, "hello")
+            humanizer.gentle_scroll(driver, 400)
+    """
+    from tests.e2e import _humanizer as _h
+
+    class _H:
+        read_pause = staticmethod(_h.read_pause)
+        pace_between_sites = staticmethod(_h.pace_between_sites)
+        human_click = staticmethod(_h.human_click)
+        human_type = staticmethod(_h.human_type)
+        gentle_scroll = staticmethod(_h.gentle_scroll)
+        warmup_browse = staticmethod(_h.warmup_browse)
+        MouseJiggler = _h.MouseJiggler
+        jiggling = staticmethod(_h.jiggling)
+
+    return _H()
