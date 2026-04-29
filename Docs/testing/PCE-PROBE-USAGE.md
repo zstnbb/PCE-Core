@@ -290,6 +290,53 @@ JSON and see exactly where in the pipeline the round-trip broke.
 3. The matrix automatically expands to include the new case across
    every existing site — no other plumbing needed.
 
+### 5.6 Triage a failing run
+
+Once the matrix has produced a `summary.json`, the triage CLI turns it
+into a fix-ready view per failing cell — what broke, where the
+relevant adapter file lives, and the exact replay command:
+
+```powershell
+# Auto-locates the latest tests/e2e_probe/reports/<UTC>/summary.json
+python -m pce_probe.triage
+
+# Also surface SKIP cells (login walls, etc.)
+python -m pce_probe.triage --include-skip
+
+# Machine-readable JSON for an outer agent to ingest
+python -m pce_probe.triage --json
+
+# Triage a specific run instead of the latest
+python -m pce_probe.triage tests/e2e_probe/reports/<UTC>/summary.json
+```
+
+Sample output (truncated):
+
+```
+[FAIL] chatgpt-T01   phase=send_prompt   code=selector_not_found   (4200ms)
+────────────────────────────────────────────────────────────────────────
+  summary:     send_prompt: selector_not_found (no element matched
+               #prompt-textarea); agent_hint='did the page change?'
+  agent_hint:  did the page change?
+  edit:        F:\...\tests\e2e_probe\sites\chatgpt.py
+  replay:      pytest tests/e2e_probe/test_matrix.py -k "chatgpt-T01" -v -s
+  evidence:
+    token: PROBE-CHATGPT-T01-a3f9b2
+    tab_id: 12345
+    dom_excerpt: <div class='wrap'><textarea id='new-prompt-textarea'…
+```
+
+Exit code is **1** if any cell failed, **0** otherwise — useful in CI:
+
+```powershell
+pytest tests/e2e_probe/test_matrix.py
+python -m pce_probe.triage && echo "all green"
+```
+
+The full agent-facing fix loop (run → triage → decide → edit →
+replay → commit), with a per-error-code fix taxonomy, lives in
+`@f:\INVENTION\You.Inc\PCE Core\Docs\testing\PCE-PROBE-AGENT-LOOP.md`.
+
 ## 6. Failure model
 
 Every wire failure carries:
@@ -360,5 +407,13 @@ auth and process supervision.
 - Site adapter contract: `@f:\INVENTION\You.Inc\PCE Core\tests\e2e_probe\sites\base.py`
 - Case contract: `@f:\INVENTION\You.Inc\PCE Core\tests\e2e_probe\cases\base.py`
 - Site adapter inventory: `@f:\INVENTION\You.Inc\PCE Core\tests\e2e_probe\sites\_inventory.md`
+- Triage CLI (matrix `summary.json` -> fix-ready view):
+  `@f:\INVENTION\You.Inc\PCE Core\pce_probe\triage.py`
+- Agent fix-loop runbook (run -> triage -> decide -> edit -> replay):
+  `@f:\INVENTION\You.Inc\PCE Core\Docs\testing\PCE-PROBE-AGENT-LOOP.md`
 - In-process integration tests (no Chrome required):
   `@f:\INVENTION\You.Inc\PCE Core\tests\test_pce_probe.py`
+- Triage CLI tests:
+  `@f:\INVENTION\You.Inc\PCE Core\tests\test_pce_probe_triage.py`
+- Adapter / case contract conformance tests:
+  `@f:\INVENTION\You.Inc\PCE Core\tests\test_pce_probe_adapter_contract.py`

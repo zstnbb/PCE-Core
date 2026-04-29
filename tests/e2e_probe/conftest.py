@@ -168,3 +168,13 @@ def probe_matrix_summary() -> Iterator[_MatrixSummary]:
             f"\nMATRIX SUMMARY: {len(summary.results)} cells, "
             f"by_status={by_status}, summary={out}",
         )
+        # Surface the triage command verbatim so an agent reading
+        # this output knows exactly what to run next -- no need to
+        # remember the module path or hunt for the latest report dir.
+        # See ``Docs/testing/PCE-PROBE-AGENT-LOOP.md`` section 1 step 2.
+        if int(by_status.get("fail", 0)) > 0:
+            print(
+                "TRIAGE: python -m pce_probe.triage   "
+                "(--include-skip to also surface SKIPs, --json for "
+                "machine-readable output)"
+            )
