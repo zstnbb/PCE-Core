@@ -24,6 +24,14 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url));
  * avoiding leakage between test files.
  */
 export default defineConfig({
+  // Compile-time constant injected by ``wxt.config.ts`` for the
+  // production build. Vitest reuses the same identifier so any test
+  // that imports a module gated by ``__PCE_PROBE_ENABLED__`` runs
+  // against the real probe path. See ``types.d.ts`` for the global
+  // declaration.
+  define: {
+    __PCE_PROBE_ENABLED__: JSON.stringify(true),
+  },
   test: {
     environment: "happy-dom",
     include: [
@@ -56,6 +64,18 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": resolve(__dirname),
+      // Mirror the wxt.config.ts virtual aliases so vitest tests
+      // resolve them to the real probe modules. Webstore-build
+      // stubbing is a wxt-only concern; tests always run against the
+      // real implementation.
+      "$probe-rpc": resolve(
+        __dirname,
+        "entrypoints/background/probe-rpc.ts",
+      ),
+      "$probe-rpc-capture": resolve(
+        __dirname,
+        "entrypoints/background/probe-rpc-capture.ts",
+      ),
     },
   },
 });

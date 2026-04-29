@@ -14,7 +14,12 @@
     "allowJs": true,
     "checkJs": false,
     "noEmit": true,
-    "lib": ["ES2022", "DOM", "DOM.Iterable"]
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "baseUrl": ".",
+    "paths": {
+      "$probe-rpc": ["./entrypoints/background/probe-rpc.ts"],
+      "$probe-rpc-capture": ["./entrypoints/background/probe-rpc-capture.ts"]
+    }
   },
   "include": [
     "entrypoints/**/*",

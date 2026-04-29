@@ -29,11 +29,11 @@ import {
   proactiveInjectFallback,
   type InjectionContext,
 } from "./background/injector";
-import {
-  observeCaptureMessage,
-  setPipelineStateProvider,
-} from "./background/probe-rpc-capture";
-import { startProbeRpc } from "./background/probe-rpc";
+// Build-mode gated imports. Resolved to real modules in the dev
+// build and no-op stubs in the production build via Vite alias.
+// See ``wxt.config.ts`` for the swap.
+import { observeCaptureMessage, setPipelineStateProvider } from "$probe-rpc-capture";
+import { startProbeRpc } from "$probe-rpc";
 import {
   DEFAULT_PCE_INGEST_URL,
   DEFAULT_PCE_SERVER_ORIGIN,
@@ -663,10 +663,15 @@ export default defineBackground({
         if (message.type === "PCE_CAPTURE") {
           // Probe observer tap: snapshot before forwarding to ingest
           // (non-blocking, never throws; see probe-rpc-capture.ts).
-          observeCaptureMessage({
-            kind: "PCE_CAPTURE",
-            payload: (message.payload ?? {}) as Record<string, unknown>,
-          });
+          // Vite replaces ``__PCE_PROBE_ENABLED__`` with the literal
+          // ``false`` in the webstore build; Rollup then strips this
+          // branch as dead code.
+          if (__PCE_PROBE_ENABLED__) {
+            observeCaptureMessage({
+              kind: "PCE_CAPTURE",
+              payload: (message.payload ?? {}) as Record<string, unknown>,
+            });
+          }
           handleCapture(message.payload as CapturePayload, sender.tab)
             .then((result) => sendResponse({ ok: !result.error, ...result }))
             .catch((err: Error) =>
@@ -676,10 +681,12 @@ export default defineBackground({
         }
 
         if (message.type === "PCE_NETWORK_CAPTURE") {
-          observeCaptureMessage({
-            kind: "PCE_NETWORK_CAPTURE",
-            payload: (message.payload ?? {}) as Record<string, unknown>,
-          });
+          if (__PCE_PROBE_ENABLED__) {
+            observeCaptureMessage({
+              kind: "PCE_NETWORK_CAPTURE",
+              payload: (message.payload ?? {}) as Record<string, unknown>,
+            });
+          }
           handleNetworkCapture(message.payload as NetworkCapturePayload, sender.tab)
             .then((result) => sendResponse({ ok: !result.error, ...result }))
             .catch((err: Error) =>
@@ -689,10 +696,12 @@ export default defineBackground({
         }
 
         if (message.type === "PCE_SNIPPET") {
-          observeCaptureMessage({
-            kind: "PCE_SNIPPET",
-            payload: (message.payload ?? {}) as Record<string, unknown>,
-          });
+          if (__PCE_PROBE_ENABLED__) {
+            observeCaptureMessage({
+              kind: "PCE_SNIPPET",
+              payload: (message.payload ?? {}) as Record<string, unknown>,
+            });
+          }
           handleSnippet(message.payload as SnippetPayload)
             .then((result) => sendResponse({ ok: true, ...result }))
             .catch((err: Error) =>
@@ -792,24 +801,25 @@ export default defineBackground({
     CaptureQueue.startRetryLoop();
 
     // -----------------------------------------------------------------------
-    // PCE Probe — agent-facing debug API (off by default, no-op when no
-    // probe server is listening on ws://127.0.0.1:9888). See
-    // ``Docs/docs/engineering/PCE-PROBE-API.md``.
+    // Internal-only debug surface — gated by ``__PCE_PROBE_ENABLED__``.
+    // Vite replaces the constant with the literal ``false`` for the
+    // public build, and Rollup eliminates this entire block plus the
+    // imports that fed it. The shipped bundle contains no trace of
+    // the symbols inside.
     // -----------------------------------------------------------------------
-    setPipelineStateProvider(() => {
-      void CaptureQueue.count(); // refresh queue count (best-effort)
-      return {
-        enabled: isEnabled,
-        capture_count: captureCount,
-        last_error: lastError,
-        server_online: pceServerOnline,
-        // CaptureQueue.count() is async; the probe verb returns the
-        // last-known count. The probe's ``capture.pipeline_state``
-        // verb is informational, not a strict counter.
-        queued_captures: 0,
-      };
-    });
-    startProbeRpc();
+    if (__PCE_PROBE_ENABLED__) {
+      setPipelineStateProvider(() => {
+        void CaptureQueue.count();
+        return {
+          enabled: isEnabled,
+          capture_count: captureCount,
+          last_error: lastError,
+          server_online: pceServerOnline,
+          queued_captures: 0,
+        };
+      });
+      startProbeRpc();
+    }
   },
 });
 

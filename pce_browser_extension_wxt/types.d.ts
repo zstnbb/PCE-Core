@@ -78,6 +78,16 @@ declare global {
     const webRequest: any;
     const webNavigation: any;
   }
+
+  // Compile-time constant injected by Vite ``define`` (see
+  // ``wxt.config.ts`` and ``vitest.config.ts``). Resolves to ``true``
+  // in the sideload / dev / test build and ``false`` in the
+  // ``webstore`` build. Wrapping a call site in
+  // ``if (__PCE_PROBE_ENABLED__) { ... }`` lets Rollup dead-code
+  // eliminate the entire branch (including the import that fed it)
+  // when building for the public store, without any runtime checks
+  // shipping in the final bundle.
+  const __PCE_PROBE_ENABLED__: boolean;
 }
 export {};
 /* eslint-enable @typescript-eslint/no-explicit-any */

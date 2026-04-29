@@ -376,3 +376,121 @@ tests/
 `pce_probe/` is its own top-level Python package, not nested under
 `pce_core/`. Rationale: it's a tool (like `pce_proxy`), independent
 release cadence, importable by tests + by external agents.
+
+## 11. Build-mode policy — webstore vs sideload
+
+The probe is an **internal developer tool**. It must never enter the
+public Chrome Web Store bundle, both because (a) its `dom.execute_js`
+verb is indistinguishable from a remote-code-execution backdoor for
+automated CWS review, and (b) shipping it would require new
+permission grants (`alarms`) and new privacy disclosures that
+contradict the published listing.
+
+The build is therefore split:
+
+| | sideload (default) | webstore |
+|---|---|---|
+| invoked by | `pnpm build` / `pnpm dev` | `pnpm build --mode webstore` |
+| `$probe-rpc` resolves to | `entrypoints/background/probe-rpc.ts` | `entrypoints/background/probe-rpc.stub.ts` |
+| `$probe-rpc-capture` resolves to | `…/probe-rpc-capture.ts` | `…/probe-rpc-capture.stub.ts` |
+| `__PCE_PROBE_ENABLED__` constant | `true` | `false` |
+| manifest `permissions` | `…, alarms` | (no `alarms`) |
+| manifest `host_permissions` | `<all_urls>` | explicit COVERED_SITES |
+| `background.js` size | ~92 KB | ~58 KB |
+| probe identifiers in bundle | present | **0** |
+
+The pieces that enforce this:
+
+1. **Virtual imports** in `entrypoints/background.ts`:
+   ```ts
+   import { observeCaptureMessage, setPipelineStateProvider } from "$probe-rpc-capture";
+   import { startProbeRpc } from "$probe-rpc";
+   ```
+   `$probe-rpc` and `$probe-rpc-capture` are not real modules — they
+   are aliases configured per build mode in `wxt.config.ts`
+   `vite.resolve.alias`. The sideload alias points at the real
+   files; the webstore alias points at no-op stubs
+   (`probe-rpc.stub.ts`, `probe-rpc-capture.stub.ts`) whose function
+   bodies are empty.
+
+2. **Compile-time constant** `__PCE_PROBE_ENABLED__`, injected by Vite
+   `define` in `wxt.config.ts`:
+   ```ts
+   define: {
+     __PCE_PROBE_ENABLED__: JSON.stringify(!isWebstore),
+   }
+   ```
+   Every probe call site in `background.ts` is wrapped:
+   ```ts
+   if (__PCE_PROBE_ENABLED__) {
+     observeCaptureMessage({...});
+   }
+   ```
+   In the webstore build the constant is replaced with the literal
+   `false`, so Rollup's dead-code eliminator drops the entire
+   branch. With no remaining call sites, the imports are unreachable
+   and Rollup tree-shakes the (already no-op) stub modules out of
+   the bundle as well.
+
+3. **Conditional manifest permissions**: the `alarms` permission
+   used by the probe MV3 service-worker keepalive is only declared
+   in the sideload manifest. The webstore manifest's permissions
+   list is unchanged from the pre-probe baseline, so the install
+   warning shown to users is identical to the previously-published
+   version.
+
+4. **Type alignment**: `tsconfig.json paths` map both virtual
+   identifiers to the real files so TypeScript checks against the
+   real surface in every build. `vitest.config.ts resolve.alias`
+   does the same so unit tests run against real probe code with
+   `__PCE_PROBE_ENABLED__ = true`.
+
+### How to verify
+
+The webstore audit is two PowerShell calls:
+
+```powershell
+pnpm build --mode webstore
+
+# Bundle markers — every count below should be 0 except
+# captureVisibleTab (1, from the webextension-polyfill API metadata
+# table; pre-existing, not probe).
+$bg = ".output/chrome-mv3/background.js"
+foreach ($m in @(
+  "PCE Probe","ws://127.0.0.1:9888","probe-rpc","chrome.alarms",
+  "startProbeRpc","observeCaptureMessage","setPipelineStateProvider",
+  "ProbeException","KEEPALIVE_ALARM","wait_for_token","new Function("
+)) {
+  $hits = (Select-String -Path $bg -SimpleMatch -Pattern $m).Count
+  "{0,-30} hits: {1}" -f $m, $hits
+}
+
+# Manifest permissions — should NOT include "alarms".
+(Get-Content .output/chrome-mv3/manifest.json -Raw |
+  ConvertFrom-Json).permissions -join ", "
+```
+
+If any probe marker is non-zero, the build is contaminated; do not
+upload to CWS until it is zero.
+
+### How to extend
+
+Adding a new probe verb that uses a chrome API not currently in the
+webstore manifest's `permissions`:
+
+1. Add the verb to the appropriate `probe-rpc-*.ts` file.
+2. Add a corresponding no-op export to the matching stub file
+   (`probe-rpc.stub.ts` if it lives in the dispatcher; otherwise the
+   namespace stub).
+3. **Do not** add the new chrome permission to the webstore branch
+   in `wxt.config.ts`. Sideload-only.
+4. Re-run the audit above; confirm zero hits.
+5. Bump `Docs/docs/engineering/PCE-PROBE-API.md` §5 + this §11 if
+   the verb introduces a new visible-bundle pattern (e.g. a new
+   compile-time gate).
+
+A regression test for the audit lives at
+`pce_browser_extension_wxt/entrypoints/__tests__/probe-rpc-system.test.ts`
+("verb registry consistency"). Adding a new verb without updating
+`__systemTesting.ALL_KNOWN_VERBS` will fail that test, which is the
+tripwire for the agent-facing capability list.

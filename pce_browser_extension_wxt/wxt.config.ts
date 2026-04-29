@@ -1,5 +1,33 @@
 // SPDX-License-Identifier: Apache-2.0
 import { defineConfig } from "wxt";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// PCE Probe — virtual-import targets. Sideload build resolves to the
+// real probe-rpc modules; webstore build resolves to no-op stubs so
+// the public bundle contains zero probe code (no WebSocket to
+// localhost, no chrome.alarms keepalive, no ``new Function``-style
+// dispatcher). Mirrored by ``tsconfig.json paths`` and
+// ``vitest.config.ts resolve.alias``. See
+// ``Docs/docs/engineering/PCE-PROBE-API.md`` §11.
+const PROBE_RPC_REAL = path.resolve(
+  __dirname,
+  "entrypoints/background/probe-rpc.ts",
+);
+const PROBE_RPC_STUB = path.resolve(
+  __dirname,
+  "entrypoints/background/probe-rpc.stub.ts",
+);
+const PROBE_CAPTURE_REAL = path.resolve(
+  __dirname,
+  "entrypoints/background/probe-rpc-capture.ts",
+);
+const PROBE_CAPTURE_STUB = path.resolve(
+  __dirname,
+  "entrypoints/background/probe-rpc-capture.stub.ts",
+);
 
 /**
  * WXT config for the PCE browser extension.
@@ -119,13 +147,17 @@ export default defineConfig({
       version: "1.0.1",
       description:
         "Keep a searchable local history of your AI chat conversations — stored entirely on your own computer, never in our cloud.",
-      permissions: [
-        "storage",
-        "activeTab",
-        "scripting",
-        "tabs",
-        "contextMenus",
-      ],
+      // ``alarms`` is required by the PCE Probe MV3 service-worker
+      // keepalive (see ``probe-rpc.ts``). Sideload build only — the
+      // webstore build never runs probe code, so adding the
+      // permission would only enlarge the install warning without
+      // benefit. Keep this list and the ``$probe-rpc`` alias logic
+      // (below) in lockstep: both must change for both modes when
+      // probe gains or loses a chrome.* surface.
+      permissions:
+        mode === "webstore"
+          ? ["storage", "activeTab", "scripting", "tabs", "contextMenus"]
+          : ["storage", "activeTab", "scripting", "tabs", "contextMenus", "alarms"],
       host_permissions: hostPermissions,
       action: {
         default_popup: "popup/popup.html",
@@ -169,12 +201,44 @@ export default defineConfig({
           : undefined,
     };
   },
-  vite: () => ({
-    build: {
-      sourcemap: true,
-      minify: false,
-    },
-  }),
+  vite: (env) => {
+    // ``env.mode`` matches WXT's ``mode``: "production" / "development"
+    // for the default sideload flavour, or "webstore" when invoked
+    // with ``wxt build --mode webstore``. Anything that isn't
+    // exactly "webstore" gets the real probe modules.
+    const isWebstore = env.mode === "webstore";
+    return {
+      build: {
+        sourcemap: true,
+        minify: false,
+      },
+      // Compile-time replaced constant. ``background.ts`` wraps every
+      // probe call site in ``if (__PCE_PROBE_ENABLED__) { ... }``.
+      // When the constant is replaced with the literal ``false`` for
+      // the webstore build, Rollup eliminates the entire branch as
+      // dead code, which in turn makes the ``$probe-rpc`` /
+      // ``$probe-rpc-capture`` imports unreachable. Rollup's tree
+      // shaker then drops the stub modules from the final bundle as
+      // well, leaving zero probe-related identifiers in the shipped
+      // ``background.js``.
+      define: {
+        __PCE_PROBE_ENABLED__: JSON.stringify(!isWebstore),
+      },
+      resolve: {
+        alias: {
+          // PCE Probe — virtual imports. In sideload mode we point
+          // directly at the real probe files; in webstore mode we
+          // point at the no-op stubs. Used together with the
+          // ``__PCE_PROBE_ENABLED__`` define above, the webstore
+          // bundle ends up with no probe code at all.
+          "$probe-rpc": isWebstore ? PROBE_RPC_STUB : PROBE_RPC_REAL,
+          "$probe-rpc-capture": isWebstore
+            ? PROBE_CAPTURE_STUB
+            : PROBE_CAPTURE_REAL,
+        },
+      },
+    };
+  },
   // In `webstore` mode, strip the `detector` content script from the
   // generated manifest. Its `matches: ["<all_urls>"]` (needed in the
   // sideload build to discover NEW AI sites the user browses to) would
