@@ -368,9 +368,26 @@ pce_probe/                  ← NEW Python package
     test_client.py
 
 tests/
-  e2e_probe/                ← NEW: probe-driven E2E (replaces selenium suite over time)
-    conftest.py
-    test_chatgpt_probe.py   ← T01 ported as proof
+  e2e_probe/                ← probe-driven E2E (replaces selenium suite over time)
+    conftest.py             ← pce_core fixture + matrix summary writer
+    test_chatgpt_probe.py   ← T01 standalone proof (predates matrix)
+    test_matrix.py          ← canonical entry: site x case parametrize
+    sites/                  ← per-site adapters (selectors + login check)
+      __init__.py           ← ALL_SITES registry
+      base.py               ← BaseProbeSiteAdapter + LoginCheckResult
+      _inventory.md         ← porting status tracker
+      chatgpt.py  claude.py  gemini.py  perplexity.py
+      googleaistudio.py  copilot.py  deepseek.py  kimi.py
+      grok.py  manus.py  mistral.py  huggingface.py
+      poe.py  zhipu.py      ← 14 sites
+    cases/                  ← cross-site case templates
+      __init__.py           ← ALL_CASES registry
+      base.py               ← BaseCase + CaseResult + CaseStatus
+      t00_smoke.py          ← adapter health (open + login + pipeline)
+      t01_basic_chat.py     ← token round-trip through capture pipeline
+    reports/                ← gitignored; per-run JSON summaries
+      <UTC-timestamp>/
+        summary.json
 ```
 
 `pce_probe/` is its own top-level Python package, not nested under
@@ -494,3 +511,122 @@ A regression test for the audit lives at
 ("verb registry consistency"). Adding a new verb without updating
 `__systemTesting.ALL_KNOWN_VERBS` will fail that test, which is the
 tripwire for the agent-facing capability list.
+
+## 12. Full-coverage matrix
+
+The probe vertical (sections 1-9) is the **plumbing**. Section 10 lays
+out the file structure; this section describes the coverage matrix
+that runs on top.
+
+### Architecture
+
+```
+              ┌──────────────────────────────────┐
+              │ tests/e2e_probe/test_matrix.py   │
+              │   parametrize site x case        │
+              │   one pytest item per pair       │
+              └────────┬─────────────────────────┘
+                       │
+              ┌────────▼─────────┐    ┌────────────────────┐
+              │   sites/         │    │   cases/           │
+              │  ALL_SITES = […] │    │  ALL_CASES = […]   │
+              │                  │    │                    │
+              │  BaseProbeSite-  │    │  BaseCase          │
+              │  Adapter         │    │   .run(probe,      │
+              │   .open()        │    │        pce_core,   │
+              │   .check_logged_ │    │        adapter)    │
+              │     in()         │    │     -> CaseResult  │
+              │   .send_prompt() │    │                    │
+              │   .wait_for_done │    │  T00 = smoke       │
+              │   ()             │    │  T01 = basic chat  │
+              │   selectors[]    │    │  ...               │
+              └──────────────────┘    └────────────────────┘
+                       │                       │
+                       └───────────┬───────────┘
+                                   │
+                       ┌───────────▼────────────┐
+                       │  pce_probe.ProbeClient │
+                       │  (verb RPC over WS)    │
+                       └────────────────────────┘
+```
+
+**Two orthogonal axes**:
+
+* **Sites** (axis 1) hold *site-specific knowledge* — selectors, login
+  detection, send-button vs Enter, conversation-URL parsing. Adding a
+  new site means writing one ~50-line adapter; the new site is then
+  automatically covered by every case in the matrix.
+* **Cases** (axis 2) hold *behaviour* — basic chat, regenerate, image
+  upload, branch flip. Cases are written once, against the abstract
+  adapter contract, and run unchanged across every site. Adding a new
+  case extends the matrix by `len(ALL_SITES)` cells with zero
+  per-site work.
+
+This is the same pattern as the legacy Selenium suite at
+`tests/e2e/sites/`, but lifted onto the probe RPC so the suite no
+longer owns Chrome, no longer needs a remote-debugging port, and no
+longer fights chromedriver.
+
+### Sites currently covered
+
+14 (see `tests/e2e_probe/sites/_inventory.md` for the live table):
+ChatGPT, Claude, Gemini, Perplexity, Google AI Studio, Microsoft
+Copilot, DeepSeek, Kimi, Grok, Manus, Mistral, HuggingChat, Poe,
+Zhipu / Z.AI.
+
+The browser extension's content scripts cover a few additional hosts
+(Notion, Figma, Gmail, M365 Copilot Cloud, GitHub Copilot Chat in
+the IDE) which are not chat-style and are not currently in the
+matrix. They are tracked in `_inventory.md` as TODO.
+
+### Cases currently covered
+
+* **T00** (`t00_smoke`): adapter health. Open the entry URL, confirm
+  the chat input is reachable, confirm `capture.pipeline_state`
+  reports `server_online`. No prompt sent. Always runs first per
+  site so a borked adapter fails fast.
+* **T01** (`t01_basic_chat`): unique-token round trip through the
+  capture pipeline. Type `PROBE-<SITE>-T01-<rand>` in a prompt;
+  observe `capture.wait_for_token` resolve; assert the token is in
+  the captured `content_text` reachable via PCE Core's
+  `/api/v1/sessions/{id}/messages`.
+
+T02-T20 (image upload, regenerate, branch flip, file attachments,
+custom GPT URL patterns, etc.) are not yet ported. The legacy
+Selenium variants live in `tests/e2e/test_*.py` and translate to
+the probe path with mostly mechanical changes.
+
+### Result reporting
+
+Every session writes
+`tests/e2e_probe/reports/<UTC-timestamp>/summary.json` with a
+machine-readable view of every cell:
+
+```json
+{
+  "started_at_utc": "20260429T024412",
+  "duration_s": 187.4,
+  "n_results": 28,
+  "by_status": {"pass": 18, "skip": 8, "fail": 2},
+  "by_site":   {"chatgpt": 2, "claude": 2, …},
+  "by_case":   {"T00": 14, "T01": 14},
+  "results":   [{"case_id":"T01","site_name":"chatgpt","status":"pass",
+                 "summary":"…","duration_ms":12431,"details":{…}}, …]
+}
+```
+
+The same triage script that aggregates the legacy Selenium reports
+(`tests/e2e/reports/chatgpt/<ts>/summary.json`) can read these — the
+schema is intentionally the same.
+
+### How to extend
+
+* New site: subclass `BaseProbeSiteAdapter`, append to `ALL_SITES`.
+  See §5.5 of `Docs/testing/PCE-PROBE-USAGE.md` for the recipe.
+* New case: subclass `BaseCase`, append to `ALL_CASES`. The matrix
+  expands automatically by `len(ALL_SITES)` cells.
+
+A regression test for matrix integrity (every site adapter loads,
+every case has the required `id`/`name` fields) is implicit in
+`pytest --collect-only`: any breakage prints an `ImportError` /
+`KeyError` instead of enumerating cells.

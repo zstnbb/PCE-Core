@@ -34,4 +34,5 @@ Thumbs.db
 /tests/e2e/e2e_state.json
 /tests/e2e/fixtures/generated/
 /tests/e2e/reports/chatgpt/
+/tests/e2e_probe/reports/
 /logs/

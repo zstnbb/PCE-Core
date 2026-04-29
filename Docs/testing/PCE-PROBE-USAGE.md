@@ -208,6 +208,88 @@ CLI knobs:
 A live example is at
 `@f:\INVENTION\You.Inc\PCE Core\tests\e2e_probe\test_chatgpt_probe.py`.
 
+### 5.5 Run the full-coverage matrix
+
+`tests/e2e_probe/test_matrix.py` is the canonical entry point for
+"run T01 across every site I have an adapter for". It generates one
+pytest item per `(site, case)` pair from the registered list in
+`@f:\INVENTION\You.Inc\PCE Core\tests\e2e_probe\sites\__init__.py:42-58` and
+`@f:\INVENTION\You.Inc\PCE Core\tests\e2e_probe\cases\__init__.py:25-30`.
+
+Quick reference:
+
+```powershell
+# Enumerate the matrix without executing (sanity check)
+pytest tests/e2e_probe/ --collect-only
+
+# Run everything against a logged-in attached browser
+pytest tests/e2e_probe/test_matrix.py -v
+
+# Run only chatgpt cells
+pytest tests/e2e_probe/test_matrix.py -k "chatgpt" -v
+
+# Run only T01 across all sites (= the basic-chat regression matrix)
+pytest tests/e2e_probe/test_matrix.py -k "T01" -v
+
+# Run a single cell
+pytest tests/e2e_probe/test_matrix.py -k "claude-T01" -v
+
+# CI-friendly run when no Chrome is attached: every cell SKIPs cleanly
+pytest tests/e2e_probe/ --pce-probe-skip
+```
+
+Each session writes a JSON summary to
+`tests/e2e_probe/reports/<UTC-timestamp>/summary.json`. The shape:
+
+```json
+{
+  "started_at_utc": "20260429T024412",
+  "duration_s": 187.4,
+  "n_results": 28,
+  "by_status": {"pass": 18, "skip": 8, "fail": 2},
+  "by_site":   {"chatgpt": 2, "claude": 2, ...},
+  "by_case":   {"T00": 14, "T01": 14},
+  "results": [
+    {
+      "case_id": "T01",
+      "site_name": "chatgpt",
+      "status": "pass",
+      "summary": "token PROBE-CHATGPT-T01-... round-tripped...",
+      "duration_ms": 12431,
+      "details": {"session_id": "...", "n_messages": 4}
+    },
+    ...
+  ]
+}
+```
+
+The `details` per row is whatever the case implementation chose to
+attach. T00 attaches `pipeline` (probe's `capture.pipeline_state`).
+T01 attaches `session_id`, `n_messages`, and on failure the recent
+capture events surfaced by the probe — so a triager can read the
+JSON and see exactly where in the pipeline the round-trip broke.
+
+#### Adding a new site
+
+1. Drop `tests/e2e_probe/sites/<name>.py` subclassing
+   `BaseProbeSiteAdapter`. At minimum set `name`, `provider`, `url`,
+   `input_selectors`. Most adapters are 30-50 lines.
+2. Append the class to `ALL_SITES` in
+   `@f:\INVENTION\You.Inc\PCE Core\tests\e2e_probe\sites\__init__.py:42-58`.
+3. Add a row to
+   `@f:\INVENTION\You.Inc\PCE Core\tests\e2e_probe\sites\_inventory.md`.
+4. Run `pytest tests/e2e_probe/ -k "<name>-T00"` — T00 smoke validates
+   the adapter without sending any prompt.
+
+#### Adding a new case
+
+1. Drop `tests/e2e_probe/cases/tNN_xxx.py` subclassing `BaseCase`.
+   Implement `run(probe, pce_core, adapter) -> CaseResult`.
+2. Append the class to `ALL_CASES` in
+   `@f:\INVENTION\You.Inc\PCE Core\tests\e2e_probe\cases\__init__.py:25-30`.
+3. The matrix automatically expands to include the new case across
+   every existing site — no other plumbing needed.
+
 ## 6. Failure model
 
 Every wire failure carries:
@@ -273,6 +355,10 @@ auth and process supervision.
 - API surface + envelope: `@f:\INVENTION\You.Inc\PCE Core\Docs\docs\engineering\PCE-PROBE-API.md`
 - Wire types: `@f:\INVENTION\You.Inc\PCE Core\pce_browser_extension_wxt\utils\probe-protocol.ts`
 - Python types: `@f:\INVENTION\You.Inc\PCE Core\pce_probe\types.py`
-- Reference test: `@f:\INVENTION\You.Inc\PCE Core\tests\e2e_probe\test_chatgpt_probe.py`
+- Standalone reference test: `@f:\INVENTION\You.Inc\PCE Core\tests\e2e_probe\test_chatgpt_probe.py`
+- Full-coverage matrix: `@f:\INVENTION\You.Inc\PCE Core\tests\e2e_probe\test_matrix.py`
+- Site adapter contract: `@f:\INVENTION\You.Inc\PCE Core\tests\e2e_probe\sites\base.py`
+- Case contract: `@f:\INVENTION\You.Inc\PCE Core\tests\e2e_probe\cases\base.py`
+- Site adapter inventory: `@f:\INVENTION\You.Inc\PCE Core\tests\e2e_probe\sites\_inventory.md`
 - In-process integration tests (no Chrome required):
   `@f:\INVENTION\You.Inc\PCE Core\tests\test_pce_probe.py`
