@@ -29,3 +29,9 @@ litellm[proxy]>=1.50.0
 # Without it, we fall back to a regex-based CN extractor (sufficient for
 # the mitmproxy CA subject we manage).
 cryptography>=43.0.0
+
+# D-3 (PCE Probe) — agent-facing debug API for E2E. Loopback WebSocket
+# multiplexer between the agent (pytest / Cascade / Claude / etc.) and
+# the running PCE browser extension. See
+# Docs/docs/engineering/PCE-PROBE-API.md.
+websockets>=12.0

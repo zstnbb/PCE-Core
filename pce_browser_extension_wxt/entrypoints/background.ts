@@ -30,6 +30,11 @@ import {
   type InjectionContext,
 } from "./background/injector";
 import {
+  observeCaptureMessage,
+  setPipelineStateProvider,
+} from "./background/probe-rpc-capture";
+import { startProbeRpc } from "./background/probe-rpc";
+import {
   DEFAULT_PCE_INGEST_URL,
   DEFAULT_PCE_SERVER_ORIGIN,
 } from "../utils/pce-messages";
@@ -60,6 +65,7 @@ interface CapturePayload {
   source_name?: string;
   model_name?: string | null;
   session_hint?: string | null;
+  layer_meta?: Record<string, unknown> | null;
   conversation?: { messages?: Array<{ role?: string; content?: string }> };
   meta?: Record<string, unknown>;
 }
@@ -265,6 +271,7 @@ interface IngestBody {
   body_json: string;
   body_format: string;
   session_hint: string | null;
+  layer_meta?: Record<string, unknown> | null;
   schema_version: number;
   meta: Record<string, unknown>;
 }
@@ -373,6 +380,7 @@ async function handleCapture(
     body_json: JSON.stringify(convObj),
     body_format: "json",
     session_hint: sessionHint,
+    layer_meta: payload.layer_meta || null,
     schema_version: 2,
     meta: {
       page_url: tab?.url ?? null,
@@ -653,6 +661,12 @@ export default defineBackground({
         sendResponse: (response: unknown) => void,
       ): boolean => {
         if (message.type === "PCE_CAPTURE") {
+          // Probe observer tap: snapshot before forwarding to ingest
+          // (non-blocking, never throws; see probe-rpc-capture.ts).
+          observeCaptureMessage({
+            kind: "PCE_CAPTURE",
+            payload: (message.payload ?? {}) as Record<string, unknown>,
+          });
           handleCapture(message.payload as CapturePayload, sender.tab)
             .then((result) => sendResponse({ ok: !result.error, ...result }))
             .catch((err: Error) =>
@@ -662,6 +676,10 @@ export default defineBackground({
         }
 
         if (message.type === "PCE_NETWORK_CAPTURE") {
+          observeCaptureMessage({
+            kind: "PCE_NETWORK_CAPTURE",
+            payload: (message.payload ?? {}) as Record<string, unknown>,
+          });
           handleNetworkCapture(message.payload as NetworkCapturePayload, sender.tab)
             .then((result) => sendResponse({ ok: !result.error, ...result }))
             .catch((err: Error) =>
@@ -671,6 +689,10 @@ export default defineBackground({
         }
 
         if (message.type === "PCE_SNIPPET") {
+          observeCaptureMessage({
+            kind: "PCE_SNIPPET",
+            payload: (message.payload ?? {}) as Record<string, unknown>,
+          });
           handleSnippet(message.payload as SnippetPayload)
             .then((result) => sendResponse({ ok: true, ...result }))
             .catch((err: Error) =>
@@ -768,6 +790,26 @@ export default defineBackground({
     void checkHealth();
     setInterval(() => void checkHealth(), HEALTH_CHECK_INTERVAL_MS);
     CaptureQueue.startRetryLoop();
+
+    // -----------------------------------------------------------------------
+    // PCE Probe — agent-facing debug API (off by default, no-op when no
+    // probe server is listening on ws://127.0.0.1:9888). See
+    // ``Docs/docs/engineering/PCE-PROBE-API.md``.
+    // -----------------------------------------------------------------------
+    setPipelineStateProvider(() => {
+      void CaptureQueue.count(); // refresh queue count (best-effort)
+      return {
+        enabled: isEnabled,
+        capture_count: captureCount,
+        last_error: lastError,
+        server_online: pceServerOnline,
+        // CaptureQueue.count() is async; the probe verb returns the
+        // last-known count. The probe's ``capture.pipeline_state``
+        // verb is informational, not a strict counter.
+        queued_captures: 0,
+      };
+    });
+    startProbeRpc();
   },
 });
 
