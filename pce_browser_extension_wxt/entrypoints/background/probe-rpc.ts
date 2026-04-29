@@ -29,6 +29,23 @@ import {
   type ProbeVerb,
 } from "../../utils/probe-protocol";
 
+// ---------------------------------------------------------------------------
+// Shared verb-handler primitives. Lived in this file historically; moved
+// to ``probe-rpc-shared.ts`` to break the cycle between this dispatcher
+// and the five ``probe-rpc-*.ts`` verb modules. Re-exported here so the
+// public surface (``import { ProbeException } from "./probe-rpc"``) is
+// preserved for vitest unit tests and any external consumers. New code
+// should import from ``./probe-rpc-shared`` directly.
+// See ``probe-rpc-shared.ts`` and PCE-PROBE-API.md §10 for context.
+// ---------------------------------------------------------------------------
+import {
+  ProbeException,
+  getExtensionVersion,
+  type VerbHandler,
+} from "./probe-rpc-shared";
+export { ProbeException, getExtensionVersion } from "./probe-rpc-shared";
+export type { VerbHandler } from "./probe-rpc-shared";
+
 import { captureVerbs } from "./probe-rpc-capture";
 import { domVerbs } from "./probe-rpc-dom";
 import { pageVerbs } from "./probe-rpc-page";
@@ -49,39 +66,9 @@ let backoffMs = RECONNECT_MIN_MS;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let started = false;
 
-/**
- * Custom error thrown by verb handlers. The dispatcher converts these
- * into typed ``ProbeErrorResponse`` envelopes. Anything else thrown
- * becomes a generic ``extension_internal`` error so the agent always
- * gets a structured envelope.
- */
-export class ProbeException extends Error {
-  readonly code: ProbeErrorCode;
-  readonly context?: ProbeError["context"];
-  readonly agentHint?: string;
-
-  constructor(
-    code: ProbeErrorCode,
-    message: string,
-    context?: ProbeError["context"],
-    agentHint?: string,
-  ) {
-    super(message);
-    this.name = "ProbeException";
-    this.code = code;
-    this.context = context;
-    this.agentHint = agentHint;
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Verb registry
 // ---------------------------------------------------------------------------
-
-export type VerbHandler = (
-  params: unknown,
-  signal: AbortSignal,
-) => Promise<unknown>;
 
 const verbs: Record<string, VerbHandler> = {
   ...systemVerbs,
@@ -96,14 +83,6 @@ const knownVerbs: ProbeVerb[] = Object.keys(verbs) as ProbeVerb[];
 // ---------------------------------------------------------------------------
 // Manifest version helper (used in hello + system.* verbs)
 // ---------------------------------------------------------------------------
-
-export function getExtensionVersion(): string {
-  try {
-    return chrome.runtime.getManifest().version;
-  } catch {
-    return "unknown";
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Connection lifecycle

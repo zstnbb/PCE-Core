@@ -29,7 +29,7 @@ import type {
   CaptureWaitForTokenParams,
   CaptureWaitForTokenResult,
 } from "../../utils/probe-protocol";
-import { ProbeException, type VerbHandler } from "./probe-rpc";
+import { ProbeException, type VerbHandler } from "./probe-rpc-shared";
 
 // ---------------------------------------------------------------------------
 // Module-private state

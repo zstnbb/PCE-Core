@@ -367,6 +367,29 @@ pce_probe/                  ← NEW Python package
     test_server.py
     test_client.py
 
+pce_browser_extension_wxt/entrypoints/background/
+  probe-rpc.ts              ← dispatcher: WS server + verb router
+  probe-rpc-shared.ts       ← cycle-breaker: ProbeException + VerbHandler + getExtensionVersion
+  probe-rpc-tab.ts          ← tab.* verb handlers
+  probe-rpc-dom.ts          ← dom.* verb handlers
+  probe-rpc-page.ts         ← page.* verb handlers
+  probe-rpc-system.ts       ← system.* verb handlers
+  probe-rpc-capture.ts      ← capture.* verb handlers + pipeline observer
+  probe-rpc.stub.ts         ← webstore-build replacement for probe-rpc.ts
+  probe-rpc-capture.stub.ts ← webstore-build replacement for probe-rpc-capture.ts
+
+The five ``probe-rpc-*.ts`` verb modules import their three shared
+symbols from ``probe-rpc-shared.ts``, never from ``probe-rpc.ts``
+itself. The dispatcher imports the verb registries from each verb
+module. Result: ``probe-rpc-shared.ts`` is a sink, the verb modules
+are middle layers, and ``probe-rpc.ts`` is the apex consumer — a DAG,
+not a cycle. (An earlier version had every verb module importing from
+``probe-rpc.ts`` directly, which Vitest tolerated but Rollup chunked
+into a single TDZ-prone module — see commit history for details. A
+regression test at
+``pce_browser_extension_wxt/entrypoints/__tests__/probe-rpc-no-cycle.test.ts``
+prevents future re-introduction.)
+
 tests/
   e2e_probe/                ← probe-driven E2E (replaces selenium suite over time)
     conftest.py             ← pce_core fixture + matrix summary writer

@@ -30,7 +30,7 @@ import type {
   DomWaitForSelectorParams,
   DomWaitForSelectorResult,
 } from "../../utils/probe-protocol";
-import { ProbeException, type VerbHandler } from "./probe-rpc";
+import { ProbeException, type VerbHandler } from "./probe-rpc-shared";
 
 const DOM_EXCERPT_MAX = 4_000;
 

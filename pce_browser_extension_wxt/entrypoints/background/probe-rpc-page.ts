@@ -16,7 +16,7 @@ import type {
   PageScreenshotParams,
   PageScreenshotResult,
 } from "../../utils/probe-protocol";
-import { ProbeException, type VerbHandler } from "./probe-rpc";
+import { ProbeException, type VerbHandler } from "./probe-rpc-shared";
 
 // ---------------------------------------------------------------------------
 // Helpers

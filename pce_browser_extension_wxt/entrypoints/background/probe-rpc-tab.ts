@@ -25,7 +25,7 @@ import type {
   TabWaitForLoadParams,
   TabWaitForLoadResult,
 } from "../../utils/probe-protocol";
-import { ProbeException, type VerbHandler } from "./probe-rpc";
+import { ProbeException, type VerbHandler } from "./probe-rpc-shared";
 
 // ---------------------------------------------------------------------------
 // Helpers

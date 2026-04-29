@@ -9,7 +9,7 @@ import {
   type SystemVersionResult,
   type ProbeVerb,
 } from "../../utils/probe-protocol";
-import { getExtensionVersion, type VerbHandler } from "./probe-rpc";
+import { getExtensionVersion, type VerbHandler } from "./probe-rpc-shared";
 
 // We re-list known verbs here only for ``system.version`` so the
 // returned ``capabilities`` array is self-describing without each
