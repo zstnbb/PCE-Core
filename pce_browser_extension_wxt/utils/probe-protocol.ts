@@ -151,6 +151,7 @@ export type ProbeVerb =
   // system.*
   | "system.ping"
   | "system.version"
+  | "system.reload"
   // tab.*
   | "tab.list"
   | "tab.open"
@@ -193,6 +194,24 @@ export interface SystemVersionResult {
   schema_version: number;
   extension_version: string;
   capabilities: ProbeVerb[];
+}
+
+/**
+ * ``system.reload`` — trigger ``chrome.runtime.reload()`` from the
+ * extension's service worker. Used by the agent loop after building a
+ * fresh extension bundle so the new code is picked up without manual
+ * intervention. The handler responds first, THEN schedules the reload
+ * on a short setTimeout so the response actually flushes; the WS will
+ * then drop ~50–100 ms later as the SW shuts down. The agent should
+ * call ``ProbeClient.reload_extension()`` (which sends this verb,
+ * waits for the WS drop, and re-attaches to the new SW) instead of
+ * invoking ``system.reload`` directly unless it knows what it's doing.
+ */
+export type SystemReloadParams = Record<string, never>;
+export interface SystemReloadResult {
+  reloading: true;
+  /** Hint to the agent: SW will die roughly this many ms after this response. */
+  delay_ms: number;
 }
 
 // tab.* ---------------------------------------------------------------------
@@ -390,6 +409,19 @@ export interface PageNetworkLogResult {
 export interface CaptureWaitForTokenParams {
   /** Substring agents look for in any captured message body. */
   token: string;
+  /**
+   * Optional kind filter. When set, only events whose ``kind`` exactly
+   * matches will be considered for the token search. Use this to
+   * disambiguate the DOM-extracted ``PCE_CAPTURE`` (the canonical
+   * "extension captured a chat turn" signal) from the side-channel
+   * ``PCE_NETWORK_CAPTURE`` whose request body often *also* contains
+   * the prompt token. Without this filter, ``wait_for_token`` resolves
+   * on the first arrival, which on Claude / Grok is the network
+   * capture \u2014 but those carry ``session_hint=null`` because the
+   * interceptor does not know about chat-URL conventions, breaking
+   * downstream session-key matching.
+   */
+  kind?: "PCE_CAPTURE" | "PCE_NETWORK_CAPTURE" | "PCE_SNIPPET";
   /** Default 60 000 ms. */
   timeout_ms?: number;
   /** Optional provider filter (``openai`` etc.). */
@@ -430,6 +462,7 @@ export interface CapturePipelineStateResult {
 export interface ProbeVerbMap {
   "system.ping":           { params: SystemPingParams;          result: SystemPingResult };
   "system.version":        { params: SystemVersionParams;       result: SystemVersionResult };
+  "system.reload":         { params: SystemReloadParams;        result: SystemReloadResult };
   "tab.list":              { params: TabListParams;             result: TabListResult };
   "tab.open":              { params: TabOpenParams;             result: TabOpenResult };
   "tab.activate":          { params: TabActivateParams;         result: TabActivateResult };

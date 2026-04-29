@@ -18,6 +18,7 @@ PROBE_SCHEMA_VERSION = 1
 KNOWN_VERBS: tuple[str, ...] = (
     "system.ping",
     "system.version",
+    "system.reload",
     "tab.list",
     "tab.open",
     "tab.activate",

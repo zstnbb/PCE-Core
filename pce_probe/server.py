@@ -57,6 +57,15 @@ DEFAULT_PORT = 9888
 
 SERVER_VERSION = "0.1.0"
 
+# Application-layer heartbeat interval. The chrome.alarms-based keepalive
+# in the extension is at the MV3 30 s SW-idle boundary and races; the
+# WS-protocol ping/pong from ``ping_interval`` below is handled by the
+# browser network stack and does NOT fire the SW's ``onmessage`` event,
+# which is what counts toward MV3 idle reset. Sending an actual JSON
+# frame every 20 s fires ``onmessage`` and keeps the SW alive across
+# long verb waits (e.g. ``capture.wait_for_token`` up to 120 s).
+HEARTBEAT_INTERVAL_S = 20.0
+
 # Loopback origins we accept on the WS upgrade. ``null`` is what
 # Chrome extensions and file:// pages send.
 _ALLOWED_ORIGINS: frozenset[str | None] = frozenset({
@@ -130,6 +139,15 @@ class ProbeServer:
             max_size=8 * 1024 * 1024,  # 8 MiB frames (page snapshots etc.)
             ping_interval=20,
             ping_timeout=20,
+            # SO_REUSEADDR so a crash / Ctrl-C on the previous probe run
+            # doesn't trap port 9888 in TIME_WAIT for the next 30–60 s.
+            # Each closed extension WS leaves a TIME_WAIT entry on the
+            # server side (loopback) for the SW's outbound port; without
+            # this flag a fresh ``connect()`` after a failed run hits
+            # ``OSError: WinError 10048`` and refuses to bind. asyncio
+            # forwards this kwarg to ``create_server``, which sets
+            # ``SO_REUSEADDR`` on the listen socket. Safe on loopback.
+            reuse_address=True,
         )
         # Resolve the actual bound port (so callers can pass port=0).
         sockets = list(self._server.sockets or [])
@@ -319,6 +337,14 @@ class ProbeServer:
             self._cleanup_extension(client)
             return
 
+        # Application-layer heartbeat keeps the MV3 SW alive across long
+        # verb waits. Started AFTER hello-ack so we know the SW is ready
+        # to receive frames; cancelled on the way out so we don't leak
+        # the task between successive extension attaches.
+        heartbeat_task = asyncio.create_task(
+            self._heartbeat_loop(client),
+            name="pce-probe-heartbeat",
+        )
         try:
             async for raw in ws:
                 if not isinstance(raw, str):
@@ -339,7 +365,37 @@ class ProbeServer:
         except ConnectionClosed:
             pass
         finally:
+            heartbeat_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await heartbeat_task
             self._cleanup_extension(client)
+
+    async def _heartbeat_loop(self, client: _ExtensionClient) -> None:
+        """Send an application-layer heartbeat every ``HEARTBEAT_INTERVAL_S``.
+
+        The frame body is intentionally minimal (``{"v": 1, "heartbeat":
+        true}``) so the extension's frame-dispatcher silently drops it
+        without dispatching to a verb handler. The point is the
+        ``onmessage`` event firing on the SW side, which resets MV3's
+        30 s idle timer.
+
+        Stops cleanly on extension swap (``self._ext is not client``)
+        or on the WS being closed (``ConnectionClosed``).
+        """
+        try:
+            while True:
+                await asyncio.sleep(HEARTBEAT_INTERVAL_S)
+                if self._ext is not client:
+                    return
+                try:
+                    await client.ws.send(json.dumps({
+                        "v": PROBE_SCHEMA_VERSION,
+                        "heartbeat": True,
+                    }))
+                except ConnectionClosed:
+                    return
+        except asyncio.CancelledError:
+            return
 
     def _cleanup_extension(self, client: _ExtensionClient) -> None:
         # Cancel anyone still waiting; they'll get ProbeRoutingError.

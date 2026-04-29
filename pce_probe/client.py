@@ -173,6 +173,61 @@ class AsyncProbeClient:
             context={"raw": raw},
         )
 
+    # ----- reload helpers -------------------------------------------------
+
+    async def reattach(self, timeout: float = 15.0) -> HelloPayload:
+        """Wait for an extension client to (re-)attach to the probe server.
+
+        Used after ``system.reload`` to resume the test session against
+        a freshly-loaded bundle. Returns the new ``HelloPayload`` and
+        updates ``self.extension_hello`` so callers see the post-reload
+        version metadata.
+        """
+        self._extension_hello = await self._server.wait_for_extension(
+            timeout=timeout,
+        )
+        return self._extension_hello
+
+    async def reload_extension(
+        self,
+        *,
+        attach_timeout: float = 15.0,
+        detach_settle_s: float = 1.5,
+    ) -> HelloPayload:
+        """Trigger ``chrome.runtime.reload()`` in the connected extension
+        and wait for the new bundle's SW to re-attach.
+
+        Use this from the agent loop after rebuilding the extension to
+        skip the manual reload click in ``chrome://extensions``.
+
+        Sequence:
+          1. Send ``system.reload`` (extension acks within ~100 ms).
+          2. Sleep ``detach_settle_s`` so the SW actually calls
+             ``chrome.runtime.reload()``, the WS drops, and a new SW
+             instance gets a head start booting up.
+          3. Wait up to ``attach_timeout`` for the new SW to attach.
+
+        Raises ``ProbeError`` with code ``'unknown_verb'`` if the
+        currently-loaded extension predates ``system.reload`` — in
+        that case the user has to do one last manual reload to install
+        a newer bundle, after which this helper works for all future
+        rebuilds.
+        """
+        # The verb returns within ~100 ms (it just schedules a
+        # setTimeout). If the WS drops before the response makes it
+        # back (rare race), treat that as a successful reload trigger
+        # and proceed straight to reattach.
+        try:
+            await self.call("system.reload", {}, timeout_ms=2_000)
+        except ProbeRoutingError:
+            pass
+        # Give the SW time to actually shut down + the new SW to boot.
+        # Empirically: setTimeout(100ms) + chrome.runtime.reload + WS
+        # close + new SW boot + new WS open is ~600–1000 ms; 1.5 s is
+        # generous but bounded.
+        await asyncio.sleep(detach_settle_s)
+        return await self.reattach(timeout=attach_timeout)
+
 
 # ---------------------------------------------------------------------------
 # Sync wrapper
@@ -216,6 +271,19 @@ class ProbeClient:
     # ----- lifecycle ------------------------------------------------------
 
     def start(self) -> "ProbeClient":
+        # Idempotent: ``connect()`` calls ``start()`` to return a ready
+        # client, then the user's ``with connect() as probe:`` invokes
+        # ``__enter__`` which calls ``start()`` AGAIN. Without this guard
+        # the second call would silently overwrite ``self._async`` with
+        # a fresh AsyncProbeClient + ProbeServer, leaving the original
+        # ProbeServer (where the SW already attached) abandoned and
+        # waiting forever on a no-longer-watched event. With
+        # ``reuse_address=True`` the second server even binds to 9888
+        # successfully, masking the bug as a "phantom timeout". Mirrors
+        # the ``if self._started: return self`` guard already present
+        # in :meth:`AsyncProbeClient.start`.
+        if self._async is not None:
+            return self
         loop = self._bg.start()
         self._async = AsyncProbeClient(
             host=self._host,
@@ -282,6 +350,39 @@ class ProbeClient:
         wait = ((timeout_ms or 30_000) / 1000) + 10.0
         return fut.result(timeout=wait)
 
+    # ----- reload helpers -------------------------------------------------
+
+    def reattach(self, timeout: float = 15.0) -> HelloPayload:
+        """Sync mirror of :meth:`AsyncProbeClient.reattach`."""
+        if self._async is None or self._bg.loop is None:
+            raise ProbeRoutingError("client not started; call .start() first")
+        coro = self._async.reattach(timeout=timeout)
+        fut = asyncio.run_coroutine_threadsafe(coro, self._bg.loop)
+        return fut.result(timeout=timeout + 5.0)
+
+    def reload_extension(
+        self,
+        *,
+        attach_timeout: float = 15.0,
+        detach_settle_s: float = 1.5,
+    ) -> HelloPayload:
+        """Sync mirror of :meth:`AsyncProbeClient.reload_extension`.
+
+        Recommended pattern in the agent loop::
+
+            subprocess.run(["pnpm", "wxt", "build"], cwd=ext_dir, check=True)
+            probe.reload_extension()    # ← SW picks up the new bundle
+            # ... continue tests, no manual reload needed.
+        """
+        if self._async is None or self._bg.loop is None:
+            raise ProbeRoutingError("client not started; call .start() first")
+        coro = self._async.reload_extension(
+            attach_timeout=attach_timeout,
+            detach_settle_s=detach_settle_s,
+        )
+        fut = asyncio.run_coroutine_threadsafe(coro, self._bg.loop)
+        return fut.result(timeout=attach_timeout + detach_settle_s + 10.0)
+
 
 # ---------------------------------------------------------------------------
 # Namespace facades — shared between Async and Sync
@@ -314,6 +415,17 @@ class _SystemNamespace(_NamespaceBase):
 
     def version(self) -> Any:
         return self._call("system.version", {})
+
+    def reload(self) -> Any:
+        """Low-level: send ``system.reload`` and return the ack dict.
+
+        Most callers want :meth:`ProbeClient.reload_extension` instead,
+        which sends this verb AND waits for the new SW to attach.
+        Calling ``system.reload`` directly without re-attaching leaves
+        the client unable to dispatch further verbs until the new SW
+        comes up — useful for diagnostics, fragile for normal use.
+        """
+        return self._call("system.reload", {}, timeout_ms=2_000)
 
 
 class _TabNamespace(_NamespaceBase):
@@ -516,10 +628,25 @@ class _CaptureNamespace(_NamespaceBase):
         *,
         timeout_ms: int = 60_000,
         provider: Optional[str] = None,
+        kind: Optional[str] = None,
     ) -> Any:
+        """Block until a capture event matching ``token`` is observed.
+
+        ``kind`` (optional) filters by event kind: ``"PCE_CAPTURE"``,
+        ``"PCE_NETWORK_CAPTURE"``, or ``"PCE_SNIPPET"``. T01 should
+        pass ``kind="PCE_CAPTURE"`` so the matcher waits for the
+        canonical DOM-extracted capture (which carries
+        ``session_hint``) and not the side-channel network capture
+        whose request body often *also* contains the prompt token but
+        ships with ``session_hint=null``. Without the filter, on
+        Claude/Grok the network capture wins the race and the test
+        sees a useless event.
+        """
         params: dict[str, Any] = {"token": token, "timeout_ms": timeout_ms}
         if provider is not None:
             params["provider"] = provider
+        if kind is not None:
+            params["kind"] = kind
         return self._call(
             "capture.wait_for_token",
             params,

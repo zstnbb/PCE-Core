@@ -256,19 +256,98 @@ function _injected_type(
       new Event("change", { bubbles: true }),
     );
   } else {
-    // contenteditable / div-based inputs (ChatGPT's prompt area is a
-    // contenteditable ProseMirror).
+    // contenteditable / div-based inputs (ChatGPT's ProseMirror,
+    // Gemini's Quill .ql-editor, Claude's ProseMirror, Grok's TipTap,
+    // etc.). The previous implementation cleared via
+    // ``textContent = ""`` THEN focused THEN ``execCommand insertText``
+    // \u2014 but clearing textContent destroys the active selection,
+    // so insertText runs without a cursor anchor and silently inserts
+    // nothing. On Gemini specifically, Quill's MutationObserver also
+    // sees the textContent wipe and re-asserts its empty model,
+    // leaving the editor with just a stray "\n" (Quill's blank-line
+    // sentinel).
     const ce = el as HTMLElement;
     if (ce.isContentEditable || ce.getAttribute("contenteditable") === "true") {
-      if (clear) ce.textContent = "";
-      // Use document.execCommand insertText so the framework's
-      // input-listener fires identically to a real keystroke.
+      // 1. Focus FIRST so the selection lives inside this element.
       try {
         ce.focus();
-        document.execCommand("insertText", false, text);
       } catch {
-        ce.textContent = (ce.textContent ?? "") + text;
-        ce.dispatchEvent(new InputEvent("input", { bubbles: true }));
+        /* ignore */
+      }
+      // 2. Build a selection that covers the existing content (if
+      //    clearing) or collapses to the end (if appending). The
+      //    Selection API is what real keyboard input mutates, so
+      //    every editor we care about (Quill, ProseMirror, TipTap,
+      //    Lexical, Slate) reads from it.
+      const sel = window.getSelection();
+      if (sel) {
+        const range = document.createRange();
+        range.selectNodeContents(ce);
+        if (!clear) {
+          range.collapse(false); // cursor at end \u2014 append, don't replace
+        }
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+      // 3. Dispatch ``beforeinput`` so editors listening for it (Quill,
+      //    ProseMirror) see the same signal a real keystroke would
+      //    produce. We don't honor ``preventDefault`` because our
+      //    fallbacks below cover the case where the editor cancels
+      //    the synthetic event.
+      let beforeAccepted = true;
+      try {
+        const beforeEvt = new InputEvent("beforeinput", {
+          bubbles: true,
+          cancelable: true,
+          inputType: clear ? "insertReplacementText" : "insertText",
+          data: text,
+        });
+        beforeAccepted = ce.dispatchEvent(beforeEvt);
+      } catch {
+        beforeAccepted = true;
+      }
+      // 4. Insert the text. ``execCommand("insertText")`` respects
+      //    the active selection \u2014 selection covers all content
+      //    when clearing, so it replaces; collapsed at end when
+      //    appending, so it inserts. Returns false if the browser
+      //    rejected the command (e.g. the editor canceled the
+      //    beforeinput); we fall through to the manual path.
+      let inserted = false;
+      if (beforeAccepted) {
+        try {
+          inserted = document.execCommand("insertText", false, text);
+        } catch {
+          inserted = false;
+        }
+      }
+      if (!inserted) {
+        // Manual fallback: write into the DOM ourselves and dispatch
+        // a synthetic ``input`` event matching what insertText would
+        // emit. Editors that gate on textContent mutations alone
+        // (rare \u2014 most modern ones use beforeinput) still pick
+        // this up.
+        if (clear) {
+          ce.textContent = text;
+        } else {
+          ce.textContent = (ce.textContent ?? "") + text;
+        }
+      }
+      // 5. Always dispatch a final ``input`` event with
+      //    ``inputType: insertText`` so listeners that wait for the
+      //    canonical post-input signal (Gemini's send-button
+      //    enable-on-input handler, AI Studio's debounced model-
+      //    state push) fire regardless of which insertion path we
+      //    took.
+      try {
+        ce.dispatchEvent(
+          new InputEvent("input", {
+            bubbles: true,
+            inputType: "insertText",
+            data: text,
+          }),
+        );
+      } catch {
+        ce.dispatchEvent(new Event("input", { bubbles: true }));
       }
     } else {
       return { ok: false, reason: "element_not_typable" };

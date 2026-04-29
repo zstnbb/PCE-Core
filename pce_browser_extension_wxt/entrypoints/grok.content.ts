@@ -155,8 +155,21 @@ export default defineContentScript({
       extractMessages: () => extractMessages(document),
       getSessionHint: () => getSessionHint(),
       getModelName: () => getModelName(document),
-      hookHistoryApi: false,
+      // Grok rewrites the URL from "/" to "/chat/<uuid>" via the
+      // History API after the first message is sent. We must hook
+      // pushState/replaceState so the runtime re-evaluates session
+      // hint promptly, otherwise the first capture fires on "/" and
+      // ships with session_hint=null.
+      hookHistoryApi: true,
       requireBothRoles: true,
+      // Defer capture until ``getSessionHint()`` returns a real
+      // ``/chat/<uuid>`` value. Without this, the very first capture
+      // (the only one T01 cares about) is emitted while the URL is
+      // still ``https://grok.com/``, the SW assigns
+      // ``session_hint=null``, and PCE Core's session matcher has no
+      // key to bind the row to. See Claude / Google AI Studio /
+      // Perplexity content scripts \u2014 same pattern.
+      requireSessionHint: true,
     });
 
     document.addEventListener("pce-manual-capture", () => {

@@ -112,15 +112,40 @@ class T01BasicChatCase(BaseCase):
                 adapter.name,
                 f"send_prompt: [{exc.code}] {exc.message}",
                 duration_ms=self._elapsed_ms(start),
-                details={**details, "phase": "send_prompt", "code": exc.code},
+                # Preserve ``exc.context`` so the matrix triage report
+                # shows pre/current URLs, selector, etc. \u2014 these
+                # are the only forensic data we have for diagnosing
+                # cross-run flakes (Gemini's submit-fire variance).
+                details={
+                    **details,
+                    "phase": "send_prompt",
+                    "code": exc.code,
+                    "send_prompt_context": exc.context or {},
+                    "send_prompt_agent_hint": exc.agent_hint,
+                },
             )
 
         # 3. Wait for the capture pipeline to observe the token.
+        #
+        # ``kind="PCE_CAPTURE"`` is critical: without it, the SW
+        # observer matches whichever capture-class event arrives first
+        # whose body contains the token. On Claude / Grok the network
+        # interceptor emits a ``PCE_NETWORK_CAPTURE`` carrying the
+        # outgoing request body (which contains our prompt token)
+        # *before* the DOM extractor has a chance to extract a
+        # ``PCE_CAPTURE`` from the rendered conversation. Network
+        # captures don't carry ``session_hint`` (the interceptor is
+        # URL-agnostic), so the test sees ``session_hint=null`` and
+        # fails \u2014 even though the canonical DOM capture pipeline
+        # is working correctly. Filtering to ``PCE_CAPTURE`` waits for
+        # the right signal: a fully-normalized DOM capture with the
+        # provider's session-hint extracted from the URL pattern.
         try:
             captured = probe.capture.wait_for_token(
                 token,
                 timeout_ms=adapter.response_timeout_ms,
                 provider=adapter.provider,
+                kind="PCE_CAPTURE",
             )
         except CaptureNotSeenError as exc:
             ctx = exc.context or {}
@@ -143,12 +168,25 @@ class T01BasicChatCase(BaseCase):
                 },
             )
         except ProbeError as exc:
+            # Extract last_capture_events from the error context so a
+            # wire-level timeout (which arrives as a generic ProbeError
+            # with code='timeout') still gives the agent the same
+            # forensic data CaptureNotSeenError carries. The SW puts
+            # events in ``context`` regardless of which error code
+            # wraps them.
+            ctx = exc.context or {}
+            recent = ctx.get("last_capture_events") or []
             return CaseResult.failed(
                 self.id,
                 adapter.name,
                 f"capture.wait_for_token: [{exc.code}] {exc.message}",
                 duration_ms=self._elapsed_ms(start),
-                details={**details, "phase": "wait_for_token", "code": exc.code},
+                details={
+                    **details,
+                    "phase": "wait_for_token",
+                    "code": exc.code,
+                    "recent_events": recent[-10:] if recent else [],
+                },
             )
 
         details["captured"] = captured
@@ -164,46 +202,67 @@ class T01BasicChatCase(BaseCase):
             )
 
         # 4. Verify via PCE Core HTTP API.
-        try:
-            sessions_resp = pce_core.get(
-                "/api/v1/sessions",
-                params={"provider": adapter.provider},
-            )
-        except httpx.HTTPError as exc:
-            return CaseResult.failed(
-                self.id,
-                adapter.name,
-                f"PCE Core /api/v1/sessions request failed: {exc!r}",
-                duration_ms=self._elapsed_ms(start),
-                details={**details, "phase": "sessions_request"},
-            )
-        if sessions_resp.status_code != 200:
-            return CaseResult.failed(
-                self.id,
-                adapter.name,
-                f"PCE Core /api/v1/sessions returned {sessions_resp.status_code}: "
-                f"{sessions_resp.text[:200]}",
-                duration_ms=self._elapsed_ms(start),
-                details={**details, "phase": "sessions_status"},
-            )
-        sessions = sessions_resp.json() or []
-        matching = [
-            s for s in sessions
-            if str(s.get("session_key", "")).find(str(session_hint)) != -1
-        ]
+        #
+        # PCE Core's ingest path is asynchronous: the SW's
+        # ``capture.wait_for_token`` resolves the moment the SW
+        # observes the token in a PCE_CAPTURE event, which can be
+        # several hundred milliseconds before the row is persisted to
+        # the sessions table by the ingest pipeline. We retry the GET
+        # a handful of times to absorb that race window before
+        # declaring the row missing. The whole retry budget is short
+        # (~3 s) so a real ingest-path bug still surfaces quickly.
+        sessions: list = []
+        matching: list = []
+        sessions_resp = None
+        retry_attempts = 6
+        retry_delay_s = 0.5
+        for _attempt in range(retry_attempts):
+            try:
+                sessions_resp = pce_core.get(
+                    "/api/v1/sessions",
+                    params={"provider": adapter.provider},
+                )
+            except httpx.HTTPError as exc:
+                return CaseResult.failed(
+                    self.id,
+                    adapter.name,
+                    f"PCE Core /api/v1/sessions request failed: {exc!r}",
+                    duration_ms=self._elapsed_ms(start),
+                    details={**details, "phase": "sessions_request"},
+                )
+            if sessions_resp.status_code != 200:
+                return CaseResult.failed(
+                    self.id,
+                    adapter.name,
+                    f"PCE Core /api/v1/sessions returned "
+                    f"{sessions_resp.status_code}: {sessions_resp.text[:200]}",
+                    duration_ms=self._elapsed_ms(start),
+                    details={**details, "phase": "sessions_status"},
+                )
+            sessions = sessions_resp.json() or []
+            matching = [
+                s for s in sessions
+                if str(s.get("session_key", "")).find(str(session_hint)) != -1
+            ]
+            if matching:
+                break
+            time.sleep(retry_delay_s)
         if not matching:
             return CaseResult.failed(
                 self.id,
                 adapter.name,
-                f"no PCE Core session matched session_hint={session_hint!r}; "
-                f"capture observer saw the token but row didn't land in "
-                f"storage \u2014 check ingest path",
+                f"no PCE Core session matched session_hint={session_hint!r} "
+                f"after {retry_attempts} retries over "
+                f"{retry_attempts * retry_delay_s:.1f}s; capture observer "
+                f"saw the token but row didn't land in storage \u2014 "
+                f"check ingest path",
                 duration_ms=self._elapsed_ms(start),
                 details={
                     **details,
                     "phase": "session_match",
                     "session_hint": session_hint,
                     "n_sessions": len(sessions),
+                    "retry_attempts": retry_attempts,
                 },
             )
 

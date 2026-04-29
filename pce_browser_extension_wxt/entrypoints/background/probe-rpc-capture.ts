@@ -41,6 +41,15 @@ const recent: CaptureEventSummary[] = [];
 interface PendingWaiter {
   token: string;
   provider?: string;
+  /**
+   * Optional message-kind filter. When set, only events whose ``kind``
+   * exactly matches will be considered. See
+   * ``CaptureWaitForTokenParams.kind`` for the rationale (TL;DR: lets
+   * T01 wait for the canonical DOM ``PCE_CAPTURE`` instead of the
+   * side-channel ``PCE_NETWORK_CAPTURE`` whose request body often
+   * also contains the prompt token but lacks ``session_hint``).
+   */
+  kind?: string;
   resolve: (value: CaptureWaitForTokenResult) => void;
   reject: (err: Error) => void;
   /** Full body string captured at observation time, for substring match. */
@@ -128,10 +137,13 @@ export function observeCaptureMessage(msg: ObservableCaptureMessage): void {
   recent.push(summary);
   while (recent.length > RING_MAX) recent.shift();
 
-  // Walk waiters; resolve those whose token appears in the body and
-  // whose provider filter (if any) matches.
+  // Walk waiters; resolve those whose token appears in the body AND
+  // whose provider/kind filters (if any) match. Kind filter is checked
+  // BEFORE the body scan so a wrong-kind event with a matching body
+  // doesn't accidentally satisfy the waiter.
   if (waiters.size === 0) return;
   for (const w of [...waiters]) {
+    if (w.kind && summary.kind !== w.kind) continue;
     if (w.provider && summary.provider !== w.provider) continue;
     if (body.indexOf(w.token) === -1) continue;
     waiters.delete(w);
@@ -169,11 +181,16 @@ async function captureWaitForToken(
   const token = requireString(p as Record<string, unknown>, "token");
   const timeoutMs = typeof p.timeout_ms === "number" ? p.timeout_ms : 60_000;
   const provider = typeof p.provider === "string" ? p.provider : undefined;
+  // Optional kind filter \u2014 see CaptureWaitForTokenParams.kind for
+  // why this matters (PCE_NETWORK_CAPTURE often contains the same
+  // prompt token as PCE_CAPTURE but lacks session_hint).
+  const kind = typeof p.kind === "string" ? p.kind : undefined;
 
   // Fast path: token may already be in the ring buffer (rare but
   // possible on retries).
   for (let i = recent.length - 1; i >= 0; i--) {
     const ev = recent[i];
+    if (kind && ev.kind !== kind) continue;
     if (provider && ev.provider !== provider) continue;
     if ((ev.fingerprint ?? "").indexOf(token) !== -1) {
       return {
@@ -191,6 +208,7 @@ async function captureWaitForToken(
     const waiter: PendingWaiter = {
       token,
       provider,
+      kind,
       resolve,
       reject,
     };

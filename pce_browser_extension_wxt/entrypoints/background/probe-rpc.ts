@@ -208,7 +208,15 @@ async function handleFrame(socket: WebSocket, raw: string): Promise<void> {
 
   // Tolerate hello-ack frames silently — the server may send one after
   // our hello to acknowledge supported versions.
-  if ("hello" in parsed || (parsed.ok === true && parsed.id === undefined)) {
+  // Also tolerate application-layer heartbeats (``{v, heartbeat: true}``):
+  // the SERVER pings every 20 s so the SW's ``onmessage`` event fires,
+  // resetting MV3's 30 s idle timer. We do nothing with the frame itself —
+  // the act of receiving it is the keepalive.
+  if (
+    "hello" in parsed ||
+    "heartbeat" in parsed ||
+    (parsed.ok === true && parsed.id === undefined)
+  ) {
     return;
   }
 
