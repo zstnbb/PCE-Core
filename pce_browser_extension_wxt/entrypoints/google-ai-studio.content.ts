@@ -34,9 +34,11 @@ import {
 
 declare global {
   interface Window {
-    __PCE_GOOGLE_AI_STUDIO_ACTIVE?: boolean;
+    __PCE_GOOGLE_AI_STUDIO_ACTIVE?: boolean | string;
   }
 }
+
+const CONTENT_SCRIPT_INSTANCE_ID = "google-ai-studio-20260425-system-layer-edit";
 
 // ---------------------------------------------------------------------------
 // Text-normalisation tables (lifted verbatim from legacy JS)
@@ -52,6 +54,13 @@ const SESSION_HINT_RE = /\/prompts\/([a-zA-Z0-9_-]+)/;
 const MODEL_NAME_RE = /\b((?:gemini|imagen|veo|lyria)-[\w.-]+)\b/i;
 const AI_STUDIO_ERROR_RE =
   /(failed to generate content|permission denied|an internal error has occurred|quota|rate limit|try again)/i;
+const TRANSIENT_PROMPT_IDS = new Set([
+  "new_chat",
+  "new_freeform",
+  "new_structured",
+]);
+
+let transientSessionHint: string | null = null;
 
 // ---------------------------------------------------------------------------
 // Helpers (module-scope for testability)
@@ -255,6 +264,20 @@ export function extractLocalAttachments(
   return dedupeAttachments(attachments);
 }
 
+function filterAiStudioAttachments(list: PceAttachment[]): PceAttachment[] {
+  return list.filter((attachment) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const a = attachment as any;
+    // `extractAttachments` has a ChatGPT-specific title fallback that turns
+    // AI Studio action-bar text such as "edit" into fake file attachments.
+    // GAS has its own ms-file-chunk path above, so this fallback is noise here.
+    if (a?.type === "file" && a.source_type === "chatgpt-upload-title-fallback") {
+      return false;
+    }
+    return true;
+  });
+}
+
 interface CleanOptions {
   stripLinks?: boolean;
   stripCode?: boolean;
@@ -336,8 +359,31 @@ export function getSessionHint(
   pathname: string = location.pathname,
 ): string | null {
   const m = pathname.match(SESSION_HINT_RE);
-  if (m) return m[1];
-  return pathname || null;
+  if (!m) return null;
+  const id = m[1];
+  if (TRANSIENT_PROMPT_IDS.has(id)) return null;
+  return id;
+}
+
+function getTransientSessionHint(): string {
+  if (!transientSessionHint) {
+    transientSessionHint = `ai-studio-transient-${Date.now().toString(36)}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+  }
+  return transientSessionHint;
+}
+
+export function getCaptureSessionHint(
+  pathname: string = location.pathname,
+  fallbackId?: string,
+): string | null {
+  const stable = getSessionHint(pathname);
+  if (stable) return stable;
+
+  const m = pathname.match(SESSION_HINT_RE);
+  if (!m || !TRANSIENT_PROMPT_IDS.has(m[1])) return null;
+  return fallbackId || getTransientSessionHint();
 }
 
 export function getModelName(doc: Document = document): string | null {
@@ -361,6 +407,143 @@ export function getModelName(doc: Document = document): string | null {
   const bodyText = doc.body ? safeInnerText(doc.body) : "";
   const match = bodyText.match(MODEL_NAME_RE);
   return match ? match[1] : null;
+}
+
+let lastKnownSystemInstructions: string | null = null;
+
+type SystemInstructionScan = {
+  found: boolean;
+  text: string | null;
+};
+
+function scanSystemInstructionsFromDom(
+  doc: Document = document,
+): SystemInstructionScan {
+  const selectors = [
+    'textarea[aria-label*="System instructions" i]',
+    'textarea[aria-label*="system" i]',
+    'textarea[placeholder*="instruction" i]',
+    'textarea[placeholder*="system" i]',
+    '[class*="system-instructions"] textarea',
+    '[class*="system"] textarea',
+    '[contenteditable="true"][aria-label*="system" i]',
+  ];
+
+  let found = false;
+  for (const sel of selectors) {
+    try {
+      const fields = Array.from(doc.querySelectorAll(sel));
+      for (const field of fields) {
+        found = true;
+        const value =
+          (field as HTMLTextAreaElement).value ||
+          field.getAttribute("value") ||
+          safeInnerText(field);
+        const text = normalizeText(value);
+        if (text && !/^system instructions$/i.test(text)) {
+          return { found: true, text };
+        }
+      }
+    } catch {
+      /* skip invalid selector */
+    }
+  }
+
+  const cardSelectors = [
+    '[class*="system-instructions"]',
+    '[aria-label*="System instructions" i]',
+    'ms-run-settings [class*="card"]',
+  ];
+  for (const sel of cardSelectors) {
+    try {
+      const cards = Array.from(doc.querySelectorAll(sel));
+      for (const card of cards) {
+        found = true;
+        const rawText = normalizeText(safeInnerText(card));
+        if (!rawText) continue;
+        const text = rawText
+          .replace(/^system instructions\s*/i, "")
+          .trim();
+        if (
+          text &&
+          !/^optional tone and style instructions for the model$/i.test(text)
+        ) {
+          return { found: true, text };
+        }
+      }
+    } catch {
+      /* skip invalid selector */
+    }
+  }
+
+  try {
+    const bodyText = normalizeText(
+      [doc.body ? safeInnerText(doc.body) : "", deepTextContent(doc.body)].join(" "),
+    );
+    const bodyMatch = bodyText.match(
+      /System instructions\s+(.+?)(?:\s+Temperature|\s+Thinking level|\s+Tools|\s+Structured outputs|\s+Code execution|\s+Function calling|\s+Grounding with|\s+URL context|$)/i,
+    );
+    if (bodyMatch) {
+      found = true;
+      const text = bodyMatch[1].trim();
+      if (
+        text &&
+        !/^optional tone and style instructions for the model$/i.test(text)
+      ) {
+        return { found: true, text };
+      }
+    }
+  } catch {
+    /* body text fallback is best-effort only */
+  }
+  return { found, text: null };
+}
+
+function deepTextContent(node: Node | null, limit = 30000): string {
+  if (!node || limit <= 0) return "";
+  const parts: string[] = [];
+  const visit = (current: Node) => {
+    if (parts.join(" ").length > limit) return;
+    if (current.nodeType === Node.TEXT_NODE) {
+      const text = current.textContent || "";
+      if (text.trim()) parts.push(text);
+      return;
+    }
+    if (current.nodeType !== Node.ELEMENT_NODE && current.nodeType !== Node.DOCUMENT_FRAGMENT_NODE) {
+      return;
+    }
+    const element = current as Element & { shadowRoot?: ShadowRoot | null };
+    if (element.shadowRoot) visit(element.shadowRoot);
+    for (const child of Array.from(current.childNodes)) {
+      visit(child);
+      if (parts.join(" ").length > limit) break;
+    }
+  };
+  visit(node);
+  return parts.join(" ");
+}
+
+export function rememberSystemInstructions(
+  doc: Document = document,
+): string | null {
+  const scan = scanSystemInstructionsFromDom(doc);
+  if (scan.found) {
+    lastKnownSystemInstructions = scan.text;
+    return scan.text;
+  }
+  return null;
+}
+
+export function getSystemInstructions(doc: Document = document): string | null {
+  const current = rememberSystemInstructions(doc);
+  return current || lastKnownSystemInstructions;
+}
+
+function getLayerMeta(doc: Document = document): Record<string, unknown> | null {
+  const systemInstructions = getSystemInstructions(doc);
+  return systemInstructions
+    ? { system_instructions: systemInstructions }
+    : null;
 }
 
 function getTurnContainer(turn: Element): Element | null {
@@ -544,7 +727,7 @@ export function extractMessages(
         ...extractAttachments(turn),
         ...extractLocalAttachments(turn, origin),
       ];
-      const att = dedupeAttachments(rawAtt).map((attachment) => {
+      const att = dedupeAttachments(filterAiStudioAttachments(rawAtt)).map((attachment) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const a = attachment as any;
         if (a?.type === "citation" && a.url) {
@@ -569,7 +752,7 @@ export function extractMessages(
         ...extractAttachments(turn),
         ...extractLocalAttachments(turn, origin),
       ];
-      const att = dedupeAttachments(rawAtt).map((attachment) => {
+      const att = dedupeAttachments(filterAiStudioAttachments(rawAtt)).map((attachment) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const a = attachment as any;
         if (a?.type === "citation" && a.url) {
@@ -611,10 +794,10 @@ export function extractMessages(
 
     if (userContainer) {
       const userContent = extractUserText(turn);
-      const userAtt = dedupeAttachments([
+      const userAtt = dedupeAttachments(filterAiStudioAttachments([
         ...extractAttachments(turn),
         ...extractLocalAttachments(turn, origin),
-      ]);
+      ]));
       const userAttachmentText = attachmentOnlyText(userAtt);
       if (userContent || userAttachmentText || userAtt.length > 0) {
         const msg: ExtractedMessage = {
@@ -645,10 +828,10 @@ export default defineContentScript({
   matches: ["https://aistudio.google.com/*"],
   runAt: "document_start",
   main() {
-    if (window.__PCE_GOOGLE_AI_STUDIO_ACTIVE) return;
-    window.__PCE_GOOGLE_AI_STUDIO_ACTIVE = true;
+    if (window.__PCE_GOOGLE_AI_STUDIO_ACTIVE === CONTENT_SCRIPT_INSTANCE_ID) return;
+    window.__PCE_GOOGLE_AI_STUDIO_ACTIVE = CONTENT_SCRIPT_INSTANCE_ID;
 
-    console.log("[PCE] Google AI Studio content script loaded");
+    console.log("[PCE] Google AI Studio content script loaded", CONTENT_SCRIPT_INSTANCE_ID);
 
     const runtime = createCaptureRuntime({
       provider: "google",
@@ -664,14 +847,55 @@ export default defineContentScript({
       getContainer: () => getContainer(document),
       isStreaming: () => isStreaming(document),
       extractMessages: () => extractMessages(document),
-      getSessionHint: () => getSessionHint(),
+      getSessionHint: () => getCaptureSessionHint(),
       getModelName: () => getModelName(document),
+      getLayerMeta: () => getLayerMeta(document),
+      resolveConversationId: () => getCaptureSessionHint(),
       hookHistoryApi: true,
+      requireSessionHint: true,
+      // The AI Studio router transitions ``/prompts/new_chat`` ->
+      // ``/prompts/<conv-id>`` mid-turn, and the
+      // ``ms-chat-turn`` web component briefly renders the model
+      // turn before the user turn is reattached after the SPA
+      // route swap. Without this guard the capture runtime fires
+      // a partial payload with only the user turn (under the
+      // transient hint) and a second partial with only the model
+      // turn (under the stable hint), producing two PCE-Core
+      // sessions per real conversation. This is the same DOM
+      // race the Poe / Grok adapters mitigate via this flag.
+      // T02 / T13 manifest the bug as ``no_assistant`` /
+      // ``no_pce_message_with_token`` failures; flipping it on
+      // collapses the partial captures into a single complete
+      // payload at stable-URL time.
+      requireBothRoles: true,
     });
 
     document.addEventListener("pce-manual-capture", () => {
       runtime.triggerCapture();
     });
+
+    const rememberCurrentSystemInstructions = () => {
+      try {
+        rememberSystemInstructions(document);
+      } catch {
+        /* best-effort memory for transient settings panel */
+      }
+    };
+    document.addEventListener("input", rememberCurrentSystemInstructions, true);
+    document.addEventListener("change", rememberCurrentSystemInstructions, true);
+    document.addEventListener("keyup", rememberCurrentSystemInstructions, true);
+    try {
+      const root = document.documentElement || document;
+      new MutationObserver(rememberCurrentSystemInstructions).observe(root, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: ["aria-label", "placeholder", "class", "value"],
+      });
+    } catch {
+      /* MutationObserver may be unavailable in narrow test harnesses. */
+    }
+    rememberCurrentSystemInstructions();
 
     if (
       document.readyState === "complete" ||
