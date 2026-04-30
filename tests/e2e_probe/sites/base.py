@@ -81,6 +81,40 @@ class BaseProbeSiteAdapter:
     )
     login_wall_selectors: ClassVar[Sequence[str]] = ()
 
+    # T07: separate selectors for the inline-edit textarea/contenteditable
+    # that appears INSIDE a previously-sent user turn after the edit
+    # pencil is clicked. On Claude / ChatGPT modern UIs this element is
+    # different from the standard composer at the bottom; using
+    # ``input_selectors`` resolves to the wrong element and the typed
+    # text never lands in the edit. Empty default \u2014 T07 will SKIP
+    # on adapters that haven't mapped this surface, since we can't
+    # distinguish "edit didn't fire" from "extractor lost the edit"
+    # without a known-good targeting selector.
+    edit_input_selectors: ClassVar[Sequence[str]] = ()
+
+    # T15 canvas / artifact trigger. Each site has its own auto-routing
+    # rules; a generic "open in canvas" prompt fails on most accounts
+    # because the model decides inline is "good enough". Per-site
+    # explicit triggers (with the literal token slot ``{token}``) let
+    # T15 reliably exercise the surface. ``None`` keeps the case's
+    # generic fallback prompt.
+    canvas_trigger_prompt: ClassVar[Optional[str]] = None
+
+    # T13 code-interpreter / analysis-tool trigger. Same rationale:
+    # auto-routing is unreliable across model variants, so each site
+    # gets to provide an explicit prompt that nudges the router into
+    # actually executing the code (not just emitting it as text).
+    # ``None`` keeps the case's generic fallback.
+    code_interp_trigger_prompt: ClassVar[Optional[str]] = None
+
+    # T12 image-gen trigger. Some sites (Claude) have NO native image
+    # generation and ``None`` is a legitimate "this site does not
+    # support the surface" signal \u2014 T12 will SKIP up-front rather
+    # than waste a model call. Sites that DO support it provide an
+    # explicit prompt template (with ``{token}``) that reliably
+    # auto-routes into the image-gen tool.
+    image_gen_trigger_prompt: ClassVar[Optional[str]] = None
+
     # Behavior tuning (milliseconds).
     page_load_timeout_ms: ClassVar[int] = 20_000
     input_appear_timeout_ms: ClassVar[int] = 15_000
@@ -100,6 +134,140 @@ class BaseProbeSiteAdapter:
     # If set, ``session_hint_from_url`` extracts the conversation UUID
     # via ``re.search(pattern, current_url).group(1)``.
     session_url_pattern: ClassVar[Optional[re.Pattern]] = None
+
+    # Per-site URL of a guaranteed non-chat surface (settings, account,
+    # activity, library, plan, etc.) used by T20 to assert capture
+    # silence on inert routes. ``None`` means the adapter has not yet
+    # been wired with a settings URL \u2014 T20 will SKIP for that
+    # site rather than guess. Pick a route documented as silent in the
+    # site's coverage doc (CHATGPT/CLAUDE/GEMINI/GAS-FULL or per-site
+    # DIFF/SMOKE specs); avoid pages that lazy-load chat history
+    # (e.g. ChatGPT's ``/c/<uuid>`` resume) since those would invite
+    # legitimate captures and create false positives.
+    settings_url: ClassVar[Optional[str]] = None
+
+    # ---- per-action selectors / URLs (empty tuple / None -> auto-SKIP) ---
+    #
+    # The matrix runner treats these as opt-in: a site that hasn't wired
+    # a given case's selector is reported as SKIP, not FAIL. This lets
+    # us land a case implementation site-agnostically and add per-site
+    # support over time without breaking the matrix.
+
+    # T07 edit: button(s) on a user message that opens the edit editor.
+    # Lives inside the user turn DOM and is typically hover-revealed;
+    # :meth:`click_last_user_edit` uses ``dom.execute_js`` to fire
+    # mouseenter on the last user turn before clicking. Empty tuple
+    # \u2014 T07 SKIPs for that site (e.g. Grok per
+    # ``GROK-COVERAGE-DIFF.md`` shared T-cases note).
+    edit_button_selectors: ClassVar[Sequence[str]] = ()
+
+    # T08 regenerate: button(s) on the latest assistant message that
+    # triggers a new variant. Modern UIs render this without requiring
+    # hover; :meth:`click_regenerate` iterates ``dom.click`` over each
+    # entry. Empty \u2014 T08 SKIPs.
+    regenerate_button_selectors: ClassVar[Sequence[str]] = ()
+
+    # T08 fallback: when ``regenerate_button_selectors`` doesn't match,
+    # the affordance is buried in a "More actions" / "..." overflow
+    # menu on the assistant turn. Per the legacy adapter
+    # (``tests/e2e/sites/chatgpt.py:447-494``), a 2-step click is
+    # needed: open the menu, then click the labeled item.
+    #
+    # ``more_actions_button_selectors``: button that opens the menu.
+    # ``regenerate_menu_labels``: text content of the menu item to
+    # click after the menu opens. Both empty \u2014 fallback skipped,
+    # only direct selectors are tried.
+    more_actions_button_selectors: ClassVar[Sequence[str]] = ()
+    regenerate_menu_labels: ClassVar[Sequence[str]] = (
+        "Regenerate",
+        "Try again",
+        "\u91cd\u65b0\u751f\u6210",
+        "\u91cd\u65b0\u56de\u7b54",
+    )
+
+    # T09 branch flip: previous/next arrows that appear after T07's
+    # edit creates a branch tree. Empty tuples \u2014 T09 SKIPs.
+    branch_prev_selectors: ClassVar[Sequence[str]] = ()
+    branch_next_selectors: ClassVar[Sequence[str]] = ()
+
+    # T10 / T11: native ``<input type='file'>`` element (often hidden
+    # under a paperclip button). T11 falls back to
+    # ``file_input_selectors`` when ``image_input_selectors`` is empty
+    # \u2014 same control on most sites. Empty file selector \u2014
+    # both T10 and T11 SKIP.
+    file_input_selectors: ClassVar[Sequence[str]] = ()
+    image_input_selectors: ClassVar[Sequence[str]] = ()
+
+    # T12 / T13 / T14 / T15: tools menu / direct toggle for the named
+    # tool. Three patterns are supported via two ClassVars each:
+    #   1. Direct toggle button \u2014 selectors point at the toggle
+    #      itself; helper just clicks it.
+    #   2. Tools-menu opener + labelled item \u2014 the ``_label`` list
+    #      identifies the menu item to click after the menu opens.
+    #   3. Slash-command \u2014 ``_slash`` prefix; case prepends to
+    #      the prompt instead of clicking a UI control.
+    #
+    # Modern ChatGPT (2026-Q2) and Gemini moved their advanced-tool
+    # affordances behind a single composer "+" button (the
+    # ``tool_picker_selectors`` below). When that's set, the helper
+    # ``enable_tool`` opens the picker first, then JS-clicks the first
+    # visible menuitem whose innerText contains any of the per-tool
+    # ``*_menu_labels`` entries. Falls back to direct toggle (pattern 1)
+    # when the picker is unset or unhelpful.
+    tool_picker_selectors: ClassVar[Sequence[str]] = ()
+    code_interpreter_button_selectors: ClassVar[Sequence[str]] = ()
+    code_interpreter_menu_labels: ClassVar[Sequence[str]] = ()
+    web_search_button_selectors: ClassVar[Sequence[str]] = ()
+    web_search_menu_labels: ClassVar[Sequence[str]] = ()
+    canvas_button_selectors: ClassVar[Sequence[str]] = ()
+    canvas_menu_labels: ClassVar[Sequence[str]] = ()
+    image_gen_button_selectors: ClassVar[Sequence[str]] = ()
+    image_gen_menu_labels: ClassVar[Sequence[str]] = ()
+
+    # T15 canvas: any selector that becomes visible AFTER a canvas /
+    # artifact opens. T15 PASS condition is BOTH a chat-side capture
+    # lands AND this selector renders \u2014 a chat capture alone
+    # doesn't prove canvas opened. Empty \u2014 T15 SKIPs.
+    canvas_indicator_selectors: ClassVar[Sequence[str]] = ()
+
+    # T19 error: site-specific banner the page renders on failure
+    # (rate limit, content policy, server error). T19 baselines the
+    # capture-event count, sends a known-failing prompt, waits for
+    # the banner, and asserts NO new PCE_CAPTURE landed with the
+    # banner text as assistant content. ``error_trigger_prompt``
+    # defaults to a content-policy bait shared across providers; sites
+    # that reliably reject something cheaper override it.
+    error_banner_selectors: ClassVar[Sequence[str]] = ()
+    error_trigger_prompt: ClassVar[Optional[str]] = None
+
+    # T06 thinking: model-switcher button + label substrings that
+    # match a reasoning / thinking model entry (o1/o3, Opus, "Pro
+    # with Thinking", etc.). Both must be set; either being empty
+    # \u2014 T06 SKIPs (free accounts commonly cannot reach reasoning
+    # models, this is correct behavior, not a fail).
+    model_switcher_selectors: ClassVar[Sequence[str]] = ()
+    reasoning_model_labels: ClassVar[Sequence[str]] = ()
+
+    # T18 temporary chat: site URL that opens a privacy-mode chat
+    # (ChatGPT's ``?temporary-chat=true``). Other sites have no
+    # equivalent surface today (Gemini's G24 is deferred to v1.1).
+    # ``None`` \u2014 T18 SKIPs.
+    temporary_chat_url: ClassVar[Optional[str]] = None
+
+    # T16 / T17: pre-existing GPT / Project URL the user wants
+    # exercised. Defaults to ``None`` (case SKIPs) but can be
+    # overridden via env vars in the per-site adapter file
+    # (``PCE_PROBE_<NAME>_GPT_URL``, ``PCE_PROBE_<NAME>_PROJECT_URL``)
+    # so account-specific URLs don't get committed to source.
+    custom_gpt_url: ClassVar[Optional[str]] = None
+    project_url: ClassVar[Optional[str]] = None
+
+    # T12 image generation: prompt-template hint. Sites that auto-detect
+    # image-generation intent from natural language ("draw a cat") leave
+    # this ``None``; sites that need an explicit invocation (Grok's
+    # Aurora, slash-command-only surfaces) prepend this string to the
+    # prompt. Distinct from a full prompt template; only the prefix.
+    image_gen_invocation: ClassVar[Optional[str]] = None
 
     # ---- core probe operations -------------------------------------------
 
@@ -771,7 +939,467 @@ class BaseProbeSiteAdapter:
         m = self.session_url_pattern.search(current_url or "")
         return m.group(1) if m else None
 
+    # ---- compound action helpers (used by Stage 2-5 cases) ---------------
+
+    def click_first_visible(
+        self,
+        probe: "ProbeClient",
+        tab_id: int,
+        selectors: Sequence[str],
+    ) -> bool:
+        """Click the first selector that resolves successfully.
+
+        Returns True on first successful click, False if every selector
+        raised ``SelectorNotFoundError`` or another ``ProbeError``.
+        Used by case helpers that need to try multiple legacy /
+        locale-variant selectors in order.
+        """
+        for sel in selectors:
+            try:
+                probe.dom.click(tab_id, sel)
+                return True
+            except SelectorNotFoundError:
+                continue
+            except ProbeError:
+                continue
+        return False
+
+    def wait_for_stop_button_visible(
+        self,
+        probe: "ProbeClient",
+        tab_id: int,
+        *,
+        timeout_s: float = 12.0,
+    ) -> bool:
+        """Poll until any ``stop_button_selectors`` entry is visible.
+
+        Used by T03 to confirm the response started before clicking
+        Stop, and by T08 to confirm regen actually fired before
+        waiting for completion. Returns False on timeout.
+        """
+        if not self.stop_button_selectors:
+            return False
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            for sel in self.stop_button_selectors:
+                if self._selector_visible(probe, tab_id, sel):
+                    return True
+            time.sleep(0.3)
+        return False
+
+    def click_stop_button(
+        self,
+        probe: "ProbeClient",
+        tab_id: int,
+    ) -> bool:
+        """Click the first matching stop button. Returns False if none."""
+        return self.click_first_visible(probe, tab_id, self.stop_button_selectors)
+
+    def click_last_user_edit(
+        self,
+        probe: "ProbeClient",
+        tab_id: int,
+    ) -> bool:
+        """Open the edit-in-place editor for the latest user message.
+
+        Two-phase strategy:
+          1. ``dom.execute_js`` dispatches mouseenter / mouseover /
+             pointerenter on the last user-turn-shaped ancestor so any
+             hover-revealed buttons render.
+          2. ``dom.execute_js`` again iterates ``edit_button_selectors``
+             from last-defined to first and clicks the LAST visible
+             match (which is the most recent user turn's edit button).
+
+        Naive ``dom.click`` would hit the FIRST DOM match (an older
+        user turn higher in the page). Going via ``execute_js``
+        sidesteps the unscoped-click issue. Return values from
+        ``execute_js`` are dropped under MV3 isolated worlds, so the
+        caller verifies success by side effects (input editor
+        re-mounts, send button enables, etc.). Returns False only
+        when ``edit_button_selectors`` is empty (case SKIPs) or the
+        execute_js call itself errored.
+        """
+        if not self.edit_button_selectors:
+            return False
+        # Step 1: hover-reveal the buttons. Best-effort; ignored on
+        # error because the click in step 2 is the real signal.
+        try:
+            probe.dom.execute_js(
+                tab_id,
+                r"""
+                (function () {
+                  var sels = [
+                    '[data-message-author-role="user"]',
+                    '[data-testid="human-turn"]',
+                    'user-query',
+                    '.chat-turn-container.user',
+                    'ms-chat-turn .chat-turn-container.user',
+                    '[data-turn-role="user"]'
+                  ];
+                  for (var i = 0; i < sels.length; i++) {
+                    var matches = document.querySelectorAll(sels[i]);
+                    if (!matches || !matches.length) continue;
+                    var last = matches[matches.length - 1];
+                    ['mouseenter', 'mouseover', 'pointerenter']
+                      .forEach(function (ev) {
+                        try {
+                          last.dispatchEvent(new MouseEvent(ev, {
+                            bubbles: true, cancelable: true, view: window
+                          }));
+                        } catch (e) {}
+                      });
+                    return;
+                  }
+                })();
+                """,
+            )
+        except ProbeError:
+            pass
+        # Step 2: click the LAST visible match across ``edit_button_selectors``.
+        sels_json = "[" + ", ".join(_js_str(s) for s in self.edit_button_selectors) + "]"
+        try:
+            probe.dom.execute_js(
+                tab_id,
+                """
+                (function () {
+                  var sels = """ + sels_json + r""";
+                  for (var i = sels.length - 1; i >= 0; i--) {
+                    var matches = document.querySelectorAll(sels[i]);
+                    if (!matches || !matches.length) continue;
+                    for (var j = matches.length - 1; j >= 0; j--) {
+                      var el = matches[j];
+                      if (el && typeof el.click === 'function') {
+                        try { el.click(); return; } catch (e) {}
+                      }
+                    }
+                  }
+                })();
+                """,
+            )
+        except ProbeError:
+            return False
+        time.sleep(0.5)  # let the editor mount
+        return True
+
+    def click_regenerate(
+        self,
+        probe: "ProbeClient",
+        tab_id: int,
+    ) -> bool:
+        """Click regenerate on the latest assistant turn.
+
+        Two-step strategy mirroring the legacy autopilot
+        (``tests/e2e/sites/chatgpt.py:477-494``):
+
+        1. Try ``regenerate_button_selectors`` directly. Modern UIs
+           still expose a top-level regen affordance on some
+           accounts / model variants.
+        2. If step 1 misses, open a "More actions" overflow menu via
+           ``more_actions_button_selectors`` (hover-gated on most
+           sites) and click the menu item whose text contains one of
+           ``regenerate_menu_labels``.
+
+        Step 2 is a single ``dom.execute_js`` that performs the
+        whole "hover \u2192 click more \u2192 click labelled item"
+        sequence atomically, since the menu auto-dismisses on focus
+        loss between separate RPCs.
+
+        Returns False if BOTH paths fail (or the adapter wires
+        neither). The caller surfaces a descriptive case-level
+        failure with the empirical signal that selectors are stale
+        / the affordance moved.
+        """
+        if not self.regenerate_button_selectors and not self.more_actions_button_selectors:
+            return False
+        # Step 1: direct selectors.
+        if self.regenerate_button_selectors:
+            if self.click_first_visible(
+                probe, tab_id, self.regenerate_button_selectors,
+            ):
+                return True
+        # Step 2: more-actions menu fallback.
+        if not self.more_actions_button_selectors:
+            return False
+        more_sels_json = "[" + ", ".join(_js_str(s) for s in self.more_actions_button_selectors) + "]"
+        labels_json = "[" + ", ".join(_js_str(l) for l in self.regenerate_menu_labels) + "]"
+        # The JS does:
+        #   - find the LATEST assistant turn (so we regen the right one)
+        #   - within it, find a more-actions button matching any of
+        #     ``more_sels_json`` and click it
+        #   - poll briefly for any visible menuitem / button whose
+        #     text contains one of ``labels_json``, click the first match
+        #   - return "ok" / "no_more_button" / "no_menu_item"
+        js = (
+            "(async function () {\n"
+            "  var moreSels = " + more_sels_json + ";\n"
+            "  var labels = " + labels_json + ";\n"
+            "  function findAssistantTurn() {\n"
+            "    var sels = ['[data-message-author-role=\"assistant\"]', '[data-testid*=\"conversation-turn\"]', 'article'];\n"
+            "    for (var i = 0; i < sels.length; i++) {\n"
+            "      var els = document.querySelectorAll(sels[i]);\n"
+            "      if (els.length) return els[els.length - 1];\n"
+            "    }\n"
+            "    return document.body;\n"
+            "  }\n"
+            "  function fireHoverOn(node) {\n"
+            "    if (!node) return;\n"
+            "    try {\n"
+            "      ['mouseover','mouseenter','pointerover','pointerenter'].forEach(function (t) {\n"
+            "        node.dispatchEvent(new MouseEvent(t, {bubbles: true, cancelable: true, view: window}));\n"
+            "      });\n"
+            "    } catch (e) {}\n"
+            "  }\n"
+            "  function findFirstMatching(root, selectors) {\n"
+            "    for (var i = 0; i < selectors.length; i++) {\n"
+            "      var n = root.querySelector(selectors[i]);\n"
+            "      if (n) return n;\n"
+            "      n = document.querySelector(selectors[i]);\n"
+            "      if (n) return n;\n"
+            "    }\n"
+            "    return null;\n"
+            "  }\n"
+            "  function clickMenuItemByLabel() {\n"
+            "    var nodes = Array.from(document.querySelectorAll('[role=\"menuitem\"], [role=\"menu\"] button, button, a'));\n"
+            "    for (var i = 0; i < nodes.length; i++) {\n"
+            "      var n = nodes[i];\n"
+            "      var rect = n.getBoundingClientRect();\n"
+            "      if (rect.width <= 0 || rect.height <= 0) continue;\n"
+            "      var t = (n.innerText || n.textContent || '').trim();\n"
+            "      for (var j = 0; j < labels.length; j++) {\n"
+            "        if (t.indexOf(labels[j]) !== -1) {\n"
+            "          try { n.click(); return true; } catch (e) {}\n"
+            "        }\n"
+            "      }\n"
+            "    }\n"
+            "    return false;\n"
+            "  }\n"
+            "  var turn = findAssistantTurn();\n"
+            "  fireHoverOn(turn);\n"
+            "  await new Promise(function(r){ setTimeout(r, 150); });\n"
+            "  var more = findFirstMatching(turn, moreSels);\n"
+            "  if (!more) return 'no_more_button';\n"
+            "  fireHoverOn(more);\n"
+            "  try { more.click(); } catch (e) { return 'click_more_threw'; }\n"
+            "  for (var i = 0; i < 10; i++) {\n"
+            "    await new Promise(function(r){ setTimeout(r, 150); });\n"
+            "    if (clickMenuItemByLabel()) return 'ok';\n"
+            "  }\n"
+            "  return 'no_menu_item';\n"
+            "})();"
+        )
+        try:
+            probe.dom.execute_js(tab_id, js)
+        except ProbeError:
+            return False
+        # ``dom.execute_js`` doesn't return the promise resolution on
+        # MV3 isolated worlds (see send_prompt docstring); we trust
+        # the JS and let the caller verify via observable side
+        # effects (a new assistant variant streaming in).
+        time.sleep(1.0)
+        return True
+
+    def enable_tool(
+        self,
+        probe: "ProbeClient",
+        tab_id: int,
+        *,
+        button_selectors: Sequence[str],
+        menu_labels: Sequence[str],
+    ) -> str:
+        """Toggle an advanced tool (T12 image / T13 code / T15 canvas).
+
+        Strategy ladder (returns the first one that fires):
+
+          1. ``"direct"``  \u2014 ``button_selectors`` matches a
+             top-level toggle that's already visible on the composer
+             (e.g. older ChatGPT UI's web-search pill, or a
+             Gemini ``Tools`` chip). One ``dom.click`` is enough.
+          2. ``"picker"``  \u2014 we open ``tool_picker_selectors``
+             (the modern composer "+" button), wait briefly for the
+             menu to render, and JS-click the first visible
+             ``[role="menuitem"]`` / button whose ``innerText``
+             contains any of ``menu_labels``. Required on
+             ChatGPT 2026-Q2 paid accounts where the auto-router no
+             longer fires Code Interpreter / Canvas / DALL\u00b7E
+             from prompt text alone.
+          3. ``"none"``  \u2014 nothing was clickable. Caller falls
+             back to relying on the model's auto-routing (which still
+             works on some accounts / model variants) and lets the
+             post-send capture decide PASS / SKIP / FAIL.
+
+        We deliberately do NOT raise on miss: the case-level decision
+        tree handles "tool wasn't enabled" via the captured
+        attachment shape, which is the authoritative signal.
+        """
+        # 1. Direct toggle.
+        if button_selectors:
+            try:
+                if self.click_first_visible(probe, tab_id, button_selectors):
+                    time.sleep(0.6)
+                    return "direct"
+            except ProbeError:
+                pass
+        # 2. Picker + labelled item.
+        if not self.tool_picker_selectors or not menu_labels:
+            return "none"
+        try:
+            opened = self.click_first_visible(
+                probe, tab_id, self.tool_picker_selectors,
+            )
+        except ProbeError:
+            opened = False
+        if not opened:
+            return "none"
+        time.sleep(0.6)  # let the picker render
+        labels_json = (
+            "[" + ", ".join(_js_str(l) for l in menu_labels) + "]"
+        )
+        # The JS walks visible menuitem-shaped nodes and clicks the
+        # first whose text contains any of the requested labels. We
+        # use ``role=menuitem`` first (semantically correct), then
+        # fall back to plain buttons within the recently-opened
+        # popup.
+        #
+        # MV3 isolated worlds drop ``execute_js`` return values, so we
+        # write the outcome to ``document.body.dataset.pceEnableTool``
+        # as a side channel. The caller reads it back via dom.query
+        # to surface the actual match label / available item count
+        # in case details. This matters for diagnostics when the
+        # picker clicks succeed but the labels don't match anything
+        # (wrong menu opened, or label list is stale).
+        js = (
+            "(function () {\n"
+            "  var labels = " + labels_json + ";\n"
+            "  var sels = ['[role=\"menuitem\"]','[role=\"option\"]','button','a'];\n"
+            "  var visible_items = [];\n"
+            "  var matched = null;\n"
+            "  for (var s = 0; s < sels.length && !matched; s++) {\n"
+            "    var nodes = Array.from(document.querySelectorAll(sels[s]));\n"
+            "    for (var i = 0; i < nodes.length && !matched; i++) {\n"
+            "      var n = nodes[i];\n"
+            "      var rect = n.getBoundingClientRect();\n"
+            "      if (rect.width <= 0 || rect.height <= 0) continue;\n"
+            "      var t = (n.innerText || n.textContent || '').trim();\n"
+            "      if (!t) continue;\n"
+            "      if (visible_items.length < 24) visible_items.push(t.slice(0, 40));\n"
+            "      for (var j = 0; j < labels.length; j++) {\n"
+            "        if (t.indexOf(labels[j]) !== -1) {\n"
+            "          try { n.click(); matched = labels[j]; break; }\n"
+            "          catch (e) {}\n"
+            "        }\n"
+            "      }\n"
+            "    }\n"
+            "  }\n"
+            "  try {\n"
+            "    document.body.dataset.pceEnableTool = JSON.stringify({\n"
+            "      matched: matched, items: visible_items, n_items: visible_items.length\n"
+            "    });\n"
+            "  } catch (e) {}\n"
+            "})();"
+        )
+        try:
+            probe.dom.execute_js(tab_id, js)
+        except ProbeError:
+            return "none"
+        time.sleep(0.8)  # let the toggle settle / pill render
+        return "picker"
+
+    def upload_file_via_input(
+        self,
+        probe: "ProbeClient",
+        tab_id: int,
+        *,
+        file_name: str,
+        file_b64: str,
+        media_type: str,
+        image: bool = False,
+    ) -> bool:
+        """Attach a file/image via the page's ``<input type=file>``.
+
+        Mimics the legacy autopilot's ``send_keys(path)`` but works
+        through the probe's CDP-via-content-script bridge:
+
+          1. Resolve the input selector \u2014
+             ``image_input_selectors`` if ``image`` is true and that
+             tuple is non-empty, otherwise ``file_input_selectors``.
+             Empty \u2014 return False (case SKIPs).
+          2. ``dom.execute_js`` builds a ``Blob`` from the base64
+             bytes, wraps it in a ``File`` with the supplied name and
+             type, packs it into a ``DataTransfer``, assigns to
+             ``input.files``, and dispatches ``input``+``change``.
+
+        Some sites (Gemini Quill, Claude TipTap) bind their upload
+        handler to a paste/drop event on the contenteditable, NOT to
+        a file input ``change``. Those sites need a different path
+        and will surface as case-level FAIL with an instructive
+        message rather than a corrupting silent skip.
+        """
+        selectors = (
+            self.image_input_selectors
+            if image and self.image_input_selectors
+            else self.file_input_selectors
+        )
+        if not selectors:
+            return False
+        sels_json = "[" + ", ".join(_js_str(s) for s in selectors) + "]"
+        js = (
+            "(function () {\n"
+            "  var sels = " + sels_json + ";\n"
+            "  var input = null;\n"
+            "  for (var i = 0; i < sels.length; i++) {\n"
+            "    input = document.querySelector(sels[i]);\n"
+            "    if (input) break;\n"
+            "  }\n"
+            "  if (!input) return;\n"
+            "  var b64 = " + _js_str(file_b64) + ";\n"
+            "  var bin = atob(b64);\n"
+            "  var bytes = new Uint8Array(bin.length);\n"
+            "  for (var k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);\n"
+            "  var blob = new Blob([bytes], { type: " + _js_str(media_type) + " });\n"
+            "  var file = new File([blob], " + _js_str(file_name) + ", { type: " + _js_str(media_type) + " });\n"
+            "  try {\n"
+            "    var dt = new DataTransfer();\n"
+            "    dt.items.add(file);\n"
+            "    input.files = dt.files;\n"
+            "  } catch (e) {}\n"
+            "  input.dispatchEvent(new Event('input', { bubbles: true }));\n"
+            "  input.dispatchEvent(new Event('change', { bubbles: true }));\n"
+            "})();"
+        )
+        try:
+            probe.dom.execute_js(tab_id, js)
+        except ProbeError:
+            return False
+        time.sleep(1.5)  # let the upload chip mount
+        return True
+
+    def current_url(
+        self,
+        probe: "ProbeClient",
+        tab_id: int,
+    ) -> Optional[str]:
+        """Public accessor for the tab's current URL."""
+        return self._get_tab_url(probe, tab_id)
+
     # ---- conveniences ----------------------------------------------------
 
     def __repr__(self) -> str:  # pragma: no cover - cosmetic
         return f"<{type(self).__name__} name={self.name!r} url={self.url!r}>"
+
+
+def _js_str(value: str) -> str:
+    """Encode a Python string as a JavaScript string literal.
+
+    Naive ``json.dumps(value)`` would also work, but it imports a heavy
+    module per call; this is enough for the simple identifier-and-text
+    strings the helpers above pass through.
+    """
+    return (
+        '"'
+        + value.replace("\\", "\\\\")
+                .replace('"', '\\"')
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t")
+        + '"'
+    )
