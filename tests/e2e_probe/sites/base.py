@@ -1086,60 +1086,79 @@ class BaseProbeSiteAdapter:
         probe: "ProbeClient",
         tab_id: int,
     ) -> bool:
-        """Click regenerate on the latest assistant turn.
+        """Click regenerate on the LATEST assistant turn.
 
-        Two-step strategy mirroring the legacy autopilot
-        (``tests/e2e/sites/chatgpt.py:477-494``):
+        Single unified JS path that scopes both the direct-button
+        affordance AND the more-actions menu to the latest assistant
+        message. The earlier two-pass implementation used
+        ``click_first_visible`` for the direct path which matches
+        ANY visible button on the page \u2014 that hits global
+        affordances like network-error "Retry" pills on ChatGPT and
+        breaks T08 with a "regenerate_clicked=true but stop button
+        never appeared" SKIP. Scoping to the assistant-turn DOM
+        removes that whole class of false-positive.
 
-        1. Try ``regenerate_button_selectors`` directly. Modern UIs
-           still expose a top-level regen affordance on some
-           accounts / model variants.
-        2. If step 1 misses, open a "More actions" overflow menu via
-           ``more_actions_button_selectors`` (hover-gated on most
-           sites) and click the menu item whose text contains one of
-           ``regenerate_menu_labels``.
+        Strategy ladder (all within the latest assistant turn):
 
-        Step 2 is a single ``dom.execute_js`` that performs the
-        whole "hover \u2192 click more \u2192 click labelled item"
-        sequence atomically, since the menu auto-dismisses on focus
-        loss between separate RPCs.
+          1. Hover the turn to reveal the action strip (modern UIs
+             keep regen hidden until ``:hover``).
+          2. Find the first ``regenerate_button_selectors`` match
+             that's a descendant of the turn or its sibling action
+             rail. Click and return ``"direct"``.
+          3. If no direct match, open the ``more_actions_button_selectors``
+             button within the turn, wait for the menu, and click
+             the first menuitem whose text contains one of the
+             ``regenerate_menu_labels``. Return ``"menu"``.
+          4. Otherwise write the diagnostic side-channel and return
+             ``"none"``.
 
-        Returns False if BOTH paths fail (or the adapter wires
-        neither). The caller surfaces a descriptive case-level
-        failure with the empirical signal that selectors are stale
-        / the affordance moved.
+        We write the actual outcome (``direct`` / ``menu`` / a
+        miss-reason string) to ``document.body.dataset.pceRegenResult``
+        so the caller can surface it without depending on the
+        execute_js return value (dropped under MV3 isolated worlds).
         """
         if not self.regenerate_button_selectors and not self.more_actions_button_selectors:
             return False
-        # Step 1: direct selectors.
-        if self.regenerate_button_selectors:
-            if self.click_first_visible(
-                probe, tab_id, self.regenerate_button_selectors,
-            ):
-                return True
-        # Step 2: more-actions menu fallback.
-        if not self.more_actions_button_selectors:
-            return False
-        more_sels_json = "[" + ", ".join(_js_str(s) for s in self.more_actions_button_selectors) + "]"
-        labels_json = "[" + ", ".join(_js_str(l) for l in self.regenerate_menu_labels) + "]"
-        # The JS does:
-        #   - find the LATEST assistant turn (so we regen the right one)
-        #   - within it, find a more-actions button matching any of
-        #     ``more_sels_json`` and click it
-        #   - poll briefly for any visible menuitem / button whose
-        #     text contains one of ``labels_json``, click the first match
-        #   - return "ok" / "no_more_button" / "no_menu_item"
+        regen_sels_json = (
+            "[" + ", ".join(_js_str(s) for s in self.regenerate_button_selectors) + "]"
+        )
+        more_sels_json = (
+            "[" + ", ".join(_js_str(s) for s in self.more_actions_button_selectors) + "]"
+        )
+        labels_json = (
+            "[" + ", ".join(_js_str(l) for l in self.regenerate_menu_labels) + "]"
+        )
+        # The JS:
+        #   1. Locates the LATEST assistant turn via several role/testid hints.
+        #   2. Hovers the turn AND its parent (modern ChatGPT mounts
+        #      the action strip on the parent, not the turn itself).
+        #   3. Walks the regen selectors limited to (a) the turn, (b) its
+        #      action-strip sibling, (c) document. Document scope is the
+        #      last resort \u2014 only used if NO turn-scoped match works.
+        #   4. Falls back to opening the more-actions menu (turn-scoped),
+        #      then clicking the labelled item.
+        # IMPORTANT: must be a SYNC IIFE, not ``async``. ``execute_js``
+        # in the MV3 isolated world drops the suspension point at the
+        # first ``await``, so the post-await code never runs and the
+        # side-channel span is never written. ``enable_tool`` uses the
+        # same constraint and works because it never awaits. We mimic
+        # that here: kick off the click chain synchronously, and use
+        # ``setInterval`` to poll for the menu item asynchronously
+        # WITHOUT any function-level await keyword. The polling
+        # callback runs on the page's event loop independently of our
+        # IIFE's call stack.
         js = (
-            "(async function () {\n"
+            "(function () {\n"
+            "  var regenSels = " + regen_sels_json + ";\n"
             "  var moreSels = " + more_sels_json + ";\n"
             "  var labels = " + labels_json + ";\n"
             "  function findAssistantTurn() {\n"
-            "    var sels = ['[data-message-author-role=\"assistant\"]', '[data-testid*=\"conversation-turn\"]', 'article'];\n"
+            "    var sels = ['[data-message-author-role=\"assistant\"]', '[data-testid*=\"conversation-turn\"]', 'article', 'message-content', '[data-test-id*=\"response\"]'];\n"
             "    for (var i = 0; i < sels.length; i++) {\n"
             "      var els = document.querySelectorAll(sels[i]);\n"
             "      if (els.length) return els[els.length - 1];\n"
             "    }\n"
-            "    return document.body;\n"
+            "    return null;\n"
             "  }\n"
             "  function fireHoverOn(node) {\n"
             "    if (!node) return;\n"
@@ -1149,12 +1168,20 @@ class BaseProbeSiteAdapter:
             "      });\n"
             "    } catch (e) {}\n"
             "  }\n"
-            "  function findFirstMatching(root, selectors) {\n"
-            "    for (var i = 0; i < selectors.length; i++) {\n"
-            "      var n = root.querySelector(selectors[i]);\n"
-            "      if (n) return n;\n"
-            "      n = document.querySelector(selectors[i]);\n"
-            "      if (n) return n;\n"
+            "  function isVisible(n) {\n"
+            "    if (!n) return false;\n"
+            "    var r = n.getBoundingClientRect();\n"
+            "    return r.width > 0 && r.height > 0;\n"
+            "  }\n"
+            "  function findScopedFirst(roots, selectors) {\n"
+            "    for (var s = 0; s < selectors.length; s++) {\n"
+            "      for (var r = 0; r < roots.length; r++) {\n"
+            "        if (!roots[r]) continue;\n"
+            "        var matches = roots[r].querySelectorAll(selectors[s]);\n"
+            "        for (var k = 0; k < matches.length; k++) {\n"
+            "          if (isVisible(matches[k])) return matches[k];\n"
+            "        }\n"
+            "      }\n"
             "    }\n"
             "    return null;\n"
             "  }\n"
@@ -1162,40 +1189,76 @@ class BaseProbeSiteAdapter:
             "    var nodes = Array.from(document.querySelectorAll('[role=\"menuitem\"], [role=\"menu\"] button, button, a'));\n"
             "    for (var i = 0; i < nodes.length; i++) {\n"
             "      var n = nodes[i];\n"
-            "      var rect = n.getBoundingClientRect();\n"
-            "      if (rect.width <= 0 || rect.height <= 0) continue;\n"
+            "      if (!isVisible(n)) continue;\n"
             "      var t = (n.innerText || n.textContent || '').trim();\n"
             "      for (var j = 0; j < labels.length; j++) {\n"
             "        if (t.indexOf(labels[j]) !== -1) {\n"
-            "          try { n.click(); return true; } catch (e) {}\n"
+            "          try { n.click(); return labels[j]; } catch (e) {}\n"
             "        }\n"
             "      }\n"
             "    }\n"
-            "    return false;\n"
+            "    return null;\n"
             "  }\n"
+            "  function recordResult(s) {\n"
+            "    try {\n"
+            "      // Channel 1: hidden span at body. Most reliable\n"
+            "      // when present \u2014 dom.query reads textContent.\n"
+            "      var tag = document.getElementById('pce-regen-result-tag');\n"
+            "      if (!tag) {\n"
+            "        tag = document.createElement('span');\n"
+            "        tag.id = 'pce-regen-result-tag';\n"
+            "        tag.style.cssText = 'position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;overflow:hidden;';\n"
+            "        document.body.appendChild(tag);\n"
+            "      }\n"
+            "      tag.textContent = String(s);\n"
+            "    } catch (e) {}\n"
+            "    // Channel 2: body data attribute. Cheapest write,\n"
+            "    // visible in body's outer_html_excerpt up to ~200\n"
+            "    // chars in.\n"
+            "    try { document.body.dataset.pceRegenResult = String(s); } catch (e) {}\n"
+            "    // Channel 3: title attribute on documentElement.\n"
+            "    // Always present, never react-managed, fits in\n"
+            "    // outer_html_excerpt of <html>.\n"
+            "    try { document.documentElement.setAttribute('data-pce-regen-result', String(s)); } catch (e) {}\n"
+            "  }\n"
+            "  recordResult('start');\n"
             "  var turn = findAssistantTurn();\n"
+            "  if (!turn) { recordResult('no_assistant_turn'); return; }\n"
             "  fireHoverOn(turn);\n"
-            "  await new Promise(function(r){ setTimeout(r, 150); });\n"
-            "  var more = findFirstMatching(turn, moreSels);\n"
-            "  if (!more) return 'no_more_button';\n"
-            "  fireHoverOn(more);\n"
-            "  try { more.click(); } catch (e) { return 'click_more_threw'; }\n"
-            "  for (var i = 0; i < 10; i++) {\n"
-            "    await new Promise(function(r){ setTimeout(r, 150); });\n"
-            "    if (clickMenuItemByLabel()) return 'ok';\n"
+            "  fireHoverOn(turn.parentElement);\n"
+            "  // 1. direct regen button (scoped to turn or its parent).\n"
+            "  var roots = [turn, turn.parentElement, turn.parentElement && turn.parentElement.parentElement];\n"
+            "  var btn = findScopedFirst(roots, regenSels);\n"
+            "  if (btn) {\n"
+            "    fireHoverOn(btn);\n"
+            "    try { btn.click(); recordResult('direct:' + btn.outerHTML.slice(0, 80)); return; }\n"
+            "    catch (e) { recordResult('direct_click_threw'); return; }\n"
             "  }\n"
-            "  return 'no_menu_item';\n"
+            "  recordResult('no_direct_button');\n"
+            "  // 2. more-actions menu within scope.\n"
+            "  var more = findScopedFirst(roots, moreSels);\n"
+            "  if (!more) { recordResult('no_direct_no_more'); return; }\n"
+            "  fireHoverOn(more);\n"
+            "  try { more.click(); } catch (e) { recordResult('click_more_threw'); return; }\n"
+            "  recordResult('more_clicked_polling');\n"
+            "  // 3. setInterval poll for the labelled menu item; no\n"
+            "  //    await keyword so the IIFE stack stays alive.\n"
+            "  var attempts = 0;\n"
+            "  var t = setInterval(function () {\n"
+            "    attempts++;\n"
+            "    var hit = clickMenuItemByLabel();\n"
+            "    if (hit) { clearInterval(t); recordResult('menu:' + hit); return; }\n"
+            "    if (attempts >= 12) { clearInterval(t); recordResult('menu_no_match'); }\n"
+            "  }, 150);\n"
             "})();"
         )
         try:
             probe.dom.execute_js(tab_id, js)
         except ProbeError:
             return False
-        # ``dom.execute_js`` doesn't return the promise resolution on
-        # MV3 isolated worlds (see send_prompt docstring); we trust
-        # the JS and let the caller verify via observable side
-        # effects (a new assistant variant streaming in).
-        time.sleep(1.0)
+        # Side-channel result lives in document.body.dataset.pceRegenResult.
+        # Caller can read via dom.query when surfacing diag context.
+        time.sleep(1.5)  # extra time for the menu-path scenario
         return True
 
     def enable_tool(
