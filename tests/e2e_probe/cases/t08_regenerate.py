@@ -39,6 +39,7 @@ Failure modes T08 catches:
 """
 from __future__ import annotations
 
+import json
 import re
 import time
 import uuid
@@ -83,7 +84,8 @@ class T08RegenerateCase(BaseCase):
     description = (
         "Send a low-determinism prompt; click Regenerate on the "
         "assistant reply; verify a NEW capture for the same token "
-        "(possibly with different assistant text) reaches PCE Core."
+        "reaches PCE Core and is stored/renderable as a structured "
+        "assistant variant."
     )
 
     def run(
@@ -350,6 +352,12 @@ class T08RegenerateCase(BaseCase):
         details["final_session_id"] = final_session_id
         details["final_assistant_len"] = len(final_assistant_text)
         details["final_assistant_head"] = final_assistant_text[:160]
+        final_msgs = (
+            self._fetch_session_messages(pce_core, final_session_id)
+            if final_session_id
+            else []
+        )
+        details["variant_contract"] = self._variant_contract_evidence(final_msgs)
 
         text_differs = (
             seed_assistant_text != ""
@@ -392,6 +400,22 @@ class T08RegenerateCase(BaseCase):
         #       nothing for the seed either, which means the seed
         #       wait probably failed silently. FAIL with helpful
         #       detail (this is a real pipeline break).
+        content_level_signal = len(token_captures) >= 2 or (
+            text_differs and final_session_id
+        )
+        if content_level_signal and not details["variant_contract"]["ok"]:
+            return CaseResult.failed(
+                self.id, adapter.name,
+                (
+                    "regen content-level signal exists, but structured "
+                    "variant storage/render contract is missing. The new "
+                    "standard requires variant_group/current_variant "
+                    "evidence before T08 can PASS."
+                ),
+                duration_ms=self._elapsed_ms(start),
+                details={**details, "phase": "variant_contract_missing"},
+            )
+
         if len(token_captures) >= 2:
             return CaseResult.passed(
                 self.id, adapter.name,
@@ -554,6 +578,109 @@ class T08RegenerateCase(BaseCase):
                     return (session_id, "")
             time.sleep(0.5)
         return (None, "")
+
+    @staticmethod
+    def _fetch_session_messages(
+        pce_core: httpx.Client,
+        session_id: str,
+    ) -> list[dict]:
+        try:
+            msg_resp = pce_core.get(f"/api/v1/sessions/{session_id}/messages")
+        except httpx.HTTPError:
+            return []
+        if msg_resp.status_code != 200:
+            return []
+        data = msg_resp.json() or []
+        return data if isinstance(data, list) else []
+
+    @classmethod
+    def _variant_contract_evidence(cls, messages: list[dict]) -> dict:
+        storage_keys = {
+            "variant_group_id",
+            "variant_id",
+            "variant_index",
+            "regenerated_from",
+            "regeneration_of",
+            "previous_variant_id",
+            "current_variant_id",
+        }
+        render_keys = {
+            "variant",
+            "variants",
+            "variant_group",
+            "current_variant",
+            "variant_controls",
+        }
+
+        storage_paths: list[str] = []
+        render_paths: list[str] = []
+        assistant_count = 0
+        for idx, msg in enumerate(messages or []):
+            if msg.get("role") == "assistant":
+                assistant_count += 1
+            storage_paths.extend(cls._find_keys(msg, storage_keys, f"messages[{idx}]"))
+            content_json = cls._content_json_dict(msg)
+            if not content_json:
+                continue
+            storage_paths.extend(
+                cls._find_keys(
+                    content_json,
+                    storage_keys,
+                    f"messages[{idx}].content_json",
+                )
+            )
+            rich_content = content_json.get("rich_content")
+            if isinstance(rich_content, dict):
+                render_paths.extend(
+                    cls._find_keys(
+                        rich_content,
+                        render_keys,
+                        f"messages[{idx}].content_json.rich_content",
+                    )
+                )
+
+        storage_relation = bool(storage_paths)
+        render_relation = bool(render_paths)
+        return {
+            "ok": storage_relation and render_relation,
+            "assistant_count": assistant_count,
+            "storage_relation": storage_relation,
+            "render_relation": render_relation,
+            "storage_paths": storage_paths[:12],
+            "render_paths": render_paths[:12],
+        }
+
+    @staticmethod
+    def _content_json_dict(msg: dict) -> dict:
+        raw = msg.get("content_json")
+        if isinstance(raw, dict):
+            return raw
+        if not isinstance(raw, str) or not raw.strip():
+            return {}
+        try:
+            parsed = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    @classmethod
+    def _find_keys(
+        cls,
+        value,
+        keys: set[str],
+        prefix: str,
+    ) -> list[str]:
+        hits: list[str] = []
+        if isinstance(value, dict):
+            for k, v in value.items():
+                path = f"{prefix}.{k}"
+                if k in keys:
+                    hits.append(path)
+                hits.extend(cls._find_keys(v, keys, path))
+        elif isinstance(value, list):
+            for i, item in enumerate(value):
+                hits.extend(cls._find_keys(item, keys, f"{prefix}[{i}]"))
+        return hits
 
     @staticmethod
     def _event_body_has(event: dict, token: str) -> bool:

@@ -33,6 +33,17 @@ Thumbs.db
 /tests/e2e/screenshots
 /tests/e2e/e2e_state.json
 /tests/e2e/fixtures/generated/
-/tests/e2e/reports/chatgpt/
+/tests/e2e/reports/
 /tests/e2e_probe/reports/
 /logs/
+
+# Local probe diagnostics and scratch artifacts
+/.diag_*
+/.pytest_*.log
+/.sessions_*.json
+/.tmp_*
+/.triage_*.txt
+/tmp_*.txt
+/tests/e2e/tmp_*
+/scripts/_diag_*.py
+/scripts/_dump_*.py

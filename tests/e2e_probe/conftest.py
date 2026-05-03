@@ -32,6 +32,8 @@ from typing import Iterator
 import httpx
 import pytest
 
+from .execution_standard import STANDARD_VERSION, standards_for_case_ids
+
 # Activate the probe plugin for this directory.
 pytest_plugins = ["pce_probe.pytest_plugin"]
 
@@ -126,6 +128,10 @@ class _MatrixSummary:
         body = {
             "started_at_utc": ts,
             "duration_s": time.time() - self.started_at,
+            "execution_standard_version": STANDARD_VERSION,
+            "case_standards": standards_for_case_ids(
+                sorted({str(r.get("case_id")) for r in self.results})
+            ),
             "n_results": len(self.results),
             "by_status": _count_by(self.results, "status"),
             "by_site": _count_by(self.results, "site_name"),
