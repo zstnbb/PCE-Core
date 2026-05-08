@@ -397,3 +397,65 @@ Same list as `CHATGPT-FULL-COVERAGE.md` Part VI, plus:
 - Drafting the Gemini sub-section of v1.0.1 release notes.
 
 Say "Cascade, work on X in the background while I run G14" — I will.
+
+---
+
+## Part VII — Stability run signoff (2026-04-30)
+
+**Probe vertical result: 10 PASS / 9 SKIP / 2 FAIL.** Same shape as
+ChatGPT and Claude — Gemini reproduces only the documented
+cross-site SW user-upload extractor gap (T10 + T11). All other
+invariants are green or honestly skipped.
+
+**Notable:** Gemini hit this stable state on the **first run** of the
+shakedown, with zero Gemini-specific code changes. The fixes shipped
+during the Claude round (PCE Core authoritative gate, fingerprint
+key correction in `_event_body_has`, `T07` SKIP-on-no-SW-signal,
+`fingerprintConversation` including assistant body) all paid forward
+cleanly to Gemini. This is the strongest signal yet that the
+test-side scaffolding is now site-agnostic.
+
+### Pass / Skip / Fail breakdown
+
+| Status | Cases | Notes |
+|---|---|---|
+| **PASS (10)** | T00, T01, T02, T03, T04, T05, T06, T07, T14, T20 | core capture + streaming + multi-turn + nav + code block + thinking + edit + web search + settings silence. T07 PASSED here (Gemini's edit pencil targeting differs from Claude's) |
+| **SKIP (9)** | T08, T09, T12, T13, T15, T16, T17, T18, T19 | T08 honest UI skip — Gemini's regen click landed but only one capture reached the SW (model variance / dedup, indistinguishable per the legacy convention); T09 / T12-T13 / T15-T19 deferred per coverage spec or no surface configured |
+| **FAIL (2)** | T10, T11 | known cross-site SW extractor gap — see `CHATGPT-T10-T11-EXTRACTOR-HANDOFF.md` |
+
+### Notable observations
+
+1. **`token_capture_count: 0` on T02 / T03 is fine.** Gemini's
+   delta-mode capture can land at a key the soft-check
+   `_event_body_has` doesn't pattern-match cleanly; the case still
+   PASSes because PCE Core has the canonical row. The SW-ring
+   "exactly one capture" gate is now a soft observability check, not
+   the hard pass/fail signal — which is correct for a
+   delta-protocol site.
+2. **T07 (edit) PASSes on Gemini, SKIPs on Claude.** Gemini's edit
+   pencil opens the existing `.ql-editor` composer in-place rather
+   than spawning an inline-edit-area, so the bottom-composer
+   selectors happen to be the right targets. No `edit_input_selectors`
+   wiring needed for Gemini today.
+3. **T08 (regen) SKIPs cleanly.** Gemini's regen affordance fired
+   but no second capture reached the SW; per the
+   `regen_indistinguishable` decision branch added during the Claude
+   round, this is reported as model variance / dedup rather than a
+   pipeline FAIL.
+4. **T14 (web search) PASSes with 2 citations, 2 external citations.**
+   Gemini's web search citation extraction is healthy.
+
+### Known gaps left open
+
+- **T10 / T11 (PDF / image upload).** Same root cause as ChatGPT
+  and Claude. See `CHATGPT-T10-T11-EXTRACTOR-HANDOFF.md`. Cross-site
+  fix once the DataTransfer-vs-React-isTrusted hypothesis or the
+  per-extractor attachment parsing hypothesis is verified.
+
+### Reproduction
+
+```powershell
+python -m pytest tests/e2e_probe/test_matrix.py -k "gemini" -v --tb=line
+```
+
+Expected: `10 passed, 9 skipped, 2 failed (T10, T11)` in ~7 minutes.

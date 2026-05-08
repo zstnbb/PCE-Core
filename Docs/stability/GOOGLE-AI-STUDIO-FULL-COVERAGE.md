@@ -204,6 +204,25 @@ No selector ladder. If `<ms-chat-turn>` is renamed, capture = 0.
 
 **Legend:** Status ⬜/✅/❌; Auto 🟢 deterministic / 🟡 screenshot / 🟠 account-tier (Gemini Advanced or API quota).
 
+### III.0 Access profile
+
+For free-account runs, execute only the cases that do not require an
+advanced model, image/media generation entitlement, or a billing-enabled
+API project. The E2E runner implements this with
+`PCE_GAS_FREE_ONLY=1` and uses `gemini-flash-lite-latest` as the default
+model.
+
+| Access tier | Cases | Meaning |
+|---|---|---|
+| `free_core` | A01, A04, A05, A07, A08, A11, A17 | Main prompt/chat flows that should work on a free account when basic prompt execution is available. |
+| `free_no_capture` | A18, A19 | Free UI/navigation surfaces that should create zero captures. |
+| `free_error_state` | A20 | Free error surface; a failed user prompt may be captured, but the error/banner must not become assistant content. |
+| `legacy_or_restricted_surface` | A02, A03 | Older prompt URLs or current-account restricted surfaces; keep defined but do not block free runs. |
+| `optional_multimodal` | A09, A10 | Media upload paths; may work on free accounts but are quota/model dependent, so run after the core pass. |
+| `api_tool_or_billing` | A12, A13, A14, A15 | Tools that may require enabled Gemini API project, API key selection, billing, or quota. |
+| `advanced_model` | A06 | Pro/advanced reasoning model path. |
+| `advanced_generation` | A16 | Image generation entitlement/quota path. |
+
 ### III.1 Must-pass for v1.0.1
 
 | ID | Surface | Auto | User action | Expected capture | Known risk |
