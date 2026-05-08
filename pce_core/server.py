@@ -1071,6 +1071,11 @@ def ingest_capture(
 
     headers_safe, body_safe = guard.apply(payload.headers_json, payload.body_json)
     meta_json = json.dumps(payload.meta, ensure_ascii=False) if payload.meta else None
+    layer_meta_json = (
+        json.dumps(payload.layer_meta, ensure_ascii=False)
+        if payload.layer_meta
+        else None
+    )
 
     # Derive v2 native column values from the v1 payload.
     v2_source = _V1_TO_V2_SOURCE.get(
@@ -1103,6 +1108,7 @@ def ingest_capture(
         agent_version=__version__,
         capture_time_ns=time.time_ns(),
         fingerprint=v2_fingerprint,
+        layer_meta_json=layer_meta_json,
     )
 
     if capture_id is None:
@@ -1655,8 +1661,41 @@ def toggle_favorite(session_id: str, favorited: bool = True):
 
 
 @app.get("/api/v1/sessions/{session_id}/messages", response_model=list[MessageRecord])
-def get_session_messages(session_id: str):
-    msgs = query_messages(session_id)
+def get_session_messages(
+    session_id: str,
+    branches: str = Query(
+        "collapse",
+        pattern="^(collapse|expand)$",
+        description=(
+            "How to project alternate branches (regenerate / edit). "
+            "'collapse' (default) returns only the current/winning path "
+            "so the dashboard mirrors what the user sees on the provider "
+            "site. 'expand' returns every row with branch_id exposed — "
+            "use when auditing or rendering a branch picker. See "
+            "ADR-2026-04-26 §5.3."
+        ),
+    ),
+    branch: Optional[str] = Query(
+        None,
+        description=(
+            "Filter to a specific branch_id. When set, ``branches`` is "
+            "ignored and only rows on this branch are returned, ordered "
+            "by (turn_index, ts). Use the values returned in the "
+            "'branch_id' field of an earlier ?branches=expand response."
+        ),
+    ),
+):
+    """Return the messages of a session, projected per the branch params.
+
+    Default (no params) returns the collapsed/current path so existing
+    dashboard code that doesn't know about branches gets the cleanest
+    view. Power users / audit views send ``?branches=expand`` to see
+    every alternate, and ``?branch=<id>`` to drill into a single branch.
+    """
+    if branch is not None:
+        msgs = query_messages(session_id, branches=branch)
+    else:
+        msgs = query_messages(session_id, branches=branches)
     if not msgs:
         raise HTTPException(status_code=404, detail="Session not found or empty")
     return msgs

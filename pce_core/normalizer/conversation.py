@@ -21,12 +21,16 @@ This normalizer is registered AFTER OpenAI and Anthropic so that API-level
 captures still route to the more specific normalizer first.
 """
 
+import hashlib
 import json
 import logging
 import re
 from typing import Optional
 
-from pce_core.rich_content import build_content_json
+from pce_core.rich_content import (
+    build_content_json,
+    load_attachments_from_content_json,
+)
 
 from .base import BaseNormalizer, NormalizedMessage, NormalizedResult
 
@@ -184,6 +188,109 @@ def _clean_content(content: str) -> tuple[str, list[dict]]:
     return content, attachments
 
 
+def _capture_meta(data: dict) -> dict:
+    meta = data.get("_capture_meta")
+    return meta if isinstance(meta, dict) else {}
+
+
+def _last_action(meta: dict) -> str:
+    behavior = meta.get("behavior")
+    if not isinstance(behavior, dict):
+        return ""
+    last = behavior.get("last_action")
+    if isinstance(last, dict) and isinstance(last.get("type"), str):
+        return last["type"]
+    events = behavior.get("action_events")
+    if isinstance(events, list):
+        for event in reversed(events):
+            if isinstance(event, dict) and isinstance(event.get("type"), str):
+                return event["type"]
+    return ""
+
+
+def _infer_global_index(data: dict, local_index: int) -> int:
+    meta = _capture_meta(data)
+    mode = str(meta.get("capture_mode") or "")
+    if mode == "message_update":
+        try:
+            return int(meta.get("updated_message_index"))
+        except (TypeError, ValueError):
+            return local_index
+
+    total_raw = data.get("total_messages") or meta.get("total_message_count")
+    try:
+        total = int(total_raw)
+    except (TypeError, ValueError):
+        return local_index
+    msg_count = len(data.get("messages") or [])
+    return max(0, total - msg_count) + local_index
+
+
+def _threading_contract_for_message(
+    *,
+    data: dict,
+    msg: dict,
+    role: str,
+    content: str,
+    local_index: int,
+) -> Optional[dict]:
+    """Build branch/variant metadata from DOM action context."""
+    meta = _capture_meta(data)
+    mode = str(meta.get("capture_mode") or "")
+    action = _last_action(meta)
+    if not action and not mode:
+        return None
+
+    conversation_id = (
+        data.get("conversation_id")
+        or data.get("session_id")
+        or data.get("url")
+        or "conversation"
+    )
+    index = _infer_global_index(data, local_index)
+    text_sig = hashlib.sha1(
+        f"{role}:{content[:160]}".encode("utf-8", errors="ignore")
+    ).hexdigest()[:12]
+
+    if role == "assistant" and (
+        action == "regenerate"
+        or mode == "message_update"
+        or (mode == "message_delta" and len(data.get("messages") or []) == 1)
+    ):
+        group_id = f"{conversation_id}:variant:{index}"
+        variant_id = f"{group_id}:{text_sig}"
+        return {
+            "type": "assistant_variant",
+            "variant_group_id": group_id,
+            "variant_id": variant_id,
+            "variant_index": 1,
+            "current_variant_id": variant_id,
+            "regenerated_from": f"{group_id}:previous",
+            "source_action": action or mode,
+            "message_index": index,
+        }
+
+    if action in {"edit", "branch_prev", "branch_next"} or (
+        role == "user" and mode == "message_update"
+    ):
+        group_id = f"{conversation_id}:branch:{index}"
+        branch_id = f"{group_id}:{text_sig}"
+        branch_index = 0 if action == "branch_prev" else 1
+        return {
+            "type": "conversation_branch",
+            "branch_group_id": group_id,
+            "branch_id": branch_id,
+            "branch_index": branch_index,
+            "current_branch_id": branch_id,
+            "selected_branch_id": branch_id,
+            "parent_message_id": f"{conversation_id}:turn:{max(index - 1, 0)}",
+            "source_action": action or mode,
+            "message_index": index,
+        }
+
+    return None
+
+
 class ConversationNormalizer(BaseNormalizer):
     """Normalizes browser extension conversation captures (DOM-extracted messages).
 
@@ -247,7 +354,25 @@ class ConversationNormalizer(BaseNormalizer):
 
             # Merge: DOM-provided attachments + any extracted from raw JSON cleaning
             attachments = _dedupe_attachments(list(msg.get("attachments") or []) + extra_atts)
-            cj = build_content_json(attachments, plain_text=content)
+            if role == "user" and messages and messages[-1].role == "user":
+                prev_attachments = load_attachments_from_content_json(
+                    messages[-1].content_json
+                )
+                if prev_attachments:
+                    attachments = _dedupe_attachments(prev_attachments + attachments)
+                    messages.pop()
+            threading = _threading_contract_for_message(
+                data=data,
+                msg=msg,
+                role=role,
+                content=content,
+                local_index=len(messages),
+            )
+            cj = build_content_json(
+                attachments,
+                plain_text=content,
+                threading=threading,
+            )
 
             messages.append(NormalizedMessage(
                 role=role,

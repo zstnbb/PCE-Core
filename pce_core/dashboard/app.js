@@ -528,6 +528,11 @@ function renderSessionList(sessions) {
         ${s.language ? `<span class="tag tag-lang">${escapeHtml(s.language)}</span>` : ""}
         <span class="session-title">${escapeHtml(s.title_hint || "Untitled session")}</span>
         <span class="session-meta">${s.message_count} msgs</span>
+        ${s.branch_count && s.branch_count > 1 ? `
+          <span class="tag tag-branches" title="This session has ${s.branch_count} branches (regenerate / edit alternates)">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+            ${s.branch_count}
+          </span>` : ""}
         ${s.total_tokens ? `<span class="session-meta">${s.total_tokens} tokens</span>` : ""}
         ${s.topic_tags ? formatTopicTags(s.topic_tags) : ""}
         ${s.model_names ? `<span class="session-meta session-models">${formatModelNames(s.model_names)}</span>` : ""}
@@ -554,15 +559,29 @@ function renderSessionList(sessions) {
   });
 }
 
-async function loadSessionMessages(sessionId) {
+async function loadSessionMessages(sessionId, opts = {}) {
+  // ``opts.mode`` may be ``"collapse"`` or ``"expand"`` — defaults to
+  // ``"collapse"`` when entering a session for the first time, then
+  // sticks to whatever the user last picked while they navigate.
+  // ``opts.refetch`` skips the /sessions metadata round-trip when
+  // we're just flipping the mode on an already-open session.
   _currentSessionId = sessionId;
-  try {
-    // Fetch session metadata to get favorite state
-    const allSessions = await api(`/sessions?last=500`);
-    const sessionMeta = allSessions.find((s) => s.id === sessionId);
-    _currentSessionFavorited = sessionMeta ? !!sessionMeta.favorited : false;
+  const mode = opts.mode || "collapse";
+  _currentBranchesMode = mode;
 
-    const messages = await api(`/sessions/${sessionId}/messages`);
+  try {
+    if (!opts.refetch) {
+      // Fetch session metadata to get favorite state + branch_count.
+      const allSessions = await api(`/sessions?last=500`);
+      const sessionMeta = allSessions.find((s) => s.id === sessionId);
+      _currentSessionFavorited = sessionMeta ? !!sessionMeta.favorited : false;
+      _currentSessionBranchCount = sessionMeta && sessionMeta.branch_count
+        ? sessionMeta.branch_count : 1;
+    }
+
+    const messages = await api(
+      `/sessions/${sessionId}/messages?branches=${encodeURIComponent(mode)}`,
+    );
     const container = document.getElementById("session-messages");
 
     // Count attachments for header
@@ -579,17 +598,29 @@ async function loadSessionMessages(sessionId) {
     // Update favorite button in session detail header
     updateDetailFavoriteBtn("session-fav-btn", _currentSessionFavorited);
 
+    // Wire up the branches toggle. Hidden when there's only one
+    // branch (no fork to navigate); shown otherwise with the active
+    // segment highlighted and the count badge populated.
+    updateBranchesToggle(_currentSessionBranchCount, mode);
+
     container.innerHTML = messages
       .map((m) => {
         const roleClass = m.role === "user" ? "user" : m.role === "system" ? "system" : "assistant";
         const contentHtml = roleClass === "user"
           ? escapeHtml(m.content_text || "")
           : renderMarkdown(m.content_text || "");
+        const threadingHtml = m.content_json ? renderThreadingContract(m.content_json) : "";
         const attachmentsHtml = m.content_json ? renderAttachments(m.content_json) : "";
+        // The branch pill only shows in expand mode AND when the
+        // session actually has alternates. In collapse mode it would
+        // just be a noisy "main" tag on every row.
+        const showBranchPill = mode === "expand" && _currentSessionBranchCount > 1;
+        const branchPillHtml = showBranchPill ? renderBranchPill(m) : "";
         return `
           <div class="message-bubble ${roleClass}">
-            <div class="message-role">${escapeHtml(m.role)}</div>
+            <div class="message-role">${escapeHtml(m.role)}${branchPillHtml}</div>
             <div class="message-content">${contentHtml}</div>
+            ${threadingHtml}
             ${attachmentsHtml}
             <div class="message-meta">
               ${m.model_name ? `<span>${escapeHtml(m.model_name)}</span>` : ""}
@@ -606,6 +637,36 @@ async function loadSessionMessages(sessionId) {
   } catch (e) {
     console.error("Failed to load session messages:", e);
   }
+}
+
+function updateBranchesToggle(branchCount, activeMode) {
+  const wrap = document.getElementById("session-branches-toggle");
+  if (!wrap) return;
+  if (!branchCount || branchCount <= 1) {
+    wrap.classList.add("hidden");
+    return;
+  }
+  wrap.classList.remove("hidden");
+  const badge = document.getElementById("branches-count-badge");
+  if (badge) badge.textContent = String(branchCount);
+  wrap.querySelectorAll(".btn-toggle").forEach((btn) => {
+    btn.classList.toggle("is-active", btn.dataset.mode === activeMode);
+  });
+}
+
+function renderBranchPill(m) {
+  // ``branch_id === '0'`` is the default canonical path (ADR §5.1).
+  // Alternates carry minted ids — show the last 8 chars so the
+  // reader can correlate two rows from the same branch without
+  // having a 60-char ULID screaming for attention.
+  const bid = m.branch_id;
+  if (!bid) return "";
+  const isMain = bid === "0";
+  const label = isMain ? "main" : (bid.length > 10 ? `…${bid.slice(-8)}` : bid);
+  const cls = isMain ? "is-main" : "is-alt";
+  const turn = (m.turn_index !== null && m.turn_index !== undefined)
+    ? ` · t${m.turn_index}` : "";
+  return `<span class="message-branch-pill ${cls}" title="branch_id=${escapeHtml(bid)}${turn}">${escapeHtml(label)}</span>`;
 }
 
 // ── Attachment Rendering ─────────────────────────────────
@@ -650,6 +711,43 @@ function renderAttachments(contentJsonStr) {
   const cards = attachments.map((att) => renderOneAttachment(att)).filter(Boolean);
   if (cards.length === 0) return "";
   return `<div class="att-container">${cards.join("")}</div>`;
+}
+
+function renderThreadingContract(contentJsonStr) {
+  let data;
+  try {
+    data = JSON.parse(contentJsonStr);
+  } catch {
+    return "";
+  }
+  const threading = data?.threading;
+  const rich = data?.rich_content || {};
+  if (!threading && !rich.variant_group && !rich.branch_tree) return "";
+
+  const chips = [];
+  if (threading?.variant_group_id || rich.variant_group) {
+    const current = threading?.current_variant_id || rich.current_variant?.id || "";
+    chips.push(`
+      <div class="thread-chip thread-variant">
+        <span class="thread-label">Variant</span>
+        <span class="thread-value">${escapeHtml(shortThreadId(current || threading?.variant_group_id || ""))}</span>
+      </div>`);
+  }
+  if (threading?.branch_group_id || rich.branch_tree) {
+    const current = threading?.current_branch_id || rich.current_branch?.id || "";
+    chips.push(`
+      <div class="thread-chip thread-branch">
+        <span class="thread-label">Branch</span>
+        <span class="thread-value">${escapeHtml(shortThreadId(current || threading?.branch_group_id || ""))}</span>
+      </div>`);
+  }
+  return chips.length ? `<div class="thread-contract">${chips.join("")}</div>` : "";
+}
+
+function shortThreadId(value) {
+  const text = String(value || "");
+  if (!text) return "current";
+  return text.length > 18 ? text.slice(-18) : text;
 }
 
 function renderOneAttachment(att) {
@@ -891,11 +989,13 @@ async function loadFavoriteMessages(sessionId) {
         const contentHtml = roleClass === "user"
           ? escapeHtml(m.content_text || "")
           : renderMarkdown(m.content_text || "");
+        const threadingHtml = m.content_json ? renderThreadingContract(m.content_json) : "";
         const attachmentsHtml = m.content_json ? renderAttachments(m.content_json) : "";
         return `
           <div class="message-bubble ${roleClass}">
             <div class="message-role">${escapeHtml(m.role)}</div>
             <div class="message-content">${contentHtml}</div>
+            ${threadingHtml}
             ${attachmentsHtml}
             <div class="message-meta">
               ${m.model_name ? `<span>${escapeHtml(m.model_name)}</span>` : ""}
@@ -926,6 +1026,24 @@ function updateDetailFavoriteBtn(btnId, isFav) {
 document.getElementById("session-back").addEventListener("click", () => {
   document.getElementById("session-detail").classList.add("hidden");
   document.getElementById("sessions-list").classList.remove("hidden");
+  // Reset to the default mode for the next session the user opens —
+  // we want every entry into a session to start with the cleanest view.
+  _currentBranchesMode = "collapse";
+});
+
+// G3: Collapse / Expand toggle in the session detail header. Each
+// click re-fetches messages on the same session id with the new
+// ``branches=`` value; we pass ``refetch: true`` so we don't burn a
+// /sessions metadata roundtrip we already did when opening.
+["branches-collapse-btn", "branches-expand-btn"].forEach((btnId) => {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  btn.addEventListener("click", () => {
+    if (!_currentSessionId) return;
+    const mode = btn.dataset.mode;
+    if (mode === _currentBranchesMode) return;  // already active
+    loadSessionMessages(_currentSessionId, { mode, refetch: true });
+  });
 });
 
 document.getElementById("favorite-back").addEventListener("click", () => {
@@ -966,6 +1084,14 @@ document.getElementById("capture-refresh").addEventListener("click", loadCapture
 // ── Export ──────────────────────────────────────────────
 let _currentSessionId = null;
 let _currentSessionFavorited = false;
+// G3 (ADR-2026-04-26 §5.4): the messages endpoint now defaults to
+// ?branches=collapse, but the user can flip to ?branches=expand via
+// the toggle in the session-detail header. We cache the active mode
+// and the session's branch_count so the toggle re-fetch knows what
+// to ask for and can keep the badge in sync without another round
+// trip to /sessions.
+let _currentBranchesMode = "collapse";
+let _currentSessionBranchCount = 1;
 
 document.getElementById("export-md").addEventListener("click", () => {
   if (!_currentSessionId) return;

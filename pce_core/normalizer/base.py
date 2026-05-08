@@ -23,6 +23,16 @@ class NormalizedMessage:
     model_name: Optional[str] = None
     token_estimate: Optional[int] = None
     ts: Optional[float] = None  # if None, will be set to capture created_at
+    # Provider-side identity (network-channel only). Used by the
+    # message-processor to detect Regenerate / Edit forks per
+    # ADR-2026-04-26 §5.2: if a later completion's
+    # ``provider_parent_uuid`` matches an existing message's
+    # ``provider_parent_uuid`` and the texts differ, the new
+    # completion is on a new branch. Both fields are echoed into
+    # ``content_json.threading`` so future completions can SQL-find
+    # siblings without a schema change.
+    provider_message_uuid: Optional[str] = None
+    provider_parent_uuid: Optional[str] = None
 
 
 @dataclass

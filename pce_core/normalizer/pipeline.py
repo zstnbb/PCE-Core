@@ -122,7 +122,7 @@ def normalize_conversation(
                 # DOM-extracted 'attachments' field on each message.
                 from .conversation import ConversationNormalizer
                 _conv_norm = ConversationNormalizer()
-                body = capture_row.get("body_text_or_json", "")
+                body = _conversation_body_with_capture_meta(capture_row)
                 result = _conv_norm.normalize(
                     body, body,
                     provider=capture_row.get("provider", ""),
@@ -261,6 +261,33 @@ def _normalize_network_intercept(capture_row: dict) -> Optional[NormalizedResult
 
     # ── Fallback 2: embedded AI format (Notion AI, etc.) ─────────────
     return _try_embedded_ai_normalize(request_row, response_row, provider)
+
+
+def _conversation_body_with_capture_meta(capture_row: dict) -> str:
+    """Inject raw-capture meta into DOM conversation JSON for normalizers."""
+    body = capture_row.get("body_text_or_json", "") or ""
+    try:
+        data = json.loads(body)
+    except (json.JSONDecodeError, TypeError):
+        return body
+    if not isinstance(data, dict):
+        return body
+
+    meta: dict = {}
+    raw_meta = capture_row.get("meta_json")
+    if isinstance(raw_meta, str) and raw_meta.strip():
+        try:
+            parsed = json.loads(raw_meta)
+            if isinstance(parsed, dict):
+                meta.update(parsed)
+        except (json.JSONDecodeError, TypeError):
+            pass
+    elif isinstance(raw_meta, dict):
+        meta.update(raw_meta)
+
+    if meta:
+        data["_capture_meta"] = meta
+    return json.dumps(data, ensure_ascii=False)
 
 
 def _try_generic_normalize(
