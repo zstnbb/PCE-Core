@@ -43,9 +43,17 @@ export interface CopyEvent {
   length: number;
 }
 
+export interface ActionEvent {
+  at: number;
+  type: string;
+  label: string;
+}
+
 export interface BehaviorState {
   lastRequestSentAt: number | null;
   copyEvents: CopyEvent[];
+  actionEvents: ActionEvent[];
+  lastAction: ActionEvent | null;
   scrollDepthPct: number;
   messageTimestamps: number[];
 }
@@ -53,6 +61,8 @@ export interface BehaviorState {
 export interface BehaviorSnapshot {
   request_sent_at: number | null;
   copy_events: CopyEvent[];
+  action_events: ActionEvent[];
+  last_action: ActionEvent | null;
   scroll_depth_pct: number;
   think_interval_ms?: number;
 }
@@ -61,6 +71,8 @@ export function createBehaviorState(): BehaviorState {
   return {
     lastRequestSentAt: null,
     copyEvents: [],
+    actionEvents: [],
+    lastAction: null,
     scrollDepthPct: 0,
     messageTimestamps: [],
   };
@@ -79,6 +91,8 @@ export function getBehaviorSnapshot(
   const snapshot: BehaviorSnapshot = {
     request_sent_at: state.lastRequestSentAt,
     copy_events: state.copyEvents.slice(-10),
+    action_events: state.actionEvents.slice(-10),
+    last_action: state.lastAction,
     scroll_depth_pct: state.scrollDepthPct,
   };
   if (state.messageTimestamps.length >= 2) {
@@ -88,6 +102,8 @@ export function getBehaviorSnapshot(
   }
   if (reset) {
     state.copyEvents = [];
+    state.actionEvents = [];
+    state.lastAction = null;
     state.scrollDepthPct = 0;
   }
   return snapshot;
@@ -134,6 +150,59 @@ export function isSendButtonTarget(target: Element | null): boolean {
     return true;
   }
   return false;
+}
+
+function actionLabel(target: Element | null): string {
+  if (!target) return "";
+  const el = target.closest?.("button, [role='button'], [role='menuitem'], a") || target;
+  const parts = [
+    el.getAttribute?.("aria-label"),
+    el.getAttribute?.("title"),
+    el.getAttribute?.("data-testid"),
+    el.getAttribute?.("data-test-id"),
+    (el as HTMLElement).innerText,
+    el.textContent,
+  ].filter(Boolean);
+  return parts.join(" ").trim().slice(0, 240);
+}
+
+export function classifyActionLabel(label: string): string | null {
+  const text = (label || "").toLowerCase();
+  if (!text) return null;
+  if (/previous reply|previous version/.test(text)) {
+    return "branch_prev";
+  }
+  if (/next reply|next version/.test(text)) {
+    return "branch_next";
+  }
+  if (
+    /regenerate|try again|retry|rerun|重新生成|重新回答|重试|重做/.test(text)
+  ) {
+    return "regenerate";
+  }
+  if (/previous response|previous draft|上一个|上一回复|上一草稿/.test(text)) {
+    return "branch_prev";
+  }
+  if (/next response|next draft|下一个|下一回复|下一草稿/.test(text)) {
+    return "branch_next";
+  }
+  if (/edit message|edit|编辑|編輯/.test(text)) {
+    return "edit";
+  }
+  return null;
+}
+
+function recordAction(state: BehaviorState, type: string, label: string): void {
+  const event: ActionEvent = {
+    at: Date.now(),
+    type,
+    label: label.slice(0, 120),
+  };
+  state.lastAction = event;
+  state.actionEvents.push(event);
+  if (state.actionEvents.length > 20) {
+    state.actionEvents = state.actionEvents.slice(-20);
+  }
 }
 
 export function isSendKeyEvent(evt: {
@@ -204,6 +273,9 @@ export default defineContentScript({
           state.lastRequestSentAt = now;
           state.messageTimestamps.push(now);
         }
+        const label = actionLabel(target);
+        const action = classifyActionLabel(label);
+        if (action) recordAction(state, action, label);
       },
       true,
     );

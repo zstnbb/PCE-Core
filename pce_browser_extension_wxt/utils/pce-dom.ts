@@ -263,9 +263,50 @@ export function extractAttachments(el: Element | null): PceAttachment[] {
       .toString()
       .slice(0, 200);
     const srcHints = `${src} ${alt} ${img.className || ""}`;
+    // Claude's user-upload preview URL (verified 2026-05-03):
+    //   /api/<conv-uuid>/files/<file-uuid>/preview
+    // The conversation+file UUIDs make this distinct from any avatar
+    // or static asset URL, so we treat it as a strong user-upload
+    // signal regardless of the natural-width heuristic.
+    const looksLikeClaudeFilePreview =
+      /\/api\/[a-f0-9-]+\/files\/[a-f0-9-]+\/preview/i.test(src);
+    // Grok's user-upload preview URL (verified 2026-05-03):
+    //   https://assets.grok.com/users/<user-uuid>/<file-uuid>/preview-image
+    //   https://assets.grok.com/users/<user-uuid>/<file-uuid>/content
+    // ``assets.grok.com/users/`` is unique enough to mark as user
+    // upload without false-positives on avatars/icons.
+    const looksLikeGrokFilePreview =
+      /assets\.grok\.com\/users\/[a-f0-9-]+\/[a-f0-9-]+\//i.test(src);
+    // Chip-context: when our caller widened the scope to a wrapper
+    // that contains a thumbnail / chip / attachment / preview wrapper
+    // OR a filename-shaped data-testid, any <img> within is by
+    // definition the user-upload preview, so we bypass the natural-
+    // width filter (4x4 test PNGs would otherwise be rejected).
+    // Covers: Claude (``[class*="thumbnail"]``), Grok
+    // (``[class*="chip"]``), Gemini (``[class*="attachment"]``).
+    let inChipContext = false;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const closest = (img as any).closest;
+      if (typeof closest === "function") {
+        inChipContext = !!img.closest(
+          '[class*="thumbnail" i], [class*="chip" i], ' +
+            '[class*="attachment" i], [class*="preview" i], ' +
+            '[data-testid$=".png" i], [data-testid$=".jpg" i], ' +
+            '[data-testid$=".jpeg" i], [data-testid$=".webp" i], ' +
+            '[data-testid$=".gif" i]',
+        );
+      }
+    } catch {
+      // happy-dom or other environments may not implement closest()
+      // for some attribute selectors; fall through.
+    }
     const looksLikeUserUpload =
       /uploaded|已上传|user image|attachment/i.test(srcHints) ||
       src.includes("/backend-api/estuary/content") ||
+      looksLikeClaudeFilePreview ||
+      looksLikeGrokFilePreview ||
+      inChipContext ||
       src.startsWith("blob:");
     if (src.startsWith("data:image/svg")) return;
     if (/avatar|icon|logo|favicon|emoji/i.test(src)) return;
@@ -320,12 +361,42 @@ export function extractAttachments(el: Element | null): PceAttachment[] {
   });
 
   // --- File attachments (chips, cards, upload indicators) ---
+  // ``[class*="thumbnail" i]`` catches Claude's user-upload chip whose
+  // wrapper is ``<div class="relative group/thumbnail">``. Tailwind's
+  // arbitrary-variant syntax (``group/thumbnail``) is just a class
+  // token containing the substring "thumbnail", so the case-insensitive
+  // class-substring match works without special handling. Closes the
+  // C10/C11 reconciler-join gap (verified 2026-05-03 DOM diag).
   const fileSelectors = [
     '[class*="file"]',
     '[class*="attachment"]',
     '[class*="upload"]',
+    '[class*="chip"]',
+    '[class*="thumbnail" i]',
     '[data-testid*="file"]',
     '[data-testid*="attachment"]',
+    '[data-testid*="document"]',
+    '[data-testid*="doc-pill"]',
+    '[data-testid*="media"]',
+    '[data-testid*="pill"]',
+    // Claude renders the chip's innermost element with the FILENAME
+    // as ``data-testid`` (e.g. ``<div data-testid="report.pdf">``).
+    // Match common file extensions to catch this without slugging the
+    // filename heuristic.
+    '[data-testid$=".pdf" i]',
+    '[data-testid$=".png" i]',
+    '[data-testid$=".jpg" i]',
+    '[data-testid$=".jpeg" i]',
+    '[data-testid$=".webp" i]',
+    '[data-testid$=".gif" i]',
+    '[data-testid$=".csv" i]',
+    '[data-testid$=".docx" i]',
+    '[data-testid$=".xlsx" i]',
+    '[data-testid$=".txt" i]',
+    '[data-testid$=".md" i]',
+    '[data-testid$=".json" i]',
+    "mat-chip",
+    "mat-chip-row",
   ];
   for (const sel of fileSelectors) {
     try {
