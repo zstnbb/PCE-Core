@@ -52,6 +52,9 @@ REPORTS_ROOT = ROOT / "reports" / "googleaistudio"
 SAMPLE_IMAGE = FIXTURES_DIR / "sample_square.png"
 
 ACCOUNT_TIER = os.environ.get("GAS_ACCOUNT_TIER", "default").strip().lower() or "default"
+FREE_ACCESS_TIERS = {"free_core", "free_no_capture", "free_error_state"}
+REUSE_CHAT_PAGE = os.environ.get("PCE_GAS_REUSE_CHAT", "").strip() == "1"
+CASE_DELAY_S = float(os.environ.get("PCE_GAS_CASE_DELAY_S", "0").strip() or "0")
 
 
 class CaseSkip(RuntimeError):
@@ -67,6 +70,8 @@ class GASCase:
     id: str
     description: str
     action: str
+    access_tier: str = "free_core"
+    access_note: str = "Expected to work on a free AI Studio account when prompt execution is available."
     prompt_template: str = ""
     raw_required_attachment_types: dict[str, set[str]] = field(default_factory=dict)
     session_required_attachment_types: dict[str, set[str]] = field(default_factory=dict)
@@ -77,6 +82,7 @@ class GASCase:
     session_timeout_s: float = 45
     visual_review_required: bool = False
     expect_no_new_captures: bool = False
+    expect_no_error_assistant: bool = False
 
 
 CASES: list[GASCase] = [
@@ -90,6 +96,8 @@ CASES: list[GASCase] = [
         id="A02",
         description="Freeform (Create) prompt",
         action="freeform",
+        access_tier="legacy_or_restricted_surface",
+        access_note="Older /new_freeform surface; current accounts may redirect or show prompt-access-restricted.",
         prompt_template=(
             "PCE-{id}-{token}. Summarize the following: 'Hello world' in one sentence containing {token}."
         ),
@@ -98,6 +106,8 @@ CASES: list[GASCase] = [
         id="A03",
         description="Structured prompt extraction",
         action="structured",
+        access_tier="legacy_or_restricted_surface",
+        access_note="Older /new_structured surface; current UI exposes structured outputs under Run settings.",
         prompt_template="PCE-{id}-{token}. Reply with STRUCTURED {token}",
         visual_review_required=True,
     ),
@@ -124,6 +134,8 @@ CASES: list[GASCase] = [
         id="A06",
         description="2.5 Pro Thinking visibility",
         action="thinking_model",
+        access_tier="advanced_model",
+        access_note="Requires a Pro/advanced reasoning model; skip on free-only accounts.",
         prompt_template=(
             "PCE-{id}-{token}. Think step-by-step about 17*19 and show your reasoning. "
             "End the answer with {token}."
@@ -155,6 +167,8 @@ CASES: list[GASCase] = [
         id="A09",
         description="Video upload (optional)",
         action="video_upload",
+        access_tier="optional_multimodal",
+        access_note="Optional media-input path; may be blocked by upload/model quota on free accounts.",
         prompt_template=(
             "PCE-{id}-{token}. Describe what you see in the uploaded video in one sentence with {token}."
         ),
@@ -164,6 +178,8 @@ CASES: list[GASCase] = [
         id="A10",
         description="Audio upload (optional)",
         action="audio_upload",
+        access_tier="optional_multimodal",
+        access_note="Optional media-input path; may be blocked by upload/model quota on free accounts.",
         prompt_template=(
             "PCE-{id}-{token}. Transcribe the uploaded audio in one sentence containing {token}."
         ),
@@ -180,6 +196,8 @@ CASES: list[GASCase] = [
         id="A12",
         description="Grounding with Google Search citations",
         action="grounding_search",
+        access_tier="api_tool_or_billing",
+        access_note="Tool path that may require enabled API project, key, billing, or quota.",
         prompt_template=(
             "PCE-{id}-{token}. Using grounded search, tell me one fact about PCE "
             "test run {token}. Include at least one citation."
@@ -192,6 +210,8 @@ CASES: list[GASCase] = [
         id="A13",
         description="URL context tool",
         action="url_context",
+        access_tier="api_tool_or_billing",
+        access_note="Tool path that may require enabled API project, key, billing, or quota.",
         prompt_template=(
             "PCE-{id}-{token}. Summarize https://example.com in one sentence containing {token}."
         ),
@@ -201,6 +221,8 @@ CASES: list[GASCase] = [
         id="A14",
         description="Code execution tool",
         action="code_execution",
+        access_tier="api_tool_or_billing",
+        access_note="Tool path that may require enabled API project, key, billing, or quota.",
         prompt_template=(
             "PCE-{id}-{token}. Compute the sum of squares of 1..10 using code execution. "
             "Include {token}."
@@ -213,6 +235,8 @@ CASES: list[GASCase] = [
         id="A15",
         description="Function calling tool",
         action="function_calling",
+        access_tier="api_tool_or_billing",
+        access_note="Tool path that may require enabled API project, key, billing, or quota.",
         prompt_template="PCE-{id}-{token}. If you can, call a simple function. Include {token}.",
         response_timeout_s=120,
         visual_review_required=True,
@@ -221,6 +245,8 @@ CASES: list[GASCase] = [
         id="A16",
         description="Imagen image generation",
         action="image_generation",
+        access_tier="advanced_generation",
+        access_note="Image generation path; usually requires model access and quota beyond free core chat.",
         prompt_template=(
             "PCE-{id}-{token}. Generate a simple blue square image. Caption with {token}."
         ),
@@ -234,11 +260,14 @@ CASES: list[GASCase] = [
         id="A17",
         description="Edit / regenerate user prompt",
         action="edit_and_regenerate",
+        access_note="Free core branch/edit path when prompt execution is available.",
     ),
     GASCase(
         id="A18",
         description="Modals must NOT capture (Get code)",
         action="modal_get_code",
+        access_tier="free_no_capture",
+        access_note="Free UI surface; verifies modal interactions do not create captures.",
         visual_review_required=True,
         expect_no_new_captures=True,
         capture_timeout_s=10,
@@ -247,6 +276,8 @@ CASES: list[GASCase] = [
         id="A19",
         description="Browse /gallery /library /tune /apikey — no captures",
         action="browse_pages",
+        access_tier="free_no_capture",
+        access_note="Free navigation surfaces; verifies non-conversation pages do not create captures.",
         visual_review_required=True,
         expect_no_new_captures=True,
         capture_timeout_s=12,
@@ -255,9 +286,14 @@ CASES: list[GASCase] = [
         id="A20",
         description="Frontend error state",
         action="error_state",
+        access_tier="free_error_state",
+        access_note=(
+            "Free error-state surface; user-only failed prompts may capture, "
+            "but error banners must never become assistant content."
+        ),
         prompt_template="PCE-{id}-{token}. Offline request should not capture.",
         visual_review_required=True,
-        expect_no_new_captures=True,
+        expect_no_error_assistant=True,
         capture_timeout_s=12,
     ),
 ]
@@ -286,6 +322,8 @@ def _write_json(path: Path, payload: Any) -> None:
 def _selected_cases() -> list[GASCase]:
     raw = os.environ.get("PCE_GAS_CASES", "").strip()
     if not raw:
+        if os.environ.get("PCE_GAS_FREE_ONLY", "").strip() == "1":
+            return [case for case in CASES if case.access_tier in FREE_ACCESS_TIERS]
         return CASES
     wanted = {part.strip().upper() for part in raw.split(",") if part.strip()}
     return [case for case in CASES if case.id.upper() in wanted]
@@ -365,6 +403,8 @@ def gas_preflight(driver, gas_adapter: GoogleAIStudioAdapter, gas_report_dir: Pa
     payload = {
         "generated_at": time.time(),
         "account_tier": ACCOUNT_TIER,
+        "default_model_id": _DEFAULT_CHAT_MODEL_ID,
+        "thinking_model_id": _THINKING_MODEL_ID,
         "features": features,
     }
     _write_json(gas_report_dir / "preflight.json", payload)
@@ -381,10 +421,14 @@ def write_summary(gas_report_dir: Path):
         except Exception as exc:
             cases.append({"case_id": path.stem, "status": "broken_report", "error": str(exc)})
     status_counts: dict[str, int] = {}
+    access_tier_counts: dict[str, dict[str, int]] = {}
     visual_review = []
     for case in cases:
         status = case.get("status", "unknown")
         status_counts[status] = status_counts.get(status, 0) + 1
+        access_tier = case.get("access_tier", "unknown")
+        bucket = access_tier_counts.setdefault(access_tier, {})
+        bucket[status] = bucket.get(status, 0) + 1
         if case.get("visual_review_required"):
             visual_review.append(case.get("case_id"))
     summary = {
@@ -392,6 +436,7 @@ def write_summary(gas_report_dir: Path):
         "account_tier": ACCOUNT_TIER,
         "case_count": len(cases),
         "status_counts": status_counts,
+        "access_tier_counts": access_tier_counts,
         "visual_review_required": visual_review,
         "cases": cases,
     }
@@ -467,13 +512,22 @@ def _take_verified_screenshot(
     return path
 
 
+def _messages_from_capture(capture: dict[str, Any]) -> list[dict[str, Any]]:
+    try:
+        payload = json.loads(capture.get("body_text_or_json") or "{}")
+    except Exception:
+        return []
+    messages = payload.get("messages")
+    return messages if isinstance(messages, list) else []
+
+
 _DEFAULT_CHAT_MODEL_LABELS = [
-    "Gemini 3 Flash Preview",
-    "gemini-3-flash-preview",
-    "Gemini Flash",
-    "gemini-flash",
+    "Gemini Flash Lite Latest",
+    "gemini-flash-lite-latest",
+    "Flash-Lite",
+    "Flash Lite",
 ]
-_DEFAULT_CHAT_MODEL_ID = "gemini-3-flash-preview"
+_DEFAULT_CHAT_MODEL_ID = "gemini-flash-lite-latest"
 _THINKING_MODEL_LABELS = [
     "Gemini Pro Latest",
     "gemini-pro-latest",
@@ -507,6 +561,14 @@ def _navigate_chat(
     model_id: str | None = None,
     model_labels: list[str] | None = None,
 ) -> dict[str, Any]:
+    if REUSE_CHAT_PAGE:
+        try:
+            current_url = driver.current_url or ""
+        except Exception:
+            current_url = ""
+        if current_url.startswith(adapter.base_url + "/prompts/") and adapter.find_input(driver):
+            return {"current_url": current_url, "reused_chat_page": True}
+
     if model_id:
         navigated = adapter.navigate_to_new_chat_with_model(driver, model_id)
     else:
@@ -587,9 +649,30 @@ def _perform_send(
         adapter.response_timeout_s = old_timeout
 
     screenshots["after"] = adapter.take_screenshot(driver, f"{prefix}_after_response")
+    retry_attempted = False
+    stale_blocker_ignored = None
     blocker = _wait_for_blocker_reason(adapter, driver)
+    assistant_after = adapter.turn_count(driver, role="assistant")
+    if blocker and wait_response and response_ok and assistant_after > assistant_before:
+        stale_blocker_ignored = blocker
+        blocker = None
     if blocker:
-        raise CaseSkip(blocker)
+        adapter.clear_browser_logs(driver)
+        if not adapter.click_regenerate(driver):
+            raise CaseSkip(blocker)
+        retry_attempted = True
+        stream_seen = (
+            adapter.wait_for_stop_button_visible(driver, timeout_s=12)
+            if wait_stream
+            else stream_seen
+        )
+        response_ok = adapter.wait_for_response(driver) if wait_response else True
+        screenshots["after_retry"] = adapter.take_screenshot(
+            driver, f"{prefix}_after_retry"
+        )
+        retry_blocker = _wait_for_blocker_reason(adapter, driver)
+        if retry_blocker:
+            raise CaseSkip(retry_blocker)
     if wait_response and not response_ok:
         raise CaseFailure("response_not_received")
 
@@ -604,8 +687,31 @@ def _perform_send(
             "assistant_turns_before": assistant_before,
             "assistant_turns_after": adapter.turn_count(driver, role="assistant"),
             "response_received": response_ok,
+            "retry_attempted": retry_attempted,
+            "stale_blocker_ignored": stale_blocker_ignored,
         },
     }
+
+
+def _wait_for_assistant_delta_or_error(
+    adapter: GoogleAIStudioAdapter,
+    driver,
+    *,
+    assistant_before: int,
+    timeout_s: float = 90,
+    poll_interval_s: float = 1.0,
+) -> bool:
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        if adapter.turn_count(driver, role="assistant") > assistant_before:
+            return True
+        if adapter.wait_for_stop_button_visible(driver, timeout_s=0.2):
+            adapter.wait_for_response(driver)
+            return True
+        if adapter.execution_blocker_reason(driver, include_browser_logs=False):
+            return True
+        time.sleep(poll_interval_s)
+    return adapter.turn_count(driver, role="assistant") > assistant_before
 
 
 def _action_vanilla_chat(case, adapter, driver, token, _):
@@ -865,7 +971,7 @@ def _action_edit_and_regenerate(case, adapter, driver, token, _):
         model_id=_DEFAULT_CHAT_MODEL_ID,
         model_labels=_DEFAULT_CHAT_MODEL_LABELS,
     )
-    original_token = f"{token}-ORIG"
+    original_token = f"{case.id}-ORIG-{int(time.time())}"
     original_prompt = (
         f"PCE-{case.id}-{original_token}. Reply with one sentence containing {original_token}."
     )
@@ -878,20 +984,56 @@ def _action_edit_and_regenerate(case, adapter, driver, token, _):
     updated_prompt = (
         f"PCE-{case.id}-{token}. Reply with one sentence containing {token}."
     )
+    assistant_before_branch = adapter.turn_count(driver, role="assistant")
+    branch_mode = "edit"
+    expected_token = token
     if not adapter.edit_last_user_message(driver, updated_prompt):
-        # Fall back to regenerate if edit UI not available
+        # Fall back to regenerate if the current AI Studio surface has no
+        # stable edit control. This still exercises the branch/rerun path.
         if not adapter.click_regenerate(driver):
             raise CaseSkip("edit_or_regenerate_controls_unavailable")
-    if not adapter.wait_for_response(driver):
+        branch_mode = "regenerate"
+        expected_token = original_token
+    if not _wait_for_assistant_delta_or_error(
+        adapter,
+        driver,
+        assistant_before=assistant_before_branch,
+        timeout_s=case.response_timeout_s,
+    ):
         raise CaseFailure("edited_response_not_received")
+    edit_retry_attempted = False
+    blocker = _wait_for_blocker_reason(adapter, driver, timeout_s=3, poll_interval_s=0.8)
+    if blocker:
+        adapter.clear_browser_logs(driver)
+        assistant_before_retry = adapter.turn_count(driver, role="assistant")
+        if not adapter.click_regenerate(driver):
+            raise CaseSkip(blocker)
+        edit_retry_attempted = True
+        if not _wait_for_assistant_delta_or_error(
+            adapter,
+            driver,
+            assistant_before=assistant_before_retry,
+            timeout_s=case.response_timeout_s,
+        ):
+            raise CaseFailure("edited_retry_response_not_received")
+        retry_blocker = _wait_for_blocker_reason(
+            adapter, driver, timeout_s=3, poll_interval_s=0.8
+        )
+        if retry_blocker:
+            raise CaseSkip(retry_blocker)
     adapter.trigger_manual_capture(driver)
     time.sleep(2)
     after_ss = adapter.take_screenshot(driver, f"{case.id.lower()}_after_edit")
     return {
         **observation,
-        "contains_text": token,
+        "contains_text": expected_token,
         "screenshots": {"after": after_ss},
-        "notes": {"original_token": original_token, "edited_token": token},
+        "notes": {
+            "original_token": original_token,
+            "edited_token": token,
+            "branch_mode": branch_mode,
+            "edit_retry_attempted": edit_retry_attempted,
+        },
     }
 
 
@@ -966,7 +1108,7 @@ def _action_error_state(case, adapter, driver, token, _):
         **observation,
         "screenshots": {"before": before_ss, "after": after_ss},
         "notes": {"error_prompt": token},
-        "expect_no_new_captures": True,
+        "expect_no_error_assistant": True,
     }
 
 
@@ -998,6 +1140,45 @@ def _verify_case(case: GASCase, action_result: dict[str, Any]) -> dict[str, Any]
     verification: dict[str, Any] = {}
     provider = GoogleAIStudioAdapter.provider
     expect_no_new = action_result.get("expect_no_new_captures", case.expect_no_new_captures)
+
+    if action_result.get("expect_no_error_assistant", case.expect_no_error_assistant):
+        result = wait_for_new_captures(
+            initial_count=action_result["initial_count"],
+            initial_provider_count=action_result["initial_provider_count"],
+            timeout_s=case.capture_timeout_s,
+            poll_interval=1.5,
+            min_new=1,
+            provider=provider,
+        )
+        error_needles = (
+            "failed to generate content",
+            "an internal error has occurred",
+            "permission denied",
+            "quota",
+            "offline",
+        )
+        assistant_errors = []
+        for capture in result.get("captures", []):
+            for message in _messages_from_capture(capture):
+                if (message.get("role") or "").lower() != "assistant":
+                    continue
+                content = (message.get("content") or "").lower()
+                if any(needle in content for needle in error_needles):
+                    assistant_errors.append(
+                        {
+                            "capture_id": capture.get("id"),
+                            "content": message.get("content"),
+                        }
+                    )
+        if assistant_errors:
+            raise CaseFailure(f"error_banner_captured_as_assistant {assistant_errors}")
+        verification["error_state_no_assistant_error"] = {
+            "new_capture_seen": result.get("success", False),
+            "provider_new_count": result.get("provider_new_count", 0),
+            "assistant_error_count": 0,
+            "captures_checked": len(result.get("captures", [])),
+        }
+        return verification
 
     if expect_no_new:
         result = wait_for_no_new_captures(
@@ -1045,10 +1226,26 @@ def _verify_case(case: GASCase, action_result: dict[str, Any]) -> dict[str, Any]
             )
         verification["raw_capture"] = raw_result
 
+        expected_system = (action_result.get("notes") or {}).get("system_instructions")
+        if expected_system:
+            raw_capture = raw_result.get("capture") or {}
+            try:
+                layer_meta = json.loads(raw_capture.get("layer_meta_json") or "{}")
+            except Exception:
+                layer_meta = {}
+            if layer_meta.get("system_instructions") != expected_system:
+                raise CaseFailure(
+                    "system_instructions_layer_meta_missing"
+                )
+            verification["layer_meta"] = {
+                "system_instructions": layer_meta.get("system_instructions"),
+            }
+
     session_required = action_result.get(
         "session_required_attachment_types",
         case.session_required_attachment_types,
     )
+    session_started_after = None if REUSE_CHAT_PAGE else action_result["started_at"] - 5
     session_result = wait_for_session_matching(
         provider=provider,
         contains_text=contains_text,
@@ -1057,7 +1254,7 @@ def _verify_case(case: GASCase, action_result: dict[str, Any]) -> dict[str, Any]
         min_messages=2,
         timeout_s=case.session_timeout_s,
         poll_interval=2,
-        started_after=action_result["started_at"] - 5,
+        started_after=session_started_after,
     )
     if not session_result["success"]:
         raise CaseFailure(
@@ -1115,6 +1312,9 @@ def test_gas_full(case: GASCase, driver, generated_fixtures, gas_adapter: Google
         "case_id": case.id,
         "description": case.description,
         "account_tier": ACCOUNT_TIER,
+        "access_tier": case.access_tier,
+        "access_note": case.access_note,
+        "default_model_id": _DEFAULT_CHAT_MODEL_ID,
         "status": "started",
         "started_at": time.time(),
         "token": token,
@@ -1123,15 +1323,18 @@ def test_gas_full(case: GASCase, driver, generated_fixtures, gas_adapter: Google
     }
 
     try:
-        if case.expect_no_new_captures:
+        if case.expect_no_new_captures or case.expect_no_error_assistant:
             _reset_browser_surface(driver)
         action_result = ACTIONS[case.action](case, gas_adapter, driver, token, generated_fixtures)
+        record.update({
+            "action": case.action,
+            "action_result": action_result,
+        })
+        _write_json(report_path, record)
         verification = _verify_case(case, action_result)
         visual = _finalize_visual_review(case, action_result)
         record.update({
             "status": "pass",
-            "action": case.action,
-            "action_result": action_result,
             "verification": verification,
             "visual_checks": visual,
         })
@@ -1151,6 +1354,13 @@ def test_gas_full(case: GASCase, driver, generated_fixtures, gas_adapter: Google
         _write_json(report_path, record)
         raise
     finally:
+        if case.action == "system_instructions":
+            try:
+                gas_adapter.set_system_instructions(driver, "")
+            except Exception:
+                pass
         record["finished_at"] = time.time()
         record["elapsed_s"] = round(record["finished_at"] - record["started_at"], 1)
         _write_json(report_path, record)
+        if CASE_DELAY_S > 0:
+            time.sleep(CASE_DELAY_S)

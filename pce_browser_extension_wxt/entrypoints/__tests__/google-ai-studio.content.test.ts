@@ -6,6 +6,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
+  __resetGoogleAIStudioVirtualTurnCacheForTests,
   attachmentOnlyText,
   cleanContainerText,
   dedupeAttachments,
@@ -13,16 +14,22 @@ import {
   extractLocalAttachments,
   extractMessages,
   extractUserText,
+  getCaptureSessionHint,
   getContainer,
   getModelName,
   getSessionHint,
+  getSystemInstructions,
   imageMediaType,
   isStreaming,
   normalizeText,
+  rememberSystemInstructions,
 } from "../google-ai-studio.content";
 import type { PceAttachment } from "../../utils/pce-dom";
 
 beforeEach(() => {
+  __resetGoogleAIStudioVirtualTurnCacheForTests();
+  document.body.innerHTML = `<textarea aria-label="System instructions"></textarea>`;
+  rememberSystemInstructions(document);
   document.body.innerHTML = "";
 });
 
@@ -322,8 +329,25 @@ describe("getSessionHint", () => {
     expect(getSessionHint("/prompts/abc123")).toBe("abc123");
   });
 
-  it("falls back to pathname when no match", () => {
-    expect(getSessionHint("/library")).toBe("/library");
+  it("returns null for transient or non-conversation surfaces", () => {
+    expect(getSessionHint("/prompts/new_chat")).toBeNull();
+    expect(getSessionHint("/library")).toBeNull();
+  });
+});
+
+describe("getCaptureSessionHint", () => {
+  it("keeps durable prompt IDs when the URL has one", () => {
+    expect(getCaptureSessionHint("/prompts/abc123", "fallback")).toBe("abc123");
+  });
+
+  it("uses a synthetic fallback for completed transient new_chat prompts", () => {
+    expect(getCaptureSessionHint("/prompts/new_chat", "gas-transient-1")).toBe(
+      "gas-transient-1",
+    );
+  });
+
+  it("does not create conversation IDs for non-conversation pages", () => {
+    expect(getCaptureSessionHint("/library", "fallback")).toBeNull();
   });
 });
 
@@ -451,6 +475,72 @@ describe("extractAssistantText", () => {
   });
 });
 
+describe("getSystemInstructions", () => {
+  it("extracts the configured system instruction textarea value", () => {
+    document.body.innerHTML = `
+      <textarea aria-label="System instructions">Always include TOKEN-SYS.</textarea>`;
+    expect(getSystemInstructions(document)).toBe("Always include TOKEN-SYS.");
+  });
+
+  it("extracts the configured system instruction from the run-settings card", () => {
+    document.body.innerHTML = `
+      <div class="system-instructions-card">
+        <h3>System instructions</h3>
+        <div>You are a PCE test bot. Always include TOKEN-CARD.</div>
+      </div>`;
+    expect(getSystemInstructions(document)).toBe(
+      "You are a PCE test bot. Always include TOKEN-CARD.",
+    );
+  });
+
+  it("extracts the configured system instruction from visible run-settings text", () => {
+    document.body.innerHTML = `
+      <aside>
+        <div>Gemini Flash-Lite Latest</div>
+        <div>System instructions</div>
+        <div>You are a PCE test bot. Always include TOKEN-BODY.</div>
+        <div>Temperature</div>
+      </aside>`;
+    expect(getSystemInstructions(document)).toBe(
+      "You are a PCE test bot. Always include TOKEN-BODY.",
+    );
+  });
+
+  it("extracts system instructions from open shadow DOM run settings", () => {
+    document.body.innerHTML = `<ms-run-settings></ms-run-settings>`;
+    const host = document.querySelector("ms-run-settings")!;
+    const shadow = host.attachShadow({ mode: "open" });
+    shadow.innerHTML = `
+      <section>
+        <div>System instructions</div>
+        <div>You are a PCE test bot. Always include TOKEN-SHADOW.</div>
+        <div>Temperature</div>
+      </section>`;
+    expect(getSystemInstructions(document)).toBe(
+      "You are a PCE test bot. Always include TOKEN-SHADOW.",
+    );
+  });
+
+  it("remembers the configured value after the settings panel leaves the DOM", () => {
+    document.body.innerHTML = `
+      <textarea aria-label="System instructions">Always include TOKEN-CACHED.</textarea>`;
+
+    expect(rememberSystemInstructions(document)).toBe("Always include TOKEN-CACHED.");
+
+    document.body.innerHTML = `<main>chat surface</main>`;
+    expect(getSystemInstructions(document)).toBe("Always include TOKEN-CACHED.");
+  });
+
+  it("clears the remembered value when the visible field is emptied", () => {
+    document.body.innerHTML = `
+      <textarea aria-label="System instructions">Always include TOKEN-CLEAR.</textarea>`;
+    expect(rememberSystemInstructions(document)).toBe("Always include TOKEN-CLEAR.");
+
+    document.body.innerHTML = `<textarea aria-label="System instructions"></textarea>`;
+    expect(getSystemInstructions(document)).toBeNull();
+  });
+});
+
 describe("extractMessages", () => {
   it("captures user + assistant ms-chat-turn pairs", () => {
     document.body.innerHTML = `
@@ -549,6 +639,28 @@ describe("extractMessages", () => {
     expect(msgs[0].content).toContain("the model's reply only");
   });
 
+  it("keeps assistant attachments in ambiguous model turns", () => {
+    document.body.innerHTML = `
+      <main>
+        <ms-chat-turn>
+          <div class="chat-turn-container">
+            <div class="virtual-scroll-container model-prompt-container" data-turn-role="Model">
+              <div class="markdown">Here is the runnable example.</div>
+              <pre>console.log("TOKEN-CODE");</pre>
+            </div>
+          </div>
+        </ms-chat-turn>
+      </main>`;
+    const msgs = extractMessages(document, "aistudio.google.com");
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].role).toBe("assistant");
+    expect(msgs[0].content).toContain("Here is the runnable example.");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const att = msgs[0].attachments as any[];
+    expect(att).toBeDefined();
+    expect(att.some((a) => a.type === "code_block")).toBe(true);
+  });
+
   it("ambiguous turn with user container only -> user only (A3)", () => {
     document.body.innerHTML = `
       <main>
@@ -562,6 +674,33 @@ describe("extractMessages", () => {
     expect(msgs).toHaveLength(1);
     expect(msgs[0].role).toBe("user");
     expect(msgs[0].content).toContain("just the user text");
+  });
+
+  it("keeps file attachments from ambiguous user-prompt containers", () => {
+    document.body.innerHTML = `
+      <main>
+        <ms-chat-turn>
+          <div class="chat-turn-container">
+            <div class="virtual-scroll-container user-prompt-container" data-turn-role="User">
+              <ms-file-chunk>
+                <div class="file-chunk-container">
+                  <span class="name" title="evidence.pdf">evidence.pdf</span>
+                </div>
+              </ms-file-chunk>
+            </div>
+          </div>
+        </ms-chat-turn>
+      </main>`;
+    const msgs = extractMessages(document, "aistudio.google.com");
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].role).toBe("user");
+    expect(msgs[0].content).toContain("evidence.pdf");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const att = msgs[0].attachments as any[];
+    expect(att).toBeDefined();
+    expect(att.some((a) => a.type === "file" && a.name === "evidence.pdf")).toBe(
+      true,
+    );
   });
 
   it("uses [Attachment] placeholder for image-only user messages", () => {
@@ -628,5 +767,112 @@ describe("extractMessages", () => {
     expect(msgs).toHaveLength(2);
     expect(msgs[0].content).toBe("Reply with exactly TOKEN-123");
     expect(msgs[1].content).toBe("ACK TOKEN-123");
+    expect(msgs[0].attachments).toBeUndefined();
+    expect(msgs[1].attachments).toBeUndefined();
+  });
+
+  it("reconstructs virtual-scroll turns after each side hydrates separately", () => {
+    document.body.innerHTML = `
+      <main>
+        <ms-chat-turn id="turn-user">
+          <div class="chat-turn-container code-block-aligner render user ng-star-inserted">
+            <div class="actions-container">
+              <button aria-label="Edit">edit</button>
+              <ms-chat-turn-options>more_vert</ms-chat-turn-options>
+            </div>
+            <div class="virtual-scroll-container user-prompt-container" data-turn-role="User">
+              <div style="height: 274px;"></div>
+              <div class="turn-content">
+                <div class="author-label">User <span>22:18</span></div>
+                <ms-cmark-node class="cmark-node v3-font-body user-chunk">
+                  Reply with exactly pong TOKEN-VIRTUAL.
+                </ms-cmark-node>
+              </div>
+            </div>
+          </div>
+        </ms-chat-turn>
+        <ms-chat-turn id="turn-model">
+          <div class="chat-turn-container code-block-aligner model render ng-star-inserted">
+            <div class="actions-container">
+              <button aria-label="Rerun this turn"></button>
+              <ms-chat-turn-options>more_vert</ms-chat-turn-options>
+            </div>
+            <div class="virtual-scroll-container model-prompt-container" data-turn-role="Model">
+              <div style="height: 148px;"></div>
+              <div class="turn-content"><!----></div>
+            </div>
+          </div>
+        </ms-chat-turn>
+      </main>`;
+    let msgs = extractMessages(document, "aistudio.google.com");
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].role).toBe("user");
+
+    document.body.innerHTML = `
+      <main>
+        <ms-chat-turn id="turn-user">
+          <div class="chat-turn-container code-block-aligner render user ng-star-inserted">
+            <div class="actions-container">
+              <button aria-label="Edit">edit</button>
+              <ms-chat-turn-options>more_vert</ms-chat-turn-options>
+            </div>
+            <div class="virtual-scroll-container user-prompt-container" data-turn-role="User">
+              <div style="height: 274px;"></div>
+              <div class="turn-content"><!----></div>
+            </div>
+          </div>
+        </ms-chat-turn>
+        <ms-chat-turn id="turn-model">
+          <div class="chat-turn-container code-block-aligner model render ng-star-inserted">
+            <div class="actions-container">
+              <button aria-label="Rerun this turn"></button>
+              <ms-chat-turn-options>more_vert</ms-chat-turn-options>
+            </div>
+            <div class="virtual-scroll-container model-prompt-container" data-turn-role="Model">
+              <div style="height: 148px;"></div>
+              <div class="turn-content">
+                <div class="author-label">Model <span>22:18</span></div>
+                <ms-cmark-node class="cmark-node v3-font-body">pong TOKEN-VIRTUAL</ms-cmark-node>
+              </div>
+            </div>
+          </div>
+        </ms-chat-turn>
+      </main>`;
+    msgs = extractMessages(document, "aistudio.google.com");
+    expect(msgs).toHaveLength(2);
+    expect(msgs[0].role).toBe("user");
+    expect(msgs[0].content).toContain("TOKEN-VIRTUAL");
+    expect(msgs[1].role).toBe("assistant");
+    expect(msgs[1].content).toBe("pong TOKEN-VIRTUAL");
+  });
+
+  it("does not convert AI Studio action text into fake file attachments", () => {
+    document.body.innerHTML = `
+      <main>
+        <ms-chat-turn>
+          <div class="chat-turn-container render user ng-star-inserted">
+            <div class="actions-container"><button>Edit</button></div>
+            <div class="turn-content">
+              <div class="hover-or-edit">edit</div>
+              <div class="prompt-container">PCE-A01-TOKEN. Reply with TOKEN.</div>
+            </div>
+          </div>
+        </ms-chat-turn>
+        <ms-chat-turn>
+          <div class="chat-turn-container model render ng-star-inserted">
+            <div class="turn-content">
+              <div class="markdown">
+                Here are bullets:
+                <p>PCE-A01-TOKEN first.</p>
+                <p>Acceptance testing confirms the product is ready.</p>
+              </div>
+            </div>
+          </div>
+        </ms-chat-turn>
+      </main>`;
+    const msgs = extractMessages(document, "aistudio.google.com");
+    expect(msgs).toHaveLength(2);
+    expect(msgs[0].attachments).toBeUndefined();
+    expect(msgs[1].attachments).toBeUndefined();
   });
 });

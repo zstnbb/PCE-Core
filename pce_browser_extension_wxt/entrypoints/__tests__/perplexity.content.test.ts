@@ -10,6 +10,8 @@ import {
   extractMessages,
   extractText,
   getContainer,
+  getLayerMeta,
+  getModelName,
   getSessionHint,
   isStreaming,
 } from "../perplexity.content";
@@ -27,8 +29,24 @@ describe("getSessionHint", () => {
     expect(getSessionHint("/thread/xyz-789")).toBe("xyz-789");
   });
 
-  it("falls back to pathname when no match", () => {
-    expect(getSessionHint("/library")).toBe("/library");
+  it("extracts scoped IDs from Space thread URLs", () => {
+    expect(getSessionHint("/space/space-1/thread/thread-2")).toBe(
+      "space:space-1:thread-2",
+    );
+    expect(getSessionHint("/spaces/space-1/search/search-2")).toBe(
+      "space:space-1:search-2",
+    );
+  });
+
+  it("returns null for non-conversation pages", () => {
+    expect(getSessionHint("/library")).toBeNull();
+    expect(getSessionHint("/settings/account")).toBeNull();
+    expect(getSessionHint("/spaces")).toBeNull();
+  });
+
+  it("returns null for read-only shared URLs", () => {
+    expect(getSessionHint("/share/abc123")).toBeNull();
+    expect(getSessionHint("/search/abc123", "?s=share-token")).toBeNull();
   });
 });
 
@@ -156,6 +174,23 @@ describe("isStreaming", () => {
   });
 });
 
+describe("metadata helpers", () => {
+  it("extracts a visible model label when present", () => {
+    document.body.innerHTML = `<button aria-label="model selector">Claude Sonnet 4.5</button>`;
+    expect(getModelName(document)).toBe("Claude Sonnet 4.5");
+  });
+
+  it("returns null when no model label is visible", () => {
+    document.body.innerHTML = `<button>Search</button>`;
+    expect(getModelName(document)).toBeNull();
+  });
+
+  it("extracts selected source/search mode into layer meta", () => {
+    document.body.innerHTML = `<button aria-pressed="true">Academic</button>`;
+    expect(getLayerMeta(document)).toEqual({ search_mode: "academic" });
+  });
+});
+
 describe("extractMessages", () => {
   it("captures user + assistant from ThreadMessage selectors", () => {
     document.body.innerHTML = `
@@ -171,6 +206,21 @@ describe("extractMessages", () => {
     expect(msgs[0].content).toContain("user question text");
     expect(msgs[1].role).toBe("assistant");
     expect(msgs[1].content).toBe("the assistant reply");
+  });
+
+  it("preserves external citation links as assistant attachments", () => {
+    document.body.innerHTML = `
+      <main>
+        <div class="ThreadMessage query-1">what is Python?</div>
+        <div class="ThreadMessage answer-1">
+          <div class="prose">
+            Python is a programming language
+            <a class="citation" href="https://www.python.org/">Python.org</a>
+          </div>
+        </div>
+      </main>`;
+    const msgs = extractMessages(document);
+    expect(msgs[1].attachments?.some((att) => att.type === "citation")).toBe(true);
   });
 
   it("dedupes messages with identical content", () => {

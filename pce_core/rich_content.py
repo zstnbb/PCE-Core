@@ -12,6 +12,7 @@ import json
 from typing import Any, Optional
 
 RICH_CONTENT_SCHEMA = "pce.rich_content.v1"
+THREADING_SCHEMA = "pce.threading.v1"
 
 _ATTACHMENT_BLOCK_TYPES = {
     "image_url": "image",
@@ -108,6 +109,7 @@ def build_rich_content_envelope(
     attachments: Optional[list[dict]],
     *,
     source_evidence: Optional[dict[str, Any]] = None,
+    threading: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Build the canonical rich-content render envelope."""
     normalized = normalize_attachments(attachments)
@@ -127,6 +129,8 @@ def build_rich_content_envelope(
         envelope["assets"] = assets
     if source_evidence:
         envelope["source_evidence"] = copy.deepcopy(source_evidence)
+    if threading:
+        envelope.update(_threading_render_contract(threading))
     return envelope
 
 
@@ -135,23 +139,134 @@ def build_content_json(
     *,
     plain_text: Optional[str] = None,
     source_evidence: Optional[dict[str, Any]] = None,
+    threading: Optional[dict[str, Any]] = None,
 ) -> Optional[str]:
     """Build storage JSON while preserving the legacy attachments field."""
     normalized = normalize_attachments(attachments)
-    if not normalized:
+    threading_payload = _normalize_threading(threading)
+    if not normalized and not threading_payload:
         return None
 
-    return json.dumps(
-        {
-            "attachments": normalized,
-            "rich_content": build_rich_content_envelope(
-                plain_text,
-                normalized,
-                source_evidence=source_evidence,
-            ),
-        },
-        ensure_ascii=False,
-    )
+    payload: dict[str, Any] = {
+        "attachments": normalized,
+        "rich_content": build_rich_content_envelope(
+            plain_text,
+            normalized,
+            source_evidence=source_evidence,
+            threading=threading_payload,
+        ),
+    }
+    if threading_payload:
+        payload["threading"] = threading_payload
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def _normalize_threading(threading: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+    if not isinstance(threading, dict):
+        return None
+    cleaned = {
+        key: copy.deepcopy(value)
+        for key, value in threading.items()
+        if value not in (None, "", [], {})
+    }
+    if not cleaned:
+        return None
+    cleaned.setdefault("schema", THREADING_SCHEMA)
+    return cleaned
+
+
+def _threading_render_contract(threading: dict[str, Any]) -> dict[str, Any]:
+    """Return render-facing branch/variant keys for the dashboard contract."""
+    out: dict[str, Any] = {}
+    ttype = str(threading.get("type") or threading.get("kind") or "")
+    if "variant" in ttype or any(k in threading for k in ("variant_group_id", "variant_id")):
+        group_id = threading.get("variant_group_id")
+        variant_id = threading.get("variant_id") or threading.get("current_variant_id")
+        current = threading.get("current_variant_id") or variant_id
+        out["variant_group"] = {
+            "id": group_id,
+            "current_variant_id": current,
+        }
+        out["current_variant"] = {
+            "id": current,
+            "index": threading.get("variant_index"),
+        }
+        out["variants"] = [
+            {
+                "id": variant_id,
+                "index": threading.get("variant_index"),
+                "current": True,
+            }
+        ]
+        out["variant_controls"] = {
+            "current_variant_id": current,
+            "variant_group_id": group_id,
+        }
+    if "branch" in ttype or any(k in threading for k in ("branch_group_id", "branch_id")):
+        branch_id = threading.get("branch_id") or threading.get("current_branch_id")
+        current = threading.get("current_branch_id") or branch_id
+        out["branch_tree"] = {
+            "id": threading.get("branch_group_id"),
+            "current_branch_id": current,
+            "parent_message_id": threading.get("parent_message_id"),
+        }
+        out["current_branch"] = {
+            "id": current,
+            "index": threading.get("branch_index"),
+        }
+        out["branches"] = [
+            {
+                "id": branch_id,
+                "index": threading.get("branch_index"),
+                "current": True,
+            }
+        ]
+        out["branch_choices"] = {
+            "current_branch_id": current,
+            "branch_group_id": threading.get("branch_group_id"),
+        }
+    return out
+
+
+def load_threading_from_content_json(content_json: Optional[str]) -> dict[str, Any]:
+    """Read the structured branch/variant contract from content_json."""
+    if not content_json:
+        return {}
+    try:
+        data = json.loads(content_json)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    threading = data.get("threading")
+    return threading if isinstance(threading, dict) else {}
+
+
+def merge_content_json_contracts(
+    existing_json: Optional[str],
+    incoming_json: Optional[str],
+    *,
+    plain_text: Optional[str] = None,
+) -> Optional[str]:
+    """Merge attachments plus branch/variant contracts without dropping either."""
+    if not existing_json:
+        return incoming_json
+    if not incoming_json:
+        return existing_json
+
+    existing_threading = load_threading_from_content_json(existing_json)
+    incoming_threading = load_threading_from_content_json(incoming_json)
+    threading = dict(existing_threading)
+    threading.update({k: v for k, v in incoming_threading.items() if v not in (None, "", [], {})})
+    attachments = load_attachments_from_content_json(existing_json) + load_attachments_from_content_json(incoming_json)
+    deduped = normalize_attachments(attachments)
+    if deduped or threading:
+        return build_content_json(
+            deduped,
+            plain_text=plain_text,
+            threading=threading or None,
+        )
+    return existing_json or incoming_json
 
 
 def load_attachments_from_content_json(content_json: Optional[str]) -> list[dict[str, Any]]:

@@ -150,7 +150,7 @@ def wait_for_new_captures(
 
             # Use exact provider count from stats (not capped list length)
             provider_new = new
-            if provider and initial_provider_count > 0:
+            if provider:
                 current_provider_count = stats.get("by_provider", {}).get(provider, 0)
                 provider_new = max(0, current_provider_count - initial_provider_count)
 
@@ -176,7 +176,7 @@ def wait_for_new_captures(
                 final_total = final_stats["total_captures"]
                 final_new = final_total - initial_count
                 final_provider_new = final_new
-                if provider and initial_provider_count > 0:
+                if provider:
                     final_provider_new = max(
                         0,
                         final_stats.get("by_provider", {}).get(provider, 0) - initial_provider_count,

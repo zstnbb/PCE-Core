@@ -70,6 +70,7 @@ from selenium.webdriver.edge.service import Service as EdgeService  # noqa: E402
 # in conftest are deliberately imported — this driver is internal test
 # tooling, not application code.
 from . import conftest as _cf  # noqa: E402
+from ._stealth import apply_stealth  # noqa: E402
 from .capture_verifier import (  # noqa: E402
     pce_is_running,
     get_stats,
@@ -331,6 +332,7 @@ def _launch_edge(
     # Selenium 4.11+ auto-fetches msedgedriver via Selenium Manager.
     driver = webdriver.Edge(options=options)
     driver.implicitly_wait(0)
+    apply_stealth(driver, label="probe:edge")
     logger.info(
         "Edge launched: %s",
         driver.capabilities.get("browserVersion", "?"),
@@ -432,6 +434,7 @@ def _launch_chrome(
         drv = webdriver.Chrome(service=service, options=options)
 
     drv.implicitly_wait(0)
+    apply_stealth(drv, label="probe:chrome")
     logger.info(
         "Chrome launched: %s",
         drv.capabilities.get("browserVersion", "?"),
