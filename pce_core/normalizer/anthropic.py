@@ -32,6 +32,7 @@ from typing import Optional
 from pce_core.rich_content import build_content_json
 
 from .base import BaseNormalizer, NormalizedMessage, NormalizedResult
+from .conversation import _threading_contract_for_message
 
 logger = logging.getLogger("pce.normalizer.anthropic")
 
@@ -89,26 +90,77 @@ class AnthropicMessagesNormalizer(BaseNormalizer):
                         role="system", content_text=text, ts=created_at,
                     ))
 
-        # User/assistant messages
-        req_messages = req_data.get("messages", [])
-        if not isinstance(req_messages, list):
-            return None
+        # ── claude.ai web vs /v1/messages API discrimination ────────────
+        # claude.ai web's completion endpoint sends ``{"prompt": "...",
+        # "parent_message_uuid": "...", ...}`` whereas the public API
+        # sends ``{"messages": [...]}``. The two shapes are mutually
+        # exclusive in practice. We branch here so the web shape's
+        # ``parent_message_uuid`` flows into branch-fork detection
+        # downstream (ADR-2026-04-26 §5.2).
+        web_prompt = req_data.get("prompt")
+        web_parent_uuid = req_data.get("parent_message_uuid")
+        is_web_shape = isinstance(web_prompt, str) and (
+            web_parent_uuid is not None or "messages" not in req_data
+        )
 
-        for msg in req_messages:
-            if not isinstance(msg, dict):
-                continue
-            role = msg.get("role", "user")
-            content = msg.get("content")
-            text, attachments = _extract_rich_blocks(content)
-            if text is not None:
-                cj = build_content_json(attachments, plain_text=text)
-                messages.append(NormalizedMessage(
-                    role=role,
-                    content_text=text,
-                    content_json=cj,
-                    model_name=model if role == "assistant" else None,
-                    ts=created_at,
-                ))
+        if is_web_shape:
+            # User turn: prompt + parent_uuid → user message whose
+            # provider_parent_uuid is the previous turn's uuid. We don't
+            # have a uuid for the user message itself in the request
+            # (claude.ai mints it server-side and only surfaces via the
+            # SSE response), so leave provider_message_uuid as None for
+            # users — assistant's uuid is what matters for branch
+            # detection (the next completion will reference IT as parent).
+            user_attachments: list = []
+            user_text = web_prompt
+            cj = build_content_json(
+                user_attachments,
+                plain_text=user_text,
+                threading=_threading_payload(
+                    provider_parent_uuid=web_parent_uuid,
+                ),
+            )
+            messages.append(NormalizedMessage(
+                role="user",
+                content_text=user_text,
+                content_json=cj,
+                ts=created_at,
+                provider_parent_uuid=web_parent_uuid if isinstance(web_parent_uuid, str) else None,
+            ))
+        else:
+            # API shape: ``messages`` array, each entry has its own role
+            # + content blocks. No parent_message_uuid here (the API is
+            # stateless), so branch detection never fires on these.
+            req_messages = req_data.get("messages", [])
+            if not isinstance(req_messages, list):
+                return None
+
+            for msg in req_messages:
+                if not isinstance(msg, dict):
+                    continue
+                role = msg.get("role", "user")
+                content = msg.get("content")
+                text, attachments = _extract_rich_blocks(content)
+                if text is not None:
+                    threading = _dom_threading_contract(
+                        req_data,
+                        msg=msg,
+                        role=role,
+                        content=text,
+                        local_index=len(messages),
+                    )
+                    cj = build_content_json(
+                        attachments,
+                        plain_text=text,
+                        threading=threading,
+                    )
+                    messages.append(NormalizedMessage(
+                        role=role,
+                        content_text=text,
+                        content_json=cj,
+                        model_name=model if role == "assistant" else None,
+                        ts=created_at,
+                    ))
 
         # --- Parse response ---
         resp_data = _safe_json(response_body)
@@ -124,11 +176,33 @@ class AnthropicMessagesNormalizer(BaseNormalizer):
             resp_role = resp_data.get("role", "assistant")
             usage = resp_data.get("usage", {})
             output_tokens = usage.get("output_tokens") if isinstance(usage, dict) else None
+            # claude.ai web stamps a uuid on the assistant message
+            # (surfaces as ``uuid`` on the SSE message_start event, which
+            # ``assemble_any_sse`` lifts into the assembled dict). Public
+            # API responses also carry an ``id`` field. Either gives us
+            # the assistant's provider_message_uuid.
+            resp_uuid = resp_data.get("uuid") or resp_data.get("id")
+            # In web shape the assistant's parent IS the user message
+            # whose uuid the SSE stream returns; if not surfaced, fall
+            # back to the request's parent_message_uuid (good enough for
+            # branch detection — sibling assistants share the same
+            # request parent).
+            assistant_parent_uuid = (
+                resp_data.get("parent_message_uuid")
+                or (web_parent_uuid if is_web_shape else None)
+            )
 
             content_blocks = resp_data.get("content", [])
             text, attachments = _extract_rich_blocks(content_blocks)
             if text:
-                cj = build_content_json(attachments, plain_text=text)
+                cj = build_content_json(
+                    attachments,
+                    plain_text=text,
+                    threading=_threading_payload(
+                        provider_message_uuid=resp_uuid if isinstance(resp_uuid, str) else None,
+                        provider_parent_uuid=assistant_parent_uuid if isinstance(assistant_parent_uuid, str) else None,
+                    ),
+                )
                 messages.append(NormalizedMessage(
                     role=resp_role,
                     content_text=text,
@@ -136,6 +210,8 @@ class AnthropicMessagesNormalizer(BaseNormalizer):
                     model_name=resp_model,
                     token_estimate=output_tokens,
                     ts=created_at,
+                    provider_message_uuid=resp_uuid if isinstance(resp_uuid, str) else None,
+                    provider_parent_uuid=assistant_parent_uuid if isinstance(assistant_parent_uuid, str) else None,
                 ))
 
         # Extract provider-specific session metadata (Claude Writing Style,
@@ -246,6 +322,33 @@ def _safe_json(text: str) -> Optional[dict]:
         return data if isinstance(data, dict) else None
     except (json.JSONDecodeError, TypeError):
         return None
+
+
+def _dom_threading_contract(
+    data: dict,
+    *,
+    msg: dict,
+    role: str,
+    content: str,
+    local_index: int,
+) -> Optional[dict]:
+    """Promote claude.ai DOM action metadata into render contracts."""
+    if not isinstance(data, dict):
+        return None
+    is_dom_capture = (
+        isinstance(data.get("_capture_meta"), dict)
+        or data.get("total_messages") is not None
+        or data.get("url") is not None
+    )
+    if not is_dom_capture:
+        return None
+    return _threading_contract_for_message(
+        data=data,
+        msg=msg,
+        role=role,
+        content=content,
+        local_index=local_index,
+    )
 
 
 def _extract_rich_blocks(content) -> tuple[Optional[str], list[dict]]:
@@ -370,6 +473,26 @@ def _extract_rich_blocks(content) -> tuple[Optional[str], list[dict]]:
 
 def _truncate(s: str, limit: int) -> str:
     return s if len(s) <= limit else s[:limit] + "...[truncated]"
+
+
+def _threading_payload(
+    *,
+    provider_message_uuid: Optional[str] = None,
+    provider_parent_uuid: Optional[str] = None,
+) -> Optional[dict]:
+    """Tiny shim that returns ``None`` when both uuids are missing.
+
+    ``build_content_json`` skips empty threading dicts, but feeding it
+    ``{"provider_parent_uuid": None}`` would still create a key. Filtering
+    upfront keeps the stored ``content_json`` lean for sessions that don't
+    surface uuids (the official API).
+    """
+    payload: dict[str, str] = {}
+    if isinstance(provider_message_uuid, str) and provider_message_uuid:
+        payload["provider_message_uuid"] = provider_message_uuid
+    if isinstance(provider_parent_uuid, str) and provider_parent_uuid:
+        payload["provider_parent_uuid"] = provider_parent_uuid
+    return payload or None
 
 
 # ---------------------------------------------------------------------------

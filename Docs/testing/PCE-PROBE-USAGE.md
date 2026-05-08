@@ -397,6 +397,16 @@ a shared HMAC. That's not in this repo yet. The local-dev usage
 above is the v1 contract; the cloud topology is the v1 contract plus
 auth and process supervision.
 
+The known gaps that block the VPS-agent-autonomous-testing scenario
+(remote bind + HMAC, HTTP facade, watcher / DOM-baseline diff,
+Xvfb+Docker packaging, login-state portability, scheduling) are
+enumerated as **G1–G9** in
+`@f:\INVENTION\You.Inc\PCE Core\Docs\docs\engineering\adr\ADR-011-probe-remote-agent-autonomous-testing.md`.
+Any future PR that ships any of these MUST cross-reference ADR-011
+and satisfy its three guardrails (remote bind + auth coupling,
+proactive change detection independent of matrix runs, login-state
+portability over auto-login).
+
 ## 9. Source of truth
 
 - API surface + envelope: `@f:\INVENTION\You.Inc\PCE Core\Docs\docs\engineering\PCE-PROBE-API.md`

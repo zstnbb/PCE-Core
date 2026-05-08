@@ -56,6 +56,10 @@ class CaptureIn(BaseModel):
         default=None,
         description="Source-specific metadata (e.g. page URL for browser ext, tool name for MCP)",
     )
+    layer_meta: Optional[dict] = Field(
+        default=None,
+        description="Layer-specific metadata preserved in raw_captures.layer_meta_json",
+    )
     schema_version: Optional[int] = Field(
         default=None,
         description="Capture payload format version. Defaults to current server version if omitted.",
@@ -222,7 +226,14 @@ class StatsOut(BaseModel):
 
 
 class SessionRecord(BaseModel):
-    """A single sessions row."""
+    """A single sessions row.
+
+    The ``branch_count`` field was added in G2 (ADR-2026-04-26 §5.3) to
+    let dashboard / API consumers know whether a session has any
+    alternate branches without forcing them to fetch the full message
+    list. ``1`` is the no-fork default — a linear conversation has one
+    branch (``'0'``) and that's still a "branch" for counting purposes.
+    """
 
     id: str
     source_id: str
@@ -239,10 +250,18 @@ class SessionRecord(BaseModel):
     total_tokens: Optional[int] = None
     model_names: Optional[str] = None
     favorited: int = 0
+    branch_count: int = 1
 
 
 class MessageRecord(BaseModel):
-    """A single messages row."""
+    """A single messages row.
+
+    The ``branch_*`` and ``turn_index`` fields were added in migration
+    0008 (ADR-2026-04-26 §5.1) to expose the regenerate/edit branch
+    semantics at the API surface. Default-branch rows carry
+    ``branch_id="0"`` and ``branch_parent_id=None``; alternates carry
+    the ids minted by the normalizer's threading contract.
+    """
 
     id: str
     session_id: str
@@ -253,6 +272,9 @@ class MessageRecord(BaseModel):
     content_json: Optional[str] = None
     model_name: Optional[str] = None
     token_estimate: Optional[int] = None
+    branch_id: str = "0"
+    branch_parent_id: Optional[str] = None
+    turn_index: Optional[int] = None
 
 
 class SnippetIn(BaseModel):

@@ -141,6 +141,8 @@ export interface CaptureEventSummary {
   session_hint?: string | null;
   /** Truncated body fingerprint, for matching. */
   fingerprint?: string;
+  /** Tail excerpt so long prompts with tokens at the end remain searchable. */
+  body_tail?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -168,6 +170,9 @@ export type ProbeVerb =
   | "dom.press_key"
   | "dom.scroll_to"
   | "dom.execute_js"
+  | "dom.click_action_main"
+  | "dom.dispatch_paste_main"
+  | "dom.set_file_input_main"
   // page.*
   | "page.dump_state"
   | "page.screenshot"
@@ -357,9 +362,125 @@ export interface DomExecuteJsParams {
   code: string;
   /** Serializable args forwarded to the function. */
   args?: unknown[];
+  /**
+   * Execution world. Default ``"isolated"`` (content-script context).
+   * Use ``"main"`` to run in the page's JS context — required when the
+   * code must dispatch DOM events whose payload (e.g. ``DataTransfer``
+   * carrying a ``File``) needs to be observable by the page's own
+   * listeners. Synthetic events crossing isolated→main lose their
+   * non-primitive payload (Chromium serializer drops the ``File``
+   * reference), which is why ``upload_file_via_paste`` requires
+   * ``"main"`` on ChatGPT/Claude/etc.
+   */
+  world?: "isolated" | "main";
 }
 export interface DomExecuteJsResult {
   value: unknown;
+}
+
+export interface DomClickActionMainParams {
+  tab_id: number;
+  action: string;
+  scope?: "document" | "last_assistant" | "last_user" | "last_turn";
+  root_selectors?: string[];
+  selectors?: string[];
+  labels?: string[];
+  more_selectors?: string[];
+  menu_labels?: string[];
+  prefer_last?: boolean;
+  /** Scan candidates without clicking the final action. */
+  dry_run?: boolean;
+  /** In dry-run mode, click/open the More menu only to inspect menu labels. */
+  scan_menu?: boolean;
+}
+export interface DomClickActionCandidate {
+  via: string;
+  selector: string | null;
+  label: string | null;
+  text: string | null;
+  html_excerpt: string | null;
+}
+export interface DomClickActionMainResult {
+  ok: boolean;
+  marker: string;
+  via: string;
+  action: string;
+  matched_selector: string | null;
+  matched_label: string | null;
+  clicked_text: string | null;
+  clicked_html_excerpt: string | null;
+  candidate_count: number;
+  root_count?: number;
+  more_candidate_count?: number;
+  candidates?: DomClickActionCandidate[];
+  menu_candidates?: DomClickActionCandidate[];
+  controls?: DomClickActionCandidate[];
+  err: string | null;
+}
+
+/**
+ * Dispatch a synthetic ``paste`` event in the page's MAIN world,
+ * carrying a real ``File`` built from base64 bytes. This verb exists
+ * because ``dom.execute_js`` is ISOLATED-only — see the comment block
+ * above ``_injected_execute_js`` in ``probe-rpc-dom.ts`` for why
+ * dynamic eval cannot be used in MAIN under strict page CSP.
+ *
+ * The function body is shipped pre-compiled by
+ * ``chrome.scripting.executeScript({ world: "MAIN" })``, which
+ * bypasses the page's CSP via Chrome's privileged scripting channel.
+ */
+export interface DomDispatchPasteMainParams {
+  tab_id: number;
+  /** CSS selector for the contenteditable / textarea to dispatch on. */
+  selector: string;
+  /** Base64-encoded bytes of the file to attach. */
+  file_b64: string;
+  /** ``File.name`` value seen by the page. */
+  file_name: string;
+  /** ``File.type`` (MIME) value seen by the page. */
+  media_type: string;
+}
+export interface DomDispatchPasteMainResult {
+  ok: boolean;
+  /** Last reached marker — ``init`` / ``focused`` / ``file_built`` /
+   * ``dt_built`` / ``event_built`` / ``paste_dispatched``. Lets the
+   * caller pinpoint where the chain failed. */
+  marker: string;
+  /** Non-null when an exception fell through. */
+  err: string | null;
+  target_tag: string | null;
+  target_id: string | null;
+  dt_files_len: number;
+  /** ``ClipboardEvent`` if the constructor succeeded; else
+   * ``Event+defineProperty`` (fallback). */
+  ev_class: string;
+}
+
+/**
+ * Set ``input[type=file].files`` programmatically using React's native
+ * setter, then dispatch input+change. MAIN-world static dispatch
+ * (CSP-safe). Replaces the dynamic-eval path that ``dom.execute_js``
+ * used to drive — that path silently no-op'd on MV3 due to extension-
+ * page CSP forbidding ``new Function`` in ISOLATED.
+ */
+export interface DomSetFileInputMainParams {
+  tab_id: number;
+  /** Ordered list of CSS selectors; first match wins. Pass the
+   * adapter's ``image_input_selectors`` or ``file_input_selectors``. */
+  selectors: string[];
+  file_b64: string;
+  file_name: string;
+  media_type: string;
+}
+export interface DomSetFileInputMainResult {
+  ok: boolean;
+  marker: string;
+  err: string | null;
+  /** Selector that actually matched, or null when none did. */
+  matched_selector: string | null;
+  /** ``react_native_setter`` on success, ``direct`` if descriptor
+   * unavailable, ``fallback_direct:<err>`` on setter throw. */
+  via: string;
 }
 
 // page.* --------------------------------------------------------------------
@@ -477,6 +598,9 @@ export interface ProbeVerbMap {
   "dom.press_key":         { params: DomPressKeyParams;         result: DomPressKeyResult };
   "dom.scroll_to":         { params: DomScrollToParams;         result: DomScrollToResult };
   "dom.execute_js":        { params: DomExecuteJsParams;        result: DomExecuteJsResult };
+  "dom.click_action_main": { params: DomClickActionMainParams;  result: DomClickActionMainResult };
+  "dom.dispatch_paste_main": { params: DomDispatchPasteMainParams; result: DomDispatchPasteMainResult };
+  "dom.set_file_input_main": { params: DomSetFileInputMainParams; result: DomSetFileInputMainResult };
   "page.dump_state":       { params: PageDumpStateParams;       result: PageDumpStateResult };
   "page.screenshot":       { params: PageScreenshotParams;      result: PageScreenshotResult };
   "page.network_log":      { params: PageNetworkLogParams;      result: PageNetworkLogResult };

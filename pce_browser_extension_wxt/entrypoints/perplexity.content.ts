@@ -37,13 +37,25 @@ declare global {
 // Perplexity-specific helpers (module-scope for testability)
 // ---------------------------------------------------------------------------
 
-const SESSION_HINT_RE = /\/(?:search|thread)\/([a-zA-Z0-9_-]+)/;
+const SESSION_HINT_RE = /^\/(?:search|thread)\/([a-zA-Z0-9_-]+)/;
+const SPACE_THREAD_HINT_RE =
+  /^\/(?:space|spaces)\/([a-zA-Z0-9_-]+)\/(?:search|thread)\/([a-zA-Z0-9_-]+)/;
+const NON_CONVERSATION_RE =
+  /^\/(?:$|library|settings|account|profile|spaces?$|discover|collections|pro|labs)(?:\/|$)/;
 
 export function getSessionHint(
   pathname: string = location.pathname,
+  search: string = location.search,
 ): string | null {
+  if (pathname.startsWith("/share/") || new URLSearchParams(search).has("s")) {
+    return null;
+  }
+  const space = pathname.match(SPACE_THREAD_HINT_RE);
+  if (space) return `space:${space[1]}:${space[2]}`;
   const m = pathname.match(SESSION_HINT_RE);
-  return m ? m[1] : pathname || null;
+  if (m) return m[1];
+  if (NON_CONVERSATION_RE.test(pathname)) return null;
+  return null;
 }
 
 export function getContainer(doc: Document = document): Element | null {
@@ -67,9 +79,57 @@ export function isStreaming(doc: Document = document): boolean {
     const label = `${safeInnerText(btn) || ""} ${
       btn.getAttribute("aria-label") || ""
     }`.trim();
-    if (/stop generating|stop response|cancel/i.test(label)) return true;
+    if (/stop generating|stop response|stop|pause|cancel/i.test(label)) return true;
   }
   return false;
+}
+
+export function getModelName(doc: Document = document): string | null {
+  const candidates = doc.querySelectorAll(
+    "[data-testid*='model'], [aria-label*='model' i], " +
+      "[class*='model'], [class*='Model']",
+  );
+  for (const el of Array.from(candidates)) {
+    const text = safeInnerText(el).replace(/\s+/g, " ").trim();
+    if (!text || text.length > 80) continue;
+    if (
+      /\b(?:sonar|gpt|claude|gemini|reasoning|best|opus|haiku|flash|pro)\b/i.test(
+        text,
+      )
+    ) {
+      return text;
+    }
+  }
+  return null;
+}
+
+export function getLayerMeta(doc: Document = document): Record<string, unknown> | null {
+  const labels = [
+    "quick",
+    "pro",
+    "research",
+    "deep research",
+    "web",
+    "academic",
+    "social",
+    "reddit",
+    "finance",
+    "sec",
+    "files",
+  ];
+  const selected = doc.querySelectorAll(
+    "[aria-pressed='true'], [aria-selected='true'], [data-selected='true'], " +
+      "[class*='selected'], [class*='active']",
+  );
+  for (const el of Array.from(selected)) {
+    const text = safeInnerText(el).replace(/\s+/g, " ").trim().toLowerCase();
+    if (!text || text.length > 80) continue;
+    const match = labels.find((label) => text.includes(label));
+    if (match) {
+      return { search_mode: match };
+    }
+  }
+  return null;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -248,9 +308,11 @@ export default defineContentScript({
       isStreaming: () => isStreaming(document),
       extractMessages: () => extractMessages(document),
       getSessionHint: () => getSessionHint(),
-      // Perplexity legacy always reports null model_name.
-      getModelName: () => null,
-      hookHistoryApi: false,
+      getModelName: () => getModelName(document),
+      getLayerMeta: () => getLayerMeta(document),
+      hookHistoryApi: true,
+      requireSessionHint: true,
+      requireBothRoles: true,
     });
 
     document.addEventListener("pce-manual-capture", () => {

@@ -176,6 +176,17 @@
             <button id="session-back" class="btn-sm">&larr; Back</button>
             <h3 id="session-title">Session</h3>
             <div class="detail-actions">
+              <div id="session-branches-toggle" class="btn-toggle-group hidden" role="group" aria-label="Branch view">
+                <button id="branches-collapse-btn" class="btn-toggle is-active" data-mode="collapse"
+                  title="Show only the current branch path (matches what the user saw in the provider UI)">
+                  Current path
+                </button>
+                <button id="branches-expand-btn" class="btn-toggle" data-mode="expand"
+                  title="Show every branch row, including alternates from regenerate / edit">
+                  All branches
+                  <span id="branches-count-badge" class="branches-count-badge">1</span>
+                </button>
+              </div>
               <button id="session-fav-btn" class="btn-sm btn-fav" title="Favorite this session">
                 <svg class="star-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
                 Favorite

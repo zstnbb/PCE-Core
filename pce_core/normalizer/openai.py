@@ -32,6 +32,7 @@ from typing import Optional
 from pce_core.rich_content import build_content_json
 
 from .base import BaseNormalizer, NormalizedMessage, NormalizedResult
+from .conversation import _threading_contract_for_message
 
 logger = logging.getLogger("pce.normalizer.openai")
 
@@ -127,7 +128,18 @@ class OpenAIChatNormalizer(BaseNormalizer):
                 continue
             role = msg.get("role", "user")
             text, attachments = _extract_rich_content(msg)
-            cj = build_content_json(attachments, plain_text=text)
+            threading = _dom_threading_contract(
+                req_data,
+                msg=msg,
+                role=role,
+                content=text or "",
+                local_index=len(messages),
+            )
+            cj = build_content_json(
+                attachments,
+                plain_text=text,
+                threading=threading,
+            )
             messages.append(NormalizedMessage(
                 role=role,
                 content_text=text,
@@ -298,6 +310,33 @@ def _safe_json(text: str) -> Optional[dict]:
         return data if isinstance(data, dict) else None
     except (json.JSONDecodeError, TypeError):
         return None
+
+
+def _dom_threading_contract(
+    data: dict,
+    *,
+    msg: dict,
+    role: str,
+    content: str,
+    local_index: int,
+) -> Optional[dict]:
+    """Promote browser-extension action metadata into render contracts."""
+    if not isinstance(data, dict):
+        return None
+    is_dom_capture = (
+        isinstance(data.get("_capture_meta"), dict)
+        or data.get("total_messages") is not None
+        or data.get("url") is not None
+    )
+    if not is_dom_capture:
+        return None
+    return _threading_contract_for_message(
+        data=data,
+        msg=msg,
+        role=role,
+        content=content,
+        local_index=local_index,
+    )
 
 
 def _extract_rich_content(msg: dict) -> tuple[Optional[str], list[dict]]:

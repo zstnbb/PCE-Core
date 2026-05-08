@@ -80,6 +80,8 @@ class BaseProbeSiteAdapter:
         '[class*="message"]',
     )
     login_wall_selectors: ClassVar[Sequence[str]] = ()
+    blocking_state_selectors: ClassVar[Sequence[str]] = ("main", "body")
+    blocking_state_keywords: ClassVar[Sequence[str]] = ()
 
     # T07: separate selectors for the inline-edit textarea/contenteditable
     # that appears INSIDE a previously-sent user turn after the edit
@@ -130,6 +132,11 @@ class BaseProbeSiteAdapter:
     response_timeout_ms: ClassVar[int] = 90_000
     response_stability_ms: ClassVar[int] = 3_000
     post_send_settle_ms: ClassVar[int] = 800
+    # Optional per-site override for the matrix's inter-cell pacing.
+    # Sites with account/rate-limit sensitive attachment pipelines can
+    # ask the runner for a longer cooldown without slowing every other
+    # provider. ``None`` means use the suite default.
+    inter_cell_pacing_s: ClassVar[Optional[float]] = None
 
     # If set, ``session_hint_from_url`` extracts the conversation UUID
     # via ``re.search(pattern, current_url).group(1)``.
@@ -181,14 +188,34 @@ class BaseProbeSiteAdapter:
     regenerate_menu_labels: ClassVar[Sequence[str]] = (
         "Regenerate",
         "Try again",
+        "Retry",
+        "Rerun",
         "\u91cd\u65b0\u751f\u6210",
         "\u91cd\u65b0\u56de\u7b54",
+        "\u91cd\u8bd5",
+        "\u91cd\u505a",
     )
+    regenerate_root_selectors: ClassVar[Optional[Sequence[str]]] = None
+    regenerate_prefer_dom_click: ClassVar[bool] = False
 
     # T09 branch flip: previous/next arrows that appear after T07's
     # edit creates a branch tree. Empty tuples \u2014 T09 SKIPs.
+    # T09 branch creation strategy. Most sites use an in-place user
+    # edit branch, Gemini/Grok use assistant regeneration drafts, and
+    # AI Studio navigates via "branch from here".
+    branch_creation_mode: ClassVar[str] = "edit"
+    branch_root_selectors: ClassVar[Sequence[str]] = ()
+    branch_user_root_selectors: ClassVar[Sequence[str]] = ()
+    branch_assistant_root_selectors: ClassVar[Sequence[str]] = ()
     branch_prev_selectors: ClassVar[Sequence[str]] = ()
     branch_next_selectors: ClassVar[Sequence[str]] = ()
+    branch_from_here_selectors: ClassVar[Sequence[str]] = ()
+    branch_from_here_menu_labels: ClassVar[Sequence[str]] = (
+        "Branch from here",
+        "Create branch",
+        "Fork",
+    )
+    branch_surface_supported: ClassVar[bool] = True
 
     # T10 / T11: native ``<input type='file'>`` element (often hidden
     # under a paperclip button). T11 falls back to
@@ -354,6 +381,31 @@ class BaseProbeSiteAdapter:
             f"timeout: none of {len(self.input_selectors)} input "
             f"selectors matched within {self.input_appear_timeout_ms}ms",
         )
+
+    def detect_external_blocker(
+        self,
+        probe: ProbeClient,
+        tab_id: int,
+    ) -> str:
+        """Return a visible quota/rate/account blocker message if present."""
+        if not self.blocking_state_keywords:
+            return ""
+        keywords = tuple(k.lower() for k in self.blocking_state_keywords)
+        best = ""
+        for sel in self.blocking_state_selectors:
+            try:
+                res = probe.dom.query(tab_id, sel, all=True)
+            except ProbeError:
+                continue
+            for m in res.get("matches", []) or []:
+                text = str(m.get("text_excerpt") or "")
+                if not text:
+                    continue
+                lower = text.lower()
+                if any(k in lower for k in keywords):
+                    if len(text) > len(best):
+                        best = text
+        return " ".join(best.split())[:300]
 
     def resolve_input_selector(
         self,
@@ -962,6 +1014,368 @@ class BaseProbeSiteAdapter:
                 continue
             except ProbeError:
                 continue
+        action = self._infer_action_name(selectors)
+        if action:
+            result = self._click_action_main(
+                probe,
+                tab_id,
+                action=action,
+                scope="document",
+                selectors=selectors,
+            )
+            if result and result.get("ok"):
+                return True
+        return False
+
+    @staticmethod
+    def _infer_action_name(selectors: Sequence[str]) -> str:
+        text = " ".join(selectors or ()).lower()
+        if "previous" in text or "上一" in text:
+            return "branch_prev"
+        if "next" in text or "下一" in text:
+            return "branch_next"
+        if (
+            "edit" in text
+            or "编辑" in text
+            or "編輯" in text
+            or "修改" in text
+        ):
+            return "edit"
+        if (
+            "regenerate" in text
+            or "retry" in text
+            or "try again" in text
+            or "rerun" in text
+            or "重新" in text
+            or "重试" in text
+            or "重做" in text
+        ):
+            return "regenerate"
+        return ""
+
+    def _click_action_main(
+        self,
+        probe: "ProbeClient",
+        tab_id: int,
+        *,
+        action: str,
+        scope: str,
+        selectors: Sequence[str] = (),
+        labels: Sequence[str] = (),
+        more_selectors: Sequence[str] = (),
+        menu_labels: Sequence[str] = (),
+        root_selectors: Sequence[str] = (),
+        prefer_last: bool = True,
+        dry_run: bool = False,
+        scan_menu: bool = False,
+    ) -> Optional[dict]:
+        try:
+            result = probe.dom.click_action_main(
+                tab_id,
+                action=action,
+                scope=scope,
+                root_selectors=root_selectors,
+                selectors=selectors,
+                labels=labels,
+                more_selectors=more_selectors,
+                menu_labels=menu_labels,
+                prefer_last=prefer_last,
+                dry_run=dry_run,
+                scan_menu=scan_menu,
+            )
+        except (AttributeError, ProbeError):
+            return None
+        try:
+            self._last_click_action_result = result
+        except Exception:
+            pass
+        return result if isinstance(result, dict) else None
+
+    def resolve_edit_input_selector(
+        self,
+        probe: "ProbeClient",
+        tab_id: int,
+        *,
+        timeout_ms: int = 4_000,
+    ) -> str:
+        """Return the active inline-edit input selector."""
+        selectors = self.edit_input_selectors or self.input_selectors
+        for sel in selectors:
+            try:
+                probe.dom.wait_for_selector(
+                    tab_id,
+                    sel,
+                    timeout_ms=timeout_ms,
+                    visible=False,
+                )
+                return sel
+            except (SelectorNotFoundError, ProbeError):
+                continue
+        return self.resolve_input_selector(probe, tab_id, timeout_ms=timeout_ms)
+
+    def click_branch_prev(
+        self,
+        probe: "ProbeClient",
+        tab_id: int,
+    ) -> bool:
+        return self._click_branch_arrow(probe, tab_id, direction="prev")
+
+    def click_user_branch_prev(
+        self,
+        probe: "ProbeClient",
+        tab_id: int,
+    ) -> bool:
+        if self._click_branch_arrow_strict(
+            probe,
+            tab_id,
+            direction="prev",
+            root_selectors=self.branch_user_root_selectors,
+        ):
+            return True
+        strict_attempt = getattr(self, "_last_click_action_result", None)
+        ok = self._click_branch_arrow(
+            probe,
+            tab_id,
+            direction="prev",
+            scopes=("last_user",),
+            root_selectors=self.branch_user_root_selectors,
+        )
+        if ok and strict_attempt and isinstance(getattr(self, "_last_click_action_result", None), dict):
+            self._last_click_action_result["strict_attempt"] = strict_attempt
+        return ok
+
+    def click_assistant_branch_prev(
+        self,
+        probe: "ProbeClient",
+        tab_id: int,
+    ) -> bool:
+        if self._click_branch_arrow_strict(
+            probe,
+            tab_id,
+            direction="prev",
+            root_selectors=self.branch_assistant_root_selectors,
+        ):
+            return True
+        strict_attempt = getattr(self, "_last_click_action_result", None)
+        ok = self._click_branch_arrow(
+            probe,
+            tab_id,
+            direction="prev",
+            scopes=("last_assistant",),
+            root_selectors=self.branch_assistant_root_selectors,
+        )
+        if ok and strict_attempt and isinstance(getattr(self, "_last_click_action_result", None), dict):
+            self._last_click_action_result["strict_attempt"] = strict_attempt
+        return ok
+
+    def click_branch_next(
+        self,
+        probe: "ProbeClient",
+        tab_id: int,
+    ) -> bool:
+        return self._click_branch_arrow(probe, tab_id, direction="next")
+
+    def _click_branch_arrow(
+        self,
+        probe: "ProbeClient",
+        tab_id: int,
+        *,
+        direction: str,
+        scopes: Sequence[str] = ("last_user", "last_assistant", "last_turn", "document"),
+        root_selectors: Sequence[str] = (),
+    ) -> bool:
+        selectors = (
+            self.branch_prev_selectors
+            if direction == "prev"
+            else self.branch_next_selectors
+        )
+        if not selectors:
+            return False
+        action = "branch_prev" if direction == "prev" else "branch_next"
+        labels = (
+            (
+                "Previous",
+                "Previous response",
+                "Previous reply",
+                "Previous draft",
+            )
+            if direction == "prev"
+            else (
+                "Next",
+                "Next response",
+                "Next reply",
+                "Next draft",
+            )
+        )
+        roots = root_selectors or self.branch_root_selectors
+        for scope in scopes:
+            result = self._click_action_main(
+                probe,
+                tab_id,
+                action=action,
+                scope=scope,
+                root_selectors=roots,
+                selectors=selectors,
+                labels=labels,
+            )
+            if result and result.get("ok"):
+                time.sleep(1.0)
+                return True
+        return False
+
+    def _click_branch_arrow_strict(
+        self,
+        probe: "ProbeClient",
+        tab_id: int,
+        *,
+        direction: str,
+        root_selectors: Sequence[str],
+    ) -> bool:
+        """Click a branch arrow scoped tightly to the latest turn.
+
+        ``dom.click_action_main`` deliberately expands roots upward so
+        generic action strips can be reached. For branch arrows that is
+        too broad on Claude/Grok: it can find another turn's "Previous
+        version" button and report a successful click while the target
+        branch never changes. This helper stays inside the latest root
+        plus one shallow wrapper/sibling ring.
+        """
+        if not root_selectors:
+            return False
+        selectors = (
+            self.branch_prev_selectors
+            if direction == "prev"
+            else self.branch_next_selectors
+        )
+        if not selectors:
+            return False
+        root_json = "[" + ", ".join(_js_str(s) for s in root_selectors) + "]"
+        selector_json = "[" + ", ".join(_js_str(s) for s in selectors) + "]"
+        js = (
+            "return (function () {\n"
+            "  var rootSels = " + root_json + ";\n"
+            "  var actionSels = " + selector_json + ";\n"
+            "  function done(ok, marker, extra) {\n"
+            "    var out = Object.assign({ok: ok, marker: marker}, extra || {});\n"
+            "    try { document.body.dataset.pceStrictBranchClick = JSON.stringify(out); } catch(e) {}\n"
+            "    return out;\n"
+            "  }\n"
+            "  function visible(el) {\n"
+            "    if (!el) return false;\n"
+            "    var cur = el;\n"
+            "    while (cur && cur !== document.documentElement) {\n"
+            "      if (cur.hasAttribute && (cur.hasAttribute('hidden') || cur.hasAttribute('inert'))) return false;\n"
+            "      if (cur.getAttribute && cur.getAttribute('aria-hidden') === 'true') return false;\n"
+            "      var cs = getComputedStyle(cur);\n"
+            "      if (cs.display === 'none' || cs.visibility === 'hidden') return false;\n"
+            "      cur = cur.parentElement;\n"
+            "    }\n"
+            "    var r = el.getBoundingClientRect();\n"
+            "    if (r.width <= 0 || r.height <= 0) return false;\n"
+            "    if (el.disabled || el.getAttribute('aria-disabled') === 'true') return false;\n"
+            "    return true;\n"
+            "  }\n"
+            "  function hover(el) {\n"
+            "    if (!el) return;\n"
+            "    ['pointerover','pointerenter','mouseover','mouseenter'].forEach(function(t){\n"
+            "      try { el.dispatchEvent(new MouseEvent(t, {bubbles:true,cancelable:true,view:window})); } catch(e) {}\n"
+            "    });\n"
+            "  }\n"
+            "  function click(el) {\n"
+            "    try { el.scrollIntoView({block:'center', inline:'center'}); } catch(e) {}\n"
+            "    hover(el);\n"
+            "    ['pointerdown','mousedown','pointerup','mouseup','click'].forEach(function(t){\n"
+            "      try { el.dispatchEvent(new MouseEvent(t, {bubbles:true,cancelable:true,view:window})); } catch(e) {}\n"
+            "    });\n"
+            "    try { el.click(); } catch(e) {}\n"
+            "  }\n"
+            "  function pushScope(list, seen, el) {\n"
+            "    if (!el || seen.indexOf(el) >= 0 || el === document.body || el === document.documentElement) return;\n"
+            "    seen.push(el);\n"
+            "    list.push(el);\n"
+            "  }\n"
+            "  function nearRoot(el, rootRect) {\n"
+            "    var r = el.getBoundingClientRect();\n"
+            "    if (r.width <= 0 || r.height <= 0) return false;\n"
+            "    var cy = r.top + (r.height / 2);\n"
+            "    var cx = r.left + (r.width / 2);\n"
+            "    var padY = Math.max(180, rootRect.height * 1.5);\n"
+            "    var padX = Math.max(280, rootRect.width * 0.8);\n"
+            "    return cy >= (rootRect.top - 80) && cy <= (rootRect.bottom + padY) && cx >= (rootRect.left - padX) && cx <= (rootRect.right + padX);\n"
+            "  }\n"
+            "  function text(el) { return ((el.innerText || el.textContent || '') + ' ' + (el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('title') || '')).trim(); }\n"
+            "  var roots = [];\n"
+            "  rootSels.forEach(function(sel){ try { var ns = document.querySelectorAll(sel); if (ns.length) roots.push(ns[ns.length - 1]); } catch(e) {} });\n"
+            "  var root = roots[roots.length - 1];\n"
+            "  if (!root) return done(false, 'no_root', {root_selectors: rootSels});\n"
+            "  var rootRect = root.getBoundingClientRect();\n"
+            "  var scopes = [];\n"
+            "  var seen = [];\n"
+            "  var cursor = root;\n"
+            "  for (var depth = 0; cursor && depth < 4; depth++) {\n"
+            "    pushScope(scopes, seen, cursor);\n"
+            "    pushScope(scopes, seen, cursor.previousElementSibling);\n"
+            "    pushScope(scopes, seen, cursor.nextElementSibling);\n"
+            "    cursor = cursor.parentElement;\n"
+            "  }\n"
+            "  scopes.forEach(hover);\n"
+            "  var candidates = [];\n"
+            "  for (var s = 0; s < actionSels.length; s++) {\n"
+            "    for (var i = 0; i < scopes.length; i++) {\n"
+            "      var scope = scopes[i];\n"
+            "      if (!scope) continue;\n"
+            "      try { scope.querySelectorAll(actionSels[s]).forEach(function(el){ if (visible(el) && nearRoot(el, rootRect)) candidates.push({el:el, selector:actionSels[s]}); }); } catch(e) {}\n"
+            "    }\n"
+            "  }\n"
+            "  if (!candidates.length) return done(false, 'no_candidate', {scope_count: scopes.length, root_text: text(root).slice(0,120)});\n"
+            "  var hit = candidates[candidates.length - 1];\n"
+            "  click(hit.el);\n"
+            "  return done(true, 'strict_clicked', {selector:hit.selector, text:text(hit.el).slice(0,120), n:candidates.length, scope_count: scopes.length});\n"
+            "})();"
+        )
+        try:
+            result = probe.dom.execute_js(tab_id, js)
+        except ProbeError:
+            return False
+        value = result.get("value") if isinstance(result, dict) else None
+        details = value if isinstance(value, dict) else {"ok": bool(value)}
+        ok = bool(details.get("ok"))
+        self._last_click_action_result = {
+            "ok": ok,
+            "marker": details.get("marker", "strict_unknown"),
+            "action": f"branch_{direction}",
+            "via": "strict_turn_scope",
+            **{k: v for k, v in details.items() if k not in {"ok", "marker"}},
+        }
+        if ok:
+            time.sleep(1.0)
+        return ok
+
+    def click_branch_from_here(
+        self,
+        probe: "ProbeClient",
+        tab_id: int,
+    ) -> bool:
+        if (
+            not self.branch_from_here_selectors
+            and not self.more_actions_button_selectors
+        ):
+            return False
+        for scope in ("last_assistant", "last_user", "last_turn", "document"):
+            result = self._click_action_main(
+                probe,
+                tab_id,
+                action="branch_from_here",
+                scope=scope,
+                root_selectors=self.branch_root_selectors,
+                selectors=self.branch_from_here_selectors,
+                labels=self.branch_from_here_menu_labels,
+                more_selectors=self.more_actions_button_selectors,
+                menu_labels=self.branch_from_here_menu_labels,
+            )
+            if result and result.get("ok"):
+                time.sleep(2.0)
+                return True
         return False
 
     def wait_for_stop_button_visible(
@@ -1021,6 +1435,17 @@ class BaseProbeSiteAdapter:
         """
         if not self.edit_button_selectors:
             return False
+        static_result = self._click_action_main(
+            probe,
+            tab_id,
+            action="edit",
+            scope="last_user",
+            selectors=self.edit_button_selectors,
+            labels=("Edit message", "Edit", "编辑", "編輯", "修改"),
+        )
+        if static_result and static_result.get("ok"):
+            time.sleep(0.5)
+            return True
         # Step 1: hover-reveal the buttons. Best-effort; ignored on
         # error because the click in step 2 is the real signal.
         try:
@@ -1119,6 +1544,89 @@ class BaseProbeSiteAdapter:
         """
         if not self.regenerate_button_selectors and not self.more_actions_button_selectors:
             return False
+        action_labels = (
+            "Regenerate",
+            "Try again",
+            "Retry",
+            "Rerun",
+            "Rerun this turn",
+            "重新生成",
+            "重新回答",
+            "重试",
+            "重做",
+        )
+        if self.regenerate_prefer_dom_click:
+            static_result = self._click_action_main(
+                probe,
+                tab_id,
+                action="regenerate",
+                scope="last_assistant",
+                selectors=self.regenerate_button_selectors,
+                labels=action_labels,
+                more_selectors=self.more_actions_button_selectors,
+                menu_labels=self.regenerate_menu_labels,
+                root_selectors=(
+                    self.regenerate_root_selectors
+                    if self.regenerate_root_selectors is not None
+                    else self.response_container_selectors
+                ),
+            )
+            if static_result and static_result.get("ok"):
+                return True
+            if static_result is not None:
+                # Gemini's Angular menu trigger is not always opened by
+                # synthetic MAIN-world mouse events. Use probe.dom.click for
+                # the trigger, then let MAIN-world click only inside the
+                # already-open menu overlay by label.
+                for sel in self.regenerate_button_selectors:
+                    try:
+                        probe.dom.click(tab_id, sel)
+                        time.sleep(0.6)
+                    except SelectorNotFoundError:
+                        continue
+                    except ProbeError:
+                        continue
+                    menu_result = self._click_action_main(
+                        probe,
+                        tab_id,
+                        action="regenerate",
+                        scope="document",
+                        menu_labels=self.regenerate_menu_labels,
+                    )
+                    if menu_result and menu_result.get("ok"):
+                        return True
+                return False
+
+            # Older probe builds do not expose dom.click_action_main.
+            # Keep a narrow legacy fallback for those builds only.
+            for sel in self.regenerate_button_selectors:
+                try:
+                    probe.dom.click(tab_id, sel)
+                    time.sleep(0.8)
+                    return True
+                except SelectorNotFoundError:
+                    continue
+                except ProbeError:
+                    continue
+        static_result = self._click_action_main(
+            probe,
+            tab_id,
+            action="regenerate",
+            scope="last_assistant",
+            selectors=self.regenerate_button_selectors,
+            labels=action_labels,
+            more_selectors=self.more_actions_button_selectors,
+            menu_labels=self.regenerate_menu_labels,
+            root_selectors=(
+                self.regenerate_root_selectors
+                if self.regenerate_root_selectors is not None
+                else self.response_container_selectors
+            ),
+        )
+        if static_result and static_result.get("ok"):
+            return True
+        if static_result is not None:
+            return False
         regen_sels_json = (
             "[" + ", ".join(_js_str(s) for s in self.regenerate_button_selectors) + "]"
         )
@@ -1168,6 +1676,15 @@ class BaseProbeSiteAdapter:
             "      });\n"
             "    } catch (e) {}\n"
             "  }\n"
+            "  function fireFullClick(node) {\n"
+            "    if (!node) return;\n"
+            "    try {\n"
+            "      ['pointerdown','mousedown','mouseup','click'].forEach(function (t) {\n"
+            "        node.dispatchEvent(new MouseEvent(t, {bubbles: true, cancelable: true, view: window}));\n"
+            "      });\n"
+            "    } catch (e) {}\n"
+            "    try { node.click(); } catch (e) {}\n"
+            "  }\n"
             "  function isVisible(n) {\n"
             "    if (!n) return false;\n"
             "    var r = n.getBoundingClientRect();\n"
@@ -1193,7 +1710,7 @@ class BaseProbeSiteAdapter:
             "      var t = (n.innerText || n.textContent || '').trim();\n"
             "      for (var j = 0; j < labels.length; j++) {\n"
             "        if (t.indexOf(labels[j]) !== -1) {\n"
-            "          try { n.click(); return labels[j]; } catch (e) {}\n"
+            "          try { fireFullClick(n); return labels[j]; } catch (e) {}\n"
             "        }\n"
             "      }\n"
             "    }\n"
@@ -1231,7 +1748,7 @@ class BaseProbeSiteAdapter:
             "  var btn = findScopedFirst(roots, regenSels);\n"
             "  if (btn) {\n"
             "    fireHoverOn(btn);\n"
-            "    try { btn.click(); recordResult('direct:' + btn.outerHTML.slice(0, 80)); return; }\n"
+            "    try { fireFullClick(btn); recordResult('direct:' + btn.outerHTML.slice(0, 80)); return; }\n"
             "    catch (e) { recordResult('direct_click_threw'); return; }\n"
             "  }\n"
             "  recordResult('no_direct_button');\n"
@@ -1239,7 +1756,7 @@ class BaseProbeSiteAdapter:
             "  var more = findScopedFirst(roots, moreSels);\n"
             "  if (!more) { recordResult('no_direct_no_more'); return; }\n"
             "  fireHoverOn(more);\n"
-            "  try { more.click(); } catch (e) { recordResult('click_more_threw'); return; }\n"
+            "  try { fireFullClick(more); } catch (e) { recordResult('click_more_threw'); return; }\n"
             "  recordResult('more_clicked_polling');\n"
             "  // 3. setInterval poll for the labelled menu item; no\n"
             "  //    await keyword so the IIFE stack stays alive.\n"
@@ -1377,25 +1894,21 @@ class BaseProbeSiteAdapter:
         media_type: str,
         image: bool = False,
     ) -> bool:
-        """Attach a file/image via the page's ``<input type=file>``.
+        """Attach a file/image via the page's ``input[type=file]``.
 
-        Mimics the legacy autopilot's ``send_keys(path)`` but works
-        through the probe's CDP-via-content-script bridge:
+        Uses the static MAIN-world verb ``dom.set_file_input_main``
+        which bypasses page CSP via Chrome's privileged scripting
+        channel. The previous implementation built ``new Function`` /
+        ``Blob`` dynamically inside ``dom.execute_js`` — that path
+        was silently no-op'd on MV3 because the extension's default
+        manifest CSP forbids ``new Function`` even in content-script
+        ISOLATED. The static verb runs the same logic via a
+        pre-compiled function, so it actually executes.
 
-          1. Resolve the input selector \u2014
-             ``image_input_selectors`` if ``image`` is true and that
-             tuple is non-empty, otherwise ``file_input_selectors``.
-             Empty \u2014 return False (case SKIPs).
-          2. ``dom.execute_js`` builds a ``Blob`` from the base64
-             bytes, wraps it in a ``File`` with the supplied name and
-             type, packs it into a ``DataTransfer``, assigns to
-             ``input.files``, and dispatches ``input``+``change``.
-
-        Some sites (Gemini Quill, Claude TipTap) bind their upload
-        handler to a paste/drop event on the contenteditable, NOT to
-        a file input ``change``. Those sites need a different path
-        and will surface as case-level FAIL with an instructive
-        message rather than a corrupting silent skip.
+        Selector source: ``image_input_selectors`` if ``image=True``
+        and non-empty, otherwise ``file_input_selectors``. Empty
+        means the adapter has no exposed file input → return False
+        (caller SKIPs).
         """
         selectors = (
             self.image_input_selectors
@@ -1404,36 +1917,97 @@ class BaseProbeSiteAdapter:
         )
         if not selectors:
             return False
-        sels_json = "[" + ", ".join(_js_str(s) for s in selectors) + "]"
-        js = (
-            "(function () {\n"
-            "  var sels = " + sels_json + ";\n"
-            "  var input = null;\n"
-            "  for (var i = 0; i < sels.length; i++) {\n"
-            "    input = document.querySelector(sels[i]);\n"
-            "    if (input) break;\n"
-            "  }\n"
-            "  if (!input) return;\n"
-            "  var b64 = " + _js_str(file_b64) + ";\n"
-            "  var bin = atob(b64);\n"
-            "  var bytes = new Uint8Array(bin.length);\n"
-            "  for (var k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);\n"
-            "  var blob = new Blob([bytes], { type: " + _js_str(media_type) + " });\n"
-            "  var file = new File([blob], " + _js_str(file_name) + ", { type: " + _js_str(media_type) + " });\n"
-            "  try {\n"
-            "    var dt = new DataTransfer();\n"
-            "    dt.items.add(file);\n"
-            "    input.files = dt.files;\n"
-            "  } catch (e) {}\n"
-            "  input.dispatchEvent(new Event('input', { bubbles: true }));\n"
-            "  input.dispatchEvent(new Event('change', { bubbles: true }));\n"
-            "})();"
-        )
         try:
-            probe.dom.execute_js(tab_id, js)
+            res = probe.dom.set_file_input_main(
+                tab_id,
+                selectors=list(selectors),
+                file_b64=file_b64,
+                file_name=file_name,
+                media_type=media_type,
+            )
         except ProbeError:
             return False
-        time.sleep(1.5)  # let the upload chip mount
+        time.sleep(1.5)  # let the upload chip mount + React tracker commit
+        # ``res``: {ok, marker, err, matched_selector, via}. ``ok=True``
+        # only if a selector matched AND change events dispatched.
+        # ``via=react_native_setter`` is the strong-positive marker
+        # that the React tracker observed the new files.
+        return bool(res and res.get("ok") and res.get("matched_selector"))
+
+    def upload_file_via_paste(
+        self,
+        probe: "ProbeClient",
+        tab_id: int,
+        *,
+        file_name: str,
+        file_b64: str,
+        media_type: str,
+        image: bool = False,  # noqa: ARG002 - kept for symmetry with via_input
+    ) -> bool:
+        """Attach a file/image by dispatching a synthetic paste event.
+
+        This is the legacy-autopilot universal-fallback path
+        (see ``tests/e2e/sites/base.py:upload_via_paste``). It works
+        on virtually every AI chat site because they all listen for
+        ``paste`` events on the contenteditable composer to support
+        screenshot pastes. Modern ChatGPT explicitly does NOT route
+        plain ``<input type=file>`` ``change`` events through to the
+        upload chain (that's why ``upload_file_via_input`` returns
+        True but no chip mounts \u2014 see T10/T11 historical FAILs).
+
+        Sequence:
+          1. Resolve ``input_selectors[0]`` and focus it (click).
+          2. Build a ``DataTransfer`` with a single ``File`` from the
+             base64 bytes.
+          3. Construct a ``ClipboardEvent('paste')`` whose
+             ``clipboardData`` is the DataTransfer; dispatch on the
+             input element with ``bubbles: true``.
+          4. Return True iff the JS reaches the dispatch line; mark
+             diagnostics on ``document.body.dataset.pceUploadResult``.
+
+        Some sites (e.g. older Gemini Quill) bind upload to ``drop``
+        rather than ``paste`` \u2014 those need
+        ``upload_file_via_drop`` (not yet implemented; surface as
+        FAIL with hint).
+        """
+        if not self.input_selectors:
+            return False
+        # Resolve the first input selector so we can target it concretely.
+        try:
+            target_sel = self.resolve_input_selector(probe, tab_id)
+        except ProbeError:
+            target_sel = self.input_selectors[0]
+        # Use the dedicated MAIN-world dispatch verb. The function body
+        # is shipped pre-compiled by ``chrome.scripting``'s privileged
+        # channel, bypassing the page's CSP. Constructing a paste event
+        # via ``new Function`` in MAIN is silently blocked on
+        # CSP-strict sites (ChatGPT/Claude/Google ``script-src`` lacks
+        # ``unsafe-eval``); the BG service worker also forbids it. A
+        # static verb is the only path that actually reaches the
+        # page's React/ProseMirror paste listeners with a populated
+        # ``clipboardData.files``.
+        try:
+            res = probe.dom.dispatch_paste_main(
+                tab_id,
+                selector=target_sel,
+                file_b64=file_b64,
+                file_name=file_name,
+                media_type=media_type,
+            )
+        except ProbeError:
+            return False
+        if not (res and res.get("ok") and res.get("dt_files_len", 0) > 0):
+            return False
+        time.sleep(2.0)  # let the upload chip mount + any OCR/preview chain
+        # NOTE: dispatch reaching MAIN with ``dt.files.length > 0`` is
+        # the strongest signal we can give portably. We do NOT do post-
+        # paste DOM diffing here because ``dom.query``'s
+        # ``outer_html_excerpt`` is truncated at 600 chars (see
+        # ``_injected_query`` in ``probe-rpc-dom.ts``) so length-based
+        # chip detection always reads ≈0 delta. Per-site adapters that
+        # know the page rejects synthetic paste should override this
+        # method to return False and force ``upload_file_via_input``
+        # fallback (see ``ClaudeAdapter`` for the canonical example).
         return True
 
     def current_url(

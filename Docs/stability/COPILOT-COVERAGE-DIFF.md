@@ -13,7 +13,8 @@ researcher slice of the $50+/mo AI-native power user persona
 ## 1. Surfaces diff (vs ChatGPT's 21 surfaces)
 
 | ± | Surface | Notes |
-|---|---|---|
+|---|---|---|硬刷新 claude.ai(Ctrl+Shift+R)
+
 | + | Bing search grounding | Copilot answers cite web results inline; `citation` attachment expected |
 | + | "Notebook" / "Designer" modes | Alternate-workflow views |
 | − | No Custom GPT Store / no Gems | Copilot doesn't have user-authored personas |

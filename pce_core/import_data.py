@@ -372,14 +372,24 @@ def _insert_imported_message(
         try:
             import uuid
             new_id = uuid.uuid4().hex
+            # Branch columns (migration 0008 / ADR-2026-04-26 §5.1).
+            # Imports may come from a peer PCE install that already has
+            # branch metadata, or from a legacy dump predating 0008.
+            # Fall back to the default branch for the latter case so
+            # the import never fails a NOT NULL constraint.
+            imported_branch_id = message.get("branch_id") or "0"
+            imported_branch_parent = message.get("branch_parent_id")
+            imported_turn_index = _as_int(message.get("turn_index"))
             conn.execute(
                 """
                 INSERT INTO messages
                     (id, session_id, capture_pair_id, ts, role,
                      content_text, content_json, model_name, token_estimate,
                      oi_role_raw, oi_input_tokens, oi_output_tokens,
-                     oi_attributes_json, oi_schema_version)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, 1))
+                     oi_attributes_json, oi_schema_version,
+                     branch_id, branch_parent_id, turn_index)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, 1),
+                        ?, ?, ?)
                 """,
                 (
                     new_id,
@@ -396,6 +406,9 @@ def _insert_imported_message(
                     _as_int(message.get("oi_output_tokens")),
                     _as_json_str(message.get("oi_attributes_json")),
                     message.get("oi_schema_version"),
+                    imported_branch_id,
+                    imported_branch_parent,
+                    imported_turn_index,
                 ),
             )
             conn.execute(

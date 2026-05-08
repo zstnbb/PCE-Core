@@ -160,7 +160,7 @@ not be smuggled back in via a "more sites = better" instinct.
 | 2 | Claude | S0 | ~80% | 5 | `CLAUDE-FULL-COVERAGE.md` | `test_claude_full.py` (20 cases) |
 | 3 | Gemini | S1 | ~65% | 4 | `GEMINI-FULL-COVERAGE.md` (inc. NotebookLM §4) | `test_gemini_full.py` (20 cases) |
 | 4 | Google AI Studio | S1 | ~45% (dev slice) | 4 | `GOOGLE-AI-STUDIO-FULL-COVERAGE.md` | `test_googleaistudio_full.py` (20 cases) |
-| 5 | Perplexity | S1 | ~55% | 4 | `PERPLEXITY-COVERAGE-DIFF.md` (upgrade-to-full pending) | diff runner pending; smoke in `test_capture.py` |
+| 5 | Perplexity | S1 | ~55% | 4 | `PERPLEXITY-FULL-COVERAGE.md` | `test_perplexity_full.py` (24 cases) |
 | 6 | Copilot (MS) | S2 | ~25% (enterprise slice) | 3 | `COPILOT-COVERAGE-DIFF.md` | diff runner pending; smoke pending |
 | 7 | Grok | S2 | ~20% (X/Twitter slice) | 3 | `GROK-COVERAGE-DIFF.md` | diff runner pending; smoke in `test_capture.py` |
 | 8 | DeepSeek | S2 | ~25% (OSS-dev slice) | 3 | `DEEPSEEK-COVERAGE-DIFF.md` | diff runner pending; smoke in `test_capture.py` |
@@ -244,7 +244,7 @@ Re-evaluate this decision if any of the following becomes true:
 | Claude | `tests/e2e/test_claude_full.py` | 20 | runner exists, autopilot pending |
 | Gemini | `tests/e2e/test_gemini_full.py` | 20 | runner exists, autopilot pending |
 | Google AI Studio | `tests/e2e/test_googleaistudio_full.py` | 20 | runner exists, autopilot pending |
-| Perplexity | **pending** — upgrade from smoke | 20 | needs scaffold |
+| Perplexity | `tests/e2e/test_perplexity_full.py` | 24 | runner exists; first live full pass pending |
 
 ### S2 diff runner — design
 
@@ -356,7 +356,8 @@ matrix. Cross-check against the git diff of the landing commit.
 | `Docs/stability/CLAUDE-FULL-COVERAGE.md` | tier label = S0 in header |
 | `Docs/stability/GEMINI-FULL-COVERAGE.md` | tier label = S1 + NotebookLM §I.4 addendum |
 | `Docs/stability/GOOGLE-AI-STUDIO-FULL-COVERAGE.md` | tier label = S1 in header |
-| `Docs/stability/PERPLEXITY-COVERAGE-DIFF.md` | tier promoted to S1 (diff preserved with "full-spec backfill pending" note) |
+| `Docs/stability/PERPLEXITY-FULL-COVERAGE.md` | NEW S1 full spec |
+| `Docs/stability/PERPLEXITY-COVERAGE-DIFF.md` | superseded pointer to full spec |
 | `Docs/stability/COPILOT-COVERAGE-DIFF.md` | tier label = S2 |
 | `Docs/stability/DEEPSEEK-COVERAGE-DIFF.md` | tier label = S2 |
 | `Docs/stability/GROK-COVERAGE-DIFF.md` | NEW (S2) |
@@ -377,8 +378,7 @@ matrix. Cross-check against the git diff of the landing commit.
 Follow-up tasks (NOT in the landing commit — tracked separately):
 
 - `test_s2_diff.py` scaffold + parametrised runner (S2 uplift).
-- `test_perplexity_full.py` scaffold (S1 uplift from diff to full).
-- Promote Perplexity diff → full spec when the full runner lands.
+- First live Perplexity full-run evidence pass.
 - Live-DOM probes on SX sites (M365 / Notion / Gmail / Figma).
 
 ---

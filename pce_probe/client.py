@@ -524,6 +524,40 @@ class _DomNamespace(_NamespaceBase):
             },
         )
 
+    def click_action_main(
+        self,
+        tab_id: int,
+        *,
+        action: str,
+        scope: str = "document",
+        root_selectors: Optional[Sequence[str]] = None,
+        selectors: Optional[Sequence[str]] = None,
+        labels: Optional[Sequence[str]] = None,
+        more_selectors: Optional[Sequence[str]] = None,
+        menu_labels: Optional[Sequence[str]] = None,
+        prefer_last: bool = True,
+        dry_run: bool = False,
+        scan_menu: bool = False,
+        timeout_ms: int = 5_000,
+    ) -> Any:
+        return self._call(
+            "dom.click_action_main",
+            {
+                "tab_id": tab_id,
+                "action": action,
+                "scope": scope,
+                "root_selectors": list(root_selectors or []),
+                "selectors": list(selectors or []),
+                "labels": list(labels or []),
+                "more_selectors": list(more_selectors or []),
+                "menu_labels": list(menu_labels or []),
+                "prefer_last": prefer_last,
+                "dry_run": dry_run,
+                "scan_menu": scan_menu,
+            },
+            timeout_ms=timeout_ms,
+        )
+
     def type(  # noqa: A003 - matches wire verb
         self,
         tab_id: int,
@@ -579,10 +613,106 @@ class _DomNamespace(_NamespaceBase):
         code: str,
         *,
         args: Optional[Sequence[Any]] = None,
+        world: str = "isolated",  # noqa: ARG002 - kept for forward-compat
     ) -> Any:
+        """Execute ``code`` in the target tab's ISOLATED content-script
+        context.
+
+        The ``world`` parameter is accepted but ignored — see the long
+        comment above ``_injected_execute_js`` in ``probe-rpc-dom.ts``.
+        Dynamic ``new Function``-based eval cannot run in the page's
+        MAIN world under strict CSP (ChatGPT/Claude/Google) and is
+        also forbidden in the MV3 service worker. For MAIN-world
+        operations that need real Web APIs use a static verb such as
+        :meth:`dispatch_paste_main`.
+        """
+        params: dict[str, Any] = {
+            "tab_id": tab_id,
+            "code": code,
+            "args": list(args or []),
+        }
+        return self._call("dom.execute_js", params)
+
+    def set_file_input_main(
+        self,
+        tab_id: int,
+        *,
+        selectors: Sequence[str],
+        file_b64: str,
+        file_name: str,
+        media_type: str,
+    ) -> Any:
+        """Programmatically populate ``input[type=file].files`` and
+        dispatch ``input``+``change``, all in the page's MAIN world via
+        a static dispatch (CSP-safe). Uses React's native value setter
+        so the React tracker sees the assignment and the page's
+        onChange handler fires.
+
+        Returns dict shape::
+
+            {
+              "ok": bool,
+              "marker": str,
+              "err": str | None,
+              "matched_selector": str | None,
+              "via": str,  # "react_native_setter" / "direct" / "fallback_direct:..."
+            }
+
+        Use for sites whose upload chain is bound to the file input's
+        change event (Claude/Gemini/Grok). For sites that bind to a
+        paste listener on the contenteditable composer (ChatGPT) use
+        :meth:`dispatch_paste_main` instead.
+        """
         return self._call(
-            "dom.execute_js",
-            {"tab_id": tab_id, "code": code, "args": list(args or [])},
+            "dom.set_file_input_main",
+            {
+                "tab_id": tab_id,
+                "selectors": list(selectors),
+                "file_b64": file_b64,
+                "file_name": file_name,
+                "media_type": media_type,
+            },
+        )
+
+    def dispatch_paste_main(
+        self,
+        tab_id: int,
+        *,
+        selector: str,
+        file_b64: str,
+        file_name: str,
+        media_type: str,
+    ) -> Any:
+        """Dispatch a synthetic ``paste`` event in the page's MAIN
+        world, carrying a real ``File`` built from base64 bytes.
+
+        Returns a dict with shape::
+
+            {
+              "ok": bool,
+              "marker": str,        # last reached marker
+              "err": str | None,
+              "target_tag": str,
+              "target_id": str | None,
+              "dt_files_len": int,
+              "ev_class": str,      # "ClipboardEvent" or "Event+defineProperty"
+            }
+
+        The body runs in the page's MAIN context via Chrome's
+        privileged scripting channel (no eval), so React/ProseMirror
+        listeners observe a populated ``clipboardData.files``. Use
+        for image/file upload on AI sites where the page binds upload
+        to a ``paste`` listener on the contenteditable composer.
+        """
+        return self._call(
+            "dom.dispatch_paste_main",
+            {
+                "tab_id": tab_id,
+                "selector": selector,
+                "file_b64": file_b64,
+                "file_name": file_name,
+                "media_type": media_type,
+            },
         )
 
 

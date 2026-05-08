@@ -133,6 +133,7 @@ export function observeCaptureMessage(msg: ObservableCaptureMessage): void {
         ? msg.payload.session_hint
         : null,
     fingerprint,
+    body_tail: body.length > 500 ? "..." + body.slice(-500) : body,
   };
   recent.push(summary);
   while (recent.length > RING_MAX) recent.shift();
@@ -192,7 +193,10 @@ async function captureWaitForToken(
     const ev = recent[i];
     if (kind && ev.kind !== kind) continue;
     if (provider && ev.provider !== provider) continue;
-    if ((ev.fingerprint ?? "").indexOf(token) !== -1) {
+    if (
+      (ev.fingerprint ?? "").indexOf(token) !== -1 ||
+      (ev.body_tail ?? "").indexOf(token) !== -1
+    ) {
       return {
         matched: true,
         ts: ev.ts,

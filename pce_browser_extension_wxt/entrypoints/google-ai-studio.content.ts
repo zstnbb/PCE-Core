@@ -27,7 +27,6 @@ import {
 import {
   extractAttachments,
   extractThinking,
-  isStreaming as sharedIsStreaming,
   normalizeCitationUrl,
   type PceAttachment,
 } from "../utils/pce-dom";
@@ -45,11 +44,17 @@ const CONTENT_SCRIPT_INSTANCE_ID = "google-ai-studio-20260425-system-layer-edit"
 // ---------------------------------------------------------------------------
 
 const CONTROL_LINE_RE =
-  /^(?:edit|more_vert|thumb_up|thumb_down|thumb_up_alt|thumb_down_alt|info|share|compare_arrows|add|close|search|settings|menu_open)$/i;
+  /^(?:edit|more_vert|thumb_up|thumb_down|thumb_up_alt|thumb_down_alt|info|share|compare_arrows|add|close|search|settings|menu_open|copy|up|keyboard_return)$/i;
+const CONTROL_CLUSTER_RE =
+  /^(?:(?:edit|more_vert|thumb_up|thumb_down|thumb_up_alt|thumb_down_alt|info|share|compare_arrows|add|close|search|settings|menu_open|copy|up|keyboard_return)\s*)+$/i;
+const CONTROL_PREFIX_RE =
+  /^(?:(?:edit|more_vert|thumb_up|thumb_down|thumb_up_alt|thumb_down_alt|info|share|compare_arrows|add|close|search|settings|menu_open|copy|up|keyboard_return)\s+)+/i;
+const TURN_META_PREFIX_RE = /^(?:user|model)\s+\d{1,2}:\d{2}\s*/i;
+const RUN_TIME_PREFIX_RE = /^\d+(?:\.\d+)?s\s*/i;
 const META_LINE_RE = /^(?:user|model)\s+\d{1,2}:\d{2}$/i;
 const DISCLAIMER_LINE_RE = /^google ai models may make mistakes/i;
 const AI_STUDIO_UI_LINE_RE =
-  /^(?:download|content_copy|expand_less|expand_more|copy code|copy|fullscreen|chevron_right)$/i;
+  /^(?:download|content_copy|expand_less|expand_more|copy code|copy|fullscreen|chevron_right|thoughts|expand to view model thoughts|正在思考)$/i;
 const SESSION_HINT_RE = /\/prompts\/([a-zA-Z0-9_-]+)/;
 const MODEL_NAME_RE = /\b((?:gemini|imagen|veo|lyria)-[\w.-]+)\b/i;
 const AI_STUDIO_ERROR_RE =
@@ -61,6 +66,27 @@ const TRANSIENT_PROMPT_IDS = new Set([
 ]);
 
 let transientSessionHint: string | null = null;
+let virtualHydrationCursor = 0;
+let virtualHydrationRetryCount = 0;
+let virtualHydrationCaptureScheduled = false;
+
+type VirtualTurnRole = "user" | "assistant";
+type VirtualTurnCacheEntry = {
+  role: VirtualTurnRole;
+  content: string;
+  attachments: PceAttachment[];
+  touchedAt: number;
+};
+
+const VIRTUAL_TURN_CACHE_TTL_MS = 10 * 60 * 1000;
+const virtualTurnCache = new Map<string, VirtualTurnCacheEntry>();
+
+export function __resetGoogleAIStudioVirtualTurnCacheForTests(): void {
+  virtualTurnCache.clear();
+  virtualHydrationCursor = 0;
+  virtualHydrationRetryCount = 0;
+  virtualHydrationCaptureScheduled = false;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers (module-scope for testability)
@@ -69,6 +95,12 @@ let transientSessionHint: string | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function safeInnerText(el: any): string {
   if (!el) return "";
+  if (typeof el.innerText === "string" && el.innerText.trim()) {
+    return el.innerText;
+  }
+  if (typeof el.textContent === "string" && el.textContent.trim()) {
+    return el.textContent;
+  }
   if (typeof el.innerText === "string") return el.innerText;
   if (typeof el.textContent === "string") return el.textContent;
   return "";
@@ -83,10 +115,27 @@ export function normalizeText(text: string | null | undefined): string {
   if (!text) return "";
   const lines = String(text)
     .split(/\n+/)
-    .map((line) => line.replace(/\s+/g, " ").trim())
+    .map((line) => {
+      let cleaned = line.replace(/\s+/g, " ").trim();
+      let prev = "";
+      while (cleaned && cleaned !== prev) {
+        prev = cleaned;
+        cleaned = cleaned
+          .replace(CONTROL_PREFIX_RE, "")
+          .replace(TURN_META_PREFIX_RE, "")
+          .replace(RUN_TIME_PREFIX_RE, "")
+          .replace(/^thoughts\s+/i, "")
+          .replace(/^expand to view model thoughts\s+/i, "")
+          .replace(/^正在思考\s*/i, "")
+          .replace(/^chevron_right\s+/i, "")
+          .trim();
+      }
+      return cleaned;
+    })
     .filter((line) => {
       if (!line) return false;
       if (CONTROL_LINE_RE.test(line)) return false;
+      if (CONTROL_CLUSTER_RE.test(line)) return false;
       if (META_LINE_RE.test(line)) return false;
       if (DISCLAIMER_LINE_RE.test(line)) return false;
       if (AI_STUDIO_UI_LINE_RE.test(line)) return false;
@@ -278,6 +327,29 @@ function filterAiStudioAttachments(list: PceAttachment[]): PceAttachment[] {
   });
 }
 
+function normalizeAiStudioAttachments(
+  raw: PceAttachment[],
+): PceAttachment[] {
+  return dedupeAttachments(filterAiStudioAttachments(raw)).map((attachment) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const a = attachment as any;
+    if (a?.type === "citation" && a.url) {
+      return { ...a, url: normalizeCitationUrl(a.url) } as PceAttachment;
+    }
+    return attachment;
+  });
+}
+
+function extractTurnAttachments(
+  turn: Element,
+  origin: string,
+): PceAttachment[] {
+  return normalizeAiStudioAttachments([
+    ...extractAttachments(turn),
+    ...extractLocalAttachments(turn, origin),
+  ]);
+}
+
 interface CleanOptions {
   stripLinks?: boolean;
   stripCode?: boolean;
@@ -328,20 +400,37 @@ export function cleanContainerText(
   if (options.stripLinks) {
     clone.querySelectorAll("a[href]").forEach((node) => node.remove());
   }
-  return normalizeText(safeInnerText(clone));
+  const cleaned = normalizeText(safeInnerText(clone));
+  const deepCleaned = normalizeText(deepTextContent(el));
+  if (!cleaned) return deepCleaned;
+  if (deepCleaned.length > cleaned.length + 20) return deepCleaned;
+  return cleaned;
 }
 
 /**
  * Streaming check: shared DOM helper OR a Stop / Cancel button.
  */
 export function isStreaming(doc: Document = document): boolean {
-  if (sharedIsStreaming(doc)) return true;
   const buttons = doc.querySelectorAll("button");
   for (const btn of Array.from(buttons)) {
+    const style = doc.defaultView?.getComputedStyle(btn);
+    if (style?.display === "none" || style?.visibility === "hidden") continue;
     const label = `${safeInnerText(btn) || ""} ${
       btn.getAttribute("aria-label") || ""
     }`.trim();
-    if (/stop|cancel generation/i.test(label)) return true;
+    if (/stop|cancel generation|停止|取消生成/i.test(label)) {
+      try {
+        doc.documentElement.setAttribute("data-pce-gas-streaming", "true");
+      } catch {
+        /* diagnostic marker best effort */
+      }
+      return true;
+    }
+  }
+  try {
+    doc.documentElement.setAttribute("data-pce-gas-streaming", "false");
+  } catch {
+    /* diagnostic marker best effort */
   }
   return false;
 }
@@ -570,6 +659,136 @@ function querySelfOrDescendant(turn: Element, selector: string): Element | null 
   return turn.querySelector(selector);
 }
 
+function pruneVirtualTurnCache(now = Date.now()): void {
+  for (const [key, entry] of virtualTurnCache) {
+    if (now - entry.touchedAt > VIRTUAL_TURN_CACHE_TTL_MS) {
+      virtualTurnCache.delete(key);
+    }
+  }
+}
+
+function virtualTurnKey(
+  turn: Element,
+  index: number,
+  role: VirtualTurnRole,
+): string {
+  const turnId =
+    turn.getAttribute("id") ||
+    turn.getAttribute("data-turn-id") ||
+    turn.querySelector("[id]")?.getAttribute("id") ||
+    String(index);
+  return `${location.pathname}|${turnId}|${role}`;
+}
+
+function rememberVirtualTurn(
+  key: string,
+  role: VirtualTurnRole,
+  content: string,
+  attachments: PceAttachment[] = [],
+): void {
+  if (!content && attachments.length === 0) return;
+  const isNew = !virtualTurnCache.has(key);
+  virtualTurnCache.set(key, {
+    role,
+    content,
+    attachments: dedupeAttachments(attachments),
+    touchedAt: Date.now(),
+  });
+  if (isNew) {
+    virtualHydrationRetryCount = 0;
+  }
+}
+
+function cachedVirtualTurn(
+  key: string,
+  role: VirtualTurnRole,
+): VirtualTurnCacheEntry | null {
+  const cached = virtualTurnCache.get(key);
+  if (!cached || cached.role !== role) return null;
+  if (Date.now() - cached.touchedAt > VIRTUAL_TURN_CACHE_TTL_MS) {
+    virtualTurnCache.delete(key);
+    return null;
+  }
+  return cached;
+}
+
+function pushCachedVirtualTurnMessage(
+  messages: ExtractedMessage[],
+  key: string,
+  role: VirtualTurnRole,
+): boolean {
+  const cached = cachedVirtualTurn(key, role);
+  if (!cached) return false;
+  const msg: ExtractedMessage = {
+    role,
+    content: cached.content || attachmentOnlyText(cached.attachments) || "[Attachment]",
+  };
+  if (cached.attachments.length > 0) msg.attachments = cached.attachments;
+  messages.push(msg);
+  return true;
+}
+
+function hasBlankVirtualBody(turn: Element): boolean {
+  const virtual = turn.querySelector(".virtual-scroll-container");
+  if (!virtual) return false;
+  const content = virtual.querySelector(".turn-content") || virtual;
+  return !normalizeText(safeInnerText(content) || deepTextContent(content));
+}
+
+function scheduleVirtualHydrationCapture(): void {
+  if (virtualHydrationCaptureScheduled) return;
+  if (virtualHydrationRetryCount > 36) return;
+  virtualHydrationCaptureScheduled = true;
+  virtualHydrationRetryCount += 1;
+  window.setTimeout(() => {
+    virtualHydrationCaptureScheduled = false;
+    try {
+      document.dispatchEvent(new Event("pce-manual-capture"));
+    } catch {
+      /* best-effort hydration retry */
+    }
+  }, 900);
+}
+
+function hydrateVirtualTurn(turn: Element): boolean {
+  const target = turn;
+  try {
+    (target as HTMLElement).scrollIntoView?.({
+      block: "center",
+      inline: "nearest",
+      behavior: "auto",
+    } as ScrollIntoViewOptions);
+    document.documentElement.setAttribute(
+      "data-pce-gas-virtual-hydrate",
+      `${Date.now()}:${turn.getAttribute("id") || ""}`,
+    );
+    scheduleVirtualHydrationCapture();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function hydrateNextMissingVirtualTurn(
+  turns: Element[],
+  cachedKeys: Set<string>,
+): void {
+  if (turns.length === 0) return;
+  for (let offset = 0; offset < turns.length; offset += 1) {
+    const index = (virtualHydrationCursor + offset) % turns.length;
+    const turn = turns[index];
+    const role = getTurnRole(turn);
+    if (role !== "user" && role !== "assistant") continue;
+    const key = virtualTurnKey(turn, index, role);
+    if (cachedKeys.has(key) && !hasBlankVirtualBody(turn)) continue;
+    if (!hasBlankVirtualBody(turn) && cachedKeys.has(key)) continue;
+    if (hydrateVirtualTurn(turn)) {
+      virtualHydrationCursor = (index + 1) % turns.length;
+      return;
+    }
+  }
+}
+
 function getTurnRole(turn: Element): "user" | "assistant" | null {
   const candidates = [
     turn,
@@ -716,55 +935,61 @@ export function extractMessages(
 ): ExtractedMessage[] {
   const messages: ExtractedMessage[] = [];
   const turns = getPromptTurns(doc);
-  if (turns.length === 0) return messages;
+  const debugTurns: string[] = [];
+  const cachedKeys = new Set<string>();
+  pruneVirtualTurnCache();
+  if (turns.length === 0) {
+    try {
+      doc.documentElement.setAttribute("data-pce-gas-turn-count", "0");
+      doc.documentElement.setAttribute("data-pce-gas-message-count", "0");
+    } catch {
+      /* diagnostic marker best effort */
+    }
+    return messages;
+  }
 
-  turns.forEach((turn) => {
+  turns.forEach((turn, index) => {
     const role = getTurnRole(turn);
+    try {
+      debugTurns.push(
+        `${role || "none"}:${normalizeText(safeInnerText(turn)).slice(0, 60)}`,
+      );
+    } catch {
+      debugTurns.push(`${role || "none"}:<debug-error>`);
+    }
 
     if (role === "user") {
+      const cacheKey = virtualTurnKey(turn, index, "user");
       const content = extractUserText(turn);
-      const rawAtt = [
-        ...extractAttachments(turn),
-        ...extractLocalAttachments(turn, origin),
-      ];
-      const att = dedupeAttachments(filterAiStudioAttachments(rawAtt)).map((attachment) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const a = attachment as any;
-        if (a?.type === "citation" && a.url) {
-          return { ...a, url: normalizeCitationUrl(a.url) } as PceAttachment;
-        }
-        return attachment;
-      });
+      const att = extractTurnAttachments(turn, origin);
       const attachmentText = attachmentOnlyText(att);
       if (content || attachmentText || att.length > 0) {
+        rememberVirtualTurn(cacheKey, "user", content || attachmentText, att);
+        cachedKeys.add(cacheKey);
         const msg: ExtractedMessage = {
           role: "user",
           content: content || attachmentText || "[Attachment]",
         };
         if (att.length > 0) msg.attachments = att;
         messages.push(msg);
+      } else if (pushCachedVirtualTurnMessage(messages, cacheKey, "user")) {
+        cachedKeys.add(cacheKey);
       }
       return;
     }
 
     if (role === "assistant") {
-      const rawAtt = [
-        ...extractAttachments(turn),
-        ...extractLocalAttachments(turn, origin),
-      ];
-      const att = dedupeAttachments(filterAiStudioAttachments(rawAtt)).map((attachment) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const a = attachment as any;
-        if (a?.type === "citation" && a.url) {
-          return { ...a, url: normalizeCitationUrl(a.url) } as PceAttachment;
-        }
-        return attachment;
-      });
+      const cacheKey = virtualTurnKey(turn, index, "assistant");
+      const att = extractTurnAttachments(turn, origin);
       const content = extractAssistantText(turn, att);
       if (content) {
+        rememberVirtualTurn(cacheKey, "assistant", content, att);
+        cachedKeys.add(cacheKey);
         const msg: ExtractedMessage = { role: "assistant", content };
         if (att.length > 0) msg.attachments = att;
         messages.push(msg);
+      } else if (pushCachedVirtualTurnMessage(messages, cacheKey, "assistant")) {
+        cachedKeys.add(cacheKey);
       }
       return;
     }
@@ -783,40 +1008,81 @@ export function extractMessages(
     // model container exists. Turns with neither (ghost / loading /
     // structural wrappers) contribute zero messages.
     const userContainer = turn.querySelector(
-      ".chat-turn-container.user, .chat-turn-container .user",
+      ".chat-turn-container.user, .chat-turn-container .user, " +
+        ".virtual-scroll-container.user-prompt-container, .user-prompt-container, " +
+        "[data-turn-role='User']",
     );
     const modelContainer = turn.querySelector(
-      ".chat-turn-container.model, .model",
+      ".chat-turn-container.model, .chat-turn-container .model, " +
+        ".virtual-scroll-container.model-prompt-container, .model-prompt-container, " +
+        "[data-turn-role='Model']",
     );
     if (!userContainer && !modelContainer) {
       return;
     }
 
     if (userContainer) {
+      const cacheKey = virtualTurnKey(turn, index, "user");
       const userContent = extractUserText(turn);
-      const userAtt = dedupeAttachments(filterAiStudioAttachments([
-        ...extractAttachments(turn),
-        ...extractLocalAttachments(turn, origin),
-      ]));
+      const userAtt = extractTurnAttachments(userContainer, origin);
       const userAttachmentText = attachmentOnlyText(userAtt);
       if (userContent || userAttachmentText || userAtt.length > 0) {
+        rememberVirtualTurn(cacheKey, "user", userContent || userAttachmentText, userAtt);
+        cachedKeys.add(cacheKey);
         const msg: ExtractedMessage = {
           role: "user",
           content: userContent || userAttachmentText || "[Attachment]",
         };
         if (userAtt.length > 0) msg.attachments = userAtt;
         messages.push(msg);
+      } else if (pushCachedVirtualTurnMessage(messages, cacheKey, "user")) {
+        cachedKeys.add(cacheKey);
       }
     }
 
     if (modelContainer) {
-      const assistantContent = extractAssistantText(turn);
+      const cacheKey = virtualTurnKey(turn, index, "assistant");
+      const assistantAtt = extractTurnAttachments(modelContainer, origin);
+      const assistantContent = extractAssistantText(turn, assistantAtt);
       if (assistantContent) {
-        messages.push({ role: "assistant", content: assistantContent });
+        rememberVirtualTurn(cacheKey, "assistant", assistantContent, assistantAtt);
+        cachedKeys.add(cacheKey);
+        const msg: ExtractedMessage = {
+          role: "assistant",
+          content: assistantContent,
+        };
+        if (assistantAtt.length > 0) msg.attachments = assistantAtt;
+        messages.push(msg);
+      } else if (pushCachedVirtualTurnMessage(messages, cacheKey, "assistant")) {
+        cachedKeys.add(cacheKey);
       }
     }
   });
 
+  hydrateNextMissingVirtualTurn(turns, cachedKeys);
+
+  try {
+    doc.documentElement.setAttribute("data-pce-gas-turn-count", String(turns.length));
+    doc.documentElement.setAttribute("data-pce-gas-message-count", String(messages.length));
+    doc.documentElement.setAttribute(
+      "data-pce-gas-virtual-cache-count",
+      String(virtualTurnCache.size),
+    );
+    doc.documentElement.setAttribute(
+      "data-pce-gas-message-roles",
+      messages.map((m) => m.role).join(","),
+    );
+    doc.documentElement.setAttribute(
+      "data-pce-gas-message-head",
+      messages.map((m) => String(m.content || "").slice(0, 40)).join(" | ").slice(0, 240),
+    );
+    doc.documentElement.setAttribute(
+      "data-pce-gas-turn-debug",
+      debugTurns.join(" || ").slice(0, 500),
+    );
+  } catch {
+    /* diagnostic marker best effort */
+  }
   return messages;
 }
 
@@ -830,6 +1096,14 @@ export default defineContentScript({
   main() {
     if (window.__PCE_GOOGLE_AI_STUDIO_ACTIVE === CONTENT_SCRIPT_INSTANCE_ID) return;
     window.__PCE_GOOGLE_AI_STUDIO_ACTIVE = CONTENT_SCRIPT_INSTANCE_ID;
+    try {
+      document.documentElement.setAttribute(
+        "data-pce-google-ai-studio-active",
+        CONTENT_SCRIPT_INSTANCE_ID,
+      );
+    } catch {
+      /* diagnostic marker best effort */
+    }
 
     console.log("[PCE] Google AI Studio content script loaded", CONTENT_SCRIPT_INSTANCE_ID);
 

@@ -129,6 +129,15 @@ export interface CaptureRuntimeOptions {
    */
   requireBothRoles?: boolean;
 
+  /**
+   * When ``requireBothRoles`` is true, still allow a user-only capture
+   * if the extracted user message carries at least one attachment.
+   * This is a narrow escape hatch for virtualized attachment turns:
+   * the file metadata is valuable even if the assistant turn has not
+   * mounted yet. Plain text-only prompts still wait for both roles.
+   */
+  allowUserOnlyWithAttachments?: boolean;
+
   // --- Injection points ---
   /** Injectable window handle. Defaults to `globalThis.window`. */
   win?: Window & typeof globalThis;
@@ -250,7 +259,22 @@ export function createCaptureRuntime(
       const b = (win as any).__PCE_BEHAVIOR;
       if (b && typeof b.getBehaviorSnapshot === "function") {
         try {
-          return (b.getBehaviorSnapshot(true) as Record<string, unknown>) || {};
+          const snapshot = (b.getBehaviorSnapshot(true) as Record<string, unknown>) || {};
+          const fallbackType = doc.documentElement.getAttribute("data-pce-last-action");
+          const fallbackAtRaw = doc.documentElement.getAttribute("data-pce-last-action-at");
+          const fallbackAt = fallbackAtRaw ? Number(fallbackAtRaw) : 0;
+          const fallbackFresh =
+            Boolean(fallbackType) && Number.isFinite(fallbackAt) && Date.now() - fallbackAt < 15_000;
+          if (fallbackFresh && !snapshot.last_action) {
+            const event = {
+              at: fallbackAt,
+              type: fallbackType,
+              label: doc.documentElement.getAttribute("data-pce-last-action-via") || "",
+            };
+            snapshot.last_action = event;
+            snapshot.action_events = [event];
+          }
+          return snapshot;
         } catch {
           return {};
         }
@@ -326,7 +350,16 @@ export function createCaptureRuntime(
     if (options.requireBothRoles) {
       const hasUser = allMsgs.some((m) => m && m.role === "user");
       const hasAssistant = allMsgs.some((m) => m && m.role === "assistant");
-      if (!hasUser || !hasAssistant) {
+      const hasUserAttachment = allMsgs.some(
+        (m) =>
+          m &&
+          m.role === "user" &&
+          Array.isArray(m.attachments) &&
+          m.attachments.length > 0,
+      );
+      const allowUserOnly =
+        options.allowUserOnlyWithAttachments && hasUser && hasUserAttachment;
+      if ((!hasUser || !hasAssistant) && !allowUserOnly) {
         schedule(STREAM_CHECK_MS);
         return;
       }

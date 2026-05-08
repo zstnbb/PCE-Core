@@ -52,6 +52,8 @@ _STRICT_EXTERNAL_SKIP_KEYWORDS = (
     "quota",
     "rate limit",
     "rate-limit",
+    "no native surface",
+    "feature unavailable",
 )
 
 

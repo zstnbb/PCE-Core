@@ -132,6 +132,20 @@ class T08RegenerateCase(BaseCase):
         try:
             adapter.send_prompt(probe, tab_id, prompt)
         except ProbeError as exc:
+            blocker = adapter.detect_external_blocker(probe, tab_id)
+            if blocker:
+                return CaseResult.skipped(
+                    self.id,
+                    adapter.name,
+                    f"quota/rate limit blocker after submit: {blocker}",
+                    duration_ms=self._elapsed_ms(start),
+                    details={
+                        **details,
+                        "phase": "send_prompt_external_blocker",
+                        "external_blocker": blocker,
+                        "send_prompt_context": exc.context or {},
+                    },
+                )
             return CaseResult.failed(
                 self.id, adapter.name,
                 f"send_prompt: [{exc.code}] {exc.message}",
@@ -206,6 +220,9 @@ class T08RegenerateCase(BaseCase):
         #    before clicking; the wait_for_done above handles that.
         clicked = adapter.click_regenerate(probe, tab_id)
         details["regenerate_clicked"] = clicked
+        action_result = getattr(adapter, "_last_click_action_result", None)
+        if isinstance(action_result, dict):
+            details["click_action_main"] = action_result
         # Diagnostic: read the side-channel result. The helper writes
         # to three channels (span#pce-regen-result-tag, body[data-...],
         # html[data-...]) so at least one survives any React tear-down
@@ -244,6 +261,15 @@ class T08RegenerateCase(BaseCase):
             if "regen_path_diag" in details:
                 break
         if not clicked:
+            if self._action_result_has_no_native_surface(action_result):
+                return CaseResult.skipped(
+                    self.id, adapter.name,
+                    "no native surface: regenerate control/menu item is "
+                    "not exposed on the latest assistant turn for this "
+                    "account/model UI",
+                    duration_ms=self._elapsed_ms(start),
+                    details={**details, "phase": "regen_no_native_surface"},
+                )
             return CaseResult.failed(
                 self.id, adapter.name,
                 "click_regenerate returned False; none of "
@@ -281,22 +307,31 @@ class T08RegenerateCase(BaseCase):
         #    wait_for_token returns on first match; we need to count
         #    captures across the whole exercise to confirm the regen
         #    fired a fresh one. Use ``recent_events`` ring count delta.
-        #    Brief settle to let the SW finish its post-regen flush.
-        time.sleep(2.0)
-        try:
-            ring = (
-                probe.capture.recent_events(
-                    last_n=200, provider=adapter.provider,
-                ).get("events", [])
-                or []
-            )
-        except ProbeError:
-            ring = []
-        token_captures = [
-            e for e in ring
-            if e.get("kind") == "PCE_CAPTURE"
-            and self._event_body_has(e, token)
-        ]
+        #    Gemini and Claude can emit the post-regenerate capture a
+        #    few seconds after the stop button disappears. Poll the SW
+        #    ring before deciding that fingerprint dedup collapsed the
+        #    event; this costs no model quota and prevents a false
+        #    strict FAIL when storage lands slightly late.
+        token_captures = []
+        deadline = time.time() + 12.0
+        while True:
+            try:
+                ring = (
+                    probe.capture.recent_events(
+                        last_n=200, provider=adapter.provider,
+                    ).get("events", [])
+                    or []
+                )
+            except ProbeError:
+                ring = []
+            token_captures = [
+                e for e in ring
+                if e.get("kind") == "PCE_CAPTURE"
+                and self._event_body_has(e, token)
+            ]
+            if len(token_captures) >= 2 or time.time() >= deadline:
+                break
+            time.sleep(1.0)
         details["token_capture_count"] = len(token_captures)
 
         # 7. Determine the session to inspect and fetch the final
@@ -510,7 +545,7 @@ class T08RegenerateCase(BaseCase):
                 if str(s.get("session_key", "")).find(str(session_hint)) != -1
             ]
             if matching:
-                session_id = matching[0].get("id")
+                session_id = matching[-1].get("id")
                 msg_resp = pce_core.get(f"/api/v1/sessions/{session_id}/messages")
                 if msg_resp.status_code != 200:
                     return (session_id, "")
@@ -554,7 +589,7 @@ class T08RegenerateCase(BaseCase):
             if resp.status_code != 200:
                 return (None, "")
             sessions = resp.json() or []
-            for s in sessions[:10]:
+            for s in list(reversed(sessions))[:10]:
                 session_id = s.get("id")
                 if not session_id:
                     continue
@@ -585,7 +620,10 @@ class T08RegenerateCase(BaseCase):
         session_id: str,
     ) -> list[dict]:
         try:
-            msg_resp = pce_core.get(f"/api/v1/sessions/{session_id}/messages")
+            msg_resp = pce_core.get(
+                f"/api/v1/sessions/{session_id}/messages",
+                params={"branches": "expand"},
+            )
         except httpx.HTTPError:
             return []
         if msg_resp.status_code != 200:
@@ -683,6 +721,33 @@ class T08RegenerateCase(BaseCase):
         return hits
 
     @staticmethod
+    def _action_result_has_no_native_surface(action_result) -> bool:
+        if not isinstance(action_result, dict):
+            return False
+        marker = str(action_result.get("marker") or "")
+        if marker not in {"no_direct_no_more", "menu_no_match"}:
+            return False
+        candidates = action_result.get("candidates") or []
+        controls = action_result.get("controls") or []
+        menu_candidates = action_result.get("menu_candidates") or []
+        haystack = " ".join(
+            str(item.get("text") or "")
+            for item in [*candidates, *controls, *menu_candidates]
+            if isinstance(item, dict)
+        ).lower()
+        action_words = (
+            "regenerate",
+            "retry",
+            "try again",
+            "rerun",
+            "\u91cd\u65b0\u751f\u6210",
+            "\u91cd\u65b0\u56de\u7b54",
+            "\u91cd\u8bd5",
+            "\u91cd\u505a",
+        )
+        return not any(word in haystack for word in action_words)
+
+    @staticmethod
     def _event_body_has(event: dict, token: str) -> bool:
         # The SW capture ring summary (see ``CaptureEventSummary`` in
         # ``probe-rpc-capture.ts``) carries the body in a ``fingerprint``
@@ -692,13 +757,27 @@ class T08RegenerateCase(BaseCase):
         # returned False, which made T08 silently report ``0 captures``
         # on every run regardless of pipeline state.
         token = str(token)
-        for k in ("fingerprint", "body_excerpt", "body", "summary", "content_text"):
+        for k in (
+            "fingerprint",
+            "body_tail",
+            "body_excerpt",
+            "body",
+            "summary",
+            "content_text",
+        ):
             v = event.get(k)
             if isinstance(v, str) and token in v:
                 return True
         payload = event.get("payload") or {}
         if isinstance(payload, dict):
-            for k in ("fingerprint", "body_excerpt", "body", "content_text", "text"):
+            for k in (
+                "fingerprint",
+                "body_tail",
+                "body_excerpt",
+                "body",
+                "content_text",
+                "text",
+            ):
                 v = payload.get(k)
                 if isinstance(v, str) and token in v:
                     return True

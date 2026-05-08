@@ -9,6 +9,7 @@ Extracted from pipeline.py for single-responsibility decomposition.
 import json
 import logging
 import re
+import sqlite3
 from typing import Optional
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -16,6 +17,7 @@ from urllib.parse import parse_qs, urlparse
 from ..db import (
     insert_message,
     get_connection,
+    new_id,
     query_messages,
     query_sessions,
     record_pipeline_error,
@@ -23,7 +25,11 @@ from ..db import (
     update_session_oi_attributes,
 )
 from ..logging_config import log_event
-from ..rich_content import build_content_json, load_attachments_from_content_json
+from ..rich_content import (
+    build_content_json,
+    load_attachments_from_content_json,
+    load_threading_from_content_json,
+)
 from .base import NormalizedMessage, NormalizedResult
 from .openinference_mapper import (
     message_to_oi_attributes,
@@ -264,7 +270,15 @@ def merge_content_json(existing_json: Optional[str], incoming_json: Optional[str
 
     merged: dict[str, dict] = {}
     order: list[str] = []
+    threading: dict = {}
     for source_json in (existing_json, incoming_json):
+        threading.update(
+            {
+                key: value
+                for key, value in load_threading_from_content_json(source_json).items()
+                if value not in (None, "", [], {})
+            }
+        )
         for att in load_attachments(source_json):
             if not isinstance(att, dict):
                 continue
@@ -275,9 +289,12 @@ def merge_content_json(existing_json: Optional[str], incoming_json: Optional[str
             else:
                 merged[key] = merge_attachment(merged[key], att)
 
-    if not order:
+    if not order and not threading:
         return existing_json or incoming_json
-    return build_content_json([merged[key] for key in order])
+    return build_content_json(
+        [merged[key] for key in order],
+        threading=threading or None,
+    )
 
 
 def choose_better_content_text(existing_text: Optional[str], incoming_text: Optional[str]) -> Optional[str]:
@@ -296,6 +313,87 @@ def choose_better_content_text(existing_text: Optional[str], incoming_text: Opti
     if existing_text.strip() == existing_norm:
         return existing_text
     return incoming_norm or existing_text
+
+
+# ---------------------------------------------------------------------------
+# Branch fork detection (ADR-2026-04-26 §5.2)
+# ---------------------------------------------------------------------------
+
+def _detect_branch_fork(
+    session_id: str,
+    completion_messages: list[NormalizedMessage],
+    *,
+    db_path: Optional[Path] = None,
+) -> Optional[tuple[str, Optional[str]]]:
+    """Return ``(new_branch_id, branch_parent_id)`` if this completion forks.
+
+    A fork is any new completion whose ``provider_parent_uuid`` collides
+    with a row already stored in this session AND produces different
+    text on the same role. Both Regenerate (assistant text differs) and
+    Edit-user-message (user text differs) match this rule, which is why
+    one helper covers both ADR cases.
+
+    Returns ``None`` when:
+    - none of the new messages carry a ``provider_parent_uuid`` (e.g.
+      official ``/v1/messages`` API captures, no branch context), OR
+    - no existing row references those parents, OR
+    - all existing rows match the new messages verbatim (idempotent
+      replay — the safety net for re-ingesting the same capture).
+
+    The match uses ``content_json LIKE`` because the threading dict
+    is JSON-encoded with a stable schema (see
+    ``rich_content._normalize_threading``); SQLite's optional json1
+    isn't required.
+    """
+    parent_uuids = {
+        m.provider_parent_uuid
+        for m in completion_messages
+        if isinstance(m.provider_parent_uuid, str) and m.provider_parent_uuid
+    }
+    if not parent_uuids:
+        return None
+
+    conn = get_connection(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        for parent_uuid in parent_uuids:
+            # Stable JSON shape: ``"provider_parent_uuid": "..."`` with
+            # no whitespace from json.dumps(separators=default).
+            like_pat = f'%"provider_parent_uuid": "{parent_uuid}"%'
+            rows = conn.execute(
+                "SELECT id, role, content_text, branch_id, branch_parent_id "
+                "FROM messages "
+                "WHERE session_id = ? AND content_json LIKE ? "
+                "ORDER BY ts ASC, id ASC",
+                (session_id, like_pat),
+            ).fetchall()
+            if not rows:
+                continue
+            for row in rows:
+                # Match by role so a regenerated assistant compares to
+                # the prior assistant, not to its sibling user.
+                new_msg = next(
+                    (
+                        m for m in completion_messages
+                        if m.provider_parent_uuid == parent_uuid
+                        and m.role == row["role"]
+                    ),
+                    None,
+                )
+                if new_msg is None:
+                    continue
+                # Idempotent replay: same parent + same role + same
+                # text → not a fork, just a re-ingest of the same
+                # completion. Stay on the existing branch.
+                if (new_msg.content_text or "") == (row["content_text"] or ""):
+                    continue
+                # Fork detected. Mint a new branch and point its parent
+                # at the existing sibling so the dashboard can render
+                # the tree relationship.
+                return (new_id(), row["id"])
+        return None
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -363,6 +461,27 @@ def persist_result(
     # core N10 fix: legitimate repeats survive instead of getting eaten
     # by an over-eager dedup.
     incoming_cursor: dict[str, int] = {}
+
+    # ── Branch-fork detection (ADR-2026-04-26 §5.2) ───────────────────
+    # Run before the insert loop so a single completion always lands on
+    # ONE branch — never half-on-main, half-on-alt. Returns ``None`` for
+    # the common case (linear conversation, API capture, replay of an
+    # already-stored capture).
+    fork_branch_default: Optional[str] = None
+    fork_branch_default_parent: Optional[str] = None
+    if is_existing:
+        detected = _detect_branch_fork(
+            session_id, list(result.messages), db_path=db_path,
+        )
+        if detected is not None:
+            fork_branch_default, fork_branch_default_parent = detected
+            log_event(
+                logger, "branches.fork_detected",
+                level=logging.INFO,
+                session_id=session_id[:8],
+                branch_id=fork_branch_default[:8],
+                provider=result.provider,
+            )
 
     msg_count = 0
     enriched_count = 0
@@ -447,12 +566,57 @@ def persist_result(
             pair_id=pair_id,
             token_est=token_est,
         )
+        # Promote branch metadata from the JSON threading contract to
+        # the native columns introduced by migration 0008. The
+        # threading blob is minted by
+        # ``pce_core/normalizer/conversation.py::_threading_contract_for_message``
+        # whenever a Regenerate / Edit user-message / branch-flip is
+        # detected. For everything else ``threading`` is empty and
+        # ``insert_message`` defaults branch_id to ``'0'``. We pass
+        # ``turn_index=None`` so ``insert_message`` computes the next
+        # slot within ``(session_id, branch_id)`` from a live query —
+        # that's the only correct value across concurrent inserts.
+        threading = load_threading_from_content_json(msg.content_json)
+        fork_branch_id = threading.get("branch_id") or threading.get("current_branch_id")
+        fork_parent = threading.get("parent_message_id")
+        # Network-detected fork is the fallback when DOM channel didn't
+        # already mint a branch_id. DOM wins because it carries explicit
+        # user intent (branch_prev click); network-detection covers the
+        # C07/C08 case where two completions hit the same parent_uuid
+        # but produce different texts (no DOM event surfaced).
+        if not fork_branch_id and fork_branch_default:
+            fork_branch_id = fork_branch_default
+            if not fork_parent:
+                fork_parent = fork_branch_default_parent
+        content_json = msg.content_json
+        if (
+            fork_branch_id
+            and fork_branch_default
+            and msg.role == "assistant"
+            and "variant_group_id" not in threading
+        ):
+            variant_group_id = f"{session_id}:variant:{fork_parent or 'fork'}"
+            variant_threading = dict(threading)
+            variant_threading.update({
+                "type": "assistant_variant",
+                "variant_group_id": variant_group_id,
+                "variant_id": fork_branch_id,
+                "variant_index": 1,
+                "current_variant_id": fork_branch_id,
+                "regenerated_from": fork_parent or f"{variant_group_id}:previous",
+                "source_action": "network_fork_detected",
+            })
+            content_json = build_content_json(
+                load_attachments_from_content_json(msg.content_json),
+                plain_text=msg.content_text,
+                threading=variant_threading,
+            )
         msg_id = insert_message(
             session_id=session_id,
             ts=msg.ts or created_at,
             role=msg.role,
             content_text=msg.content_text,
-            content_json=msg.content_json,
+            content_json=content_json,
             model_name=msg.model_name or result.model_name,
             capture_pair_id=pair_id,
             token_estimate=token_est,
@@ -460,6 +624,9 @@ def persist_result(
             oi_input_tokens=oi_fields["oi_input_tokens"],
             oi_output_tokens=oi_fields["oi_output_tokens"],
             oi_attributes_json=oi_fields["oi_attributes_json"],
+            branch_id=fork_branch_id if fork_branch_id else None,
+            branch_parent_id=fork_parent if fork_parent else None,
+            turn_index=None,
             db_path=db_path,
         )
         if msg_id:
@@ -470,7 +637,7 @@ def persist_result(
                 "id": msg_id,
                 "role": msg.role,
                 "content_text": msg.content_text,
-                "content_json": msg.content_json,
+                "content_json": content_json,
                 "model_name": msg.model_name or result.model_name,
                 "token_estimate": token_est,
             })

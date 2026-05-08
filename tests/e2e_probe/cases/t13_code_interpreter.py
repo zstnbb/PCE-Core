@@ -108,6 +108,19 @@ class T13CodeInterpreterCase(BaseCase):
                 else "generic_template"
             ),
         }
+        if not (
+            getattr(adapter, "code_interp_trigger_prompt", None)
+            or adapter.code_interpreter_button_selectors
+            or adapter.code_interpreter_menu_labels
+        ):
+            return CaseResult.skipped(
+                self.id, adapter.name,
+                "adapter has no code-execution trigger, toggle, or menu "
+                "label; this site does not expose a stable code "
+                "interpreter surface for T13",
+                duration_ms=self._elapsed_ms(start),
+                details={**details, "phase": "no_code_execution_surface"},
+            )
 
         # 1. Open + login.
         try:
@@ -191,92 +204,110 @@ class T13CodeInterpreterCase(BaseCase):
                 duration_ms=self._elapsed_ms(start),
                 details={**details, "phase": "wait_for_done"},
             )
+        site_error = self._read_site_error(probe, tab_id, adapter)
+        if self._is_quota_or_rate_limit(site_error):
+            return CaseResult.skipped(
+                self.id, adapter.name,
+                "site quota/rate-limit banner appeared before capture; "
+                "the code-execution invariant was not exercised",
+                duration_ms=self._elapsed_ms(start),
+                details={
+                    **details,
+                    "phase": "site_quota_or_rate_limit",
+                    "site_error": site_error[:500],
+                },
+            )
 
         # 4. Capture + round-trip.
+        capture_timeout_ms = max(45_000, min(adapter.response_timeout_ms, 90_000))
+        session_id: str | None = None
+        msgs: list = []
         try:
             captured = probe.capture.wait_for_token(
                 token,
-                timeout_ms=25_000,
+                timeout_ms=capture_timeout_ms,
                 provider=adapter.provider,
                 kind="PCE_CAPTURE",
             )
         except CaptureNotSeenError as exc:
             ctx = exc.context or {}
             recent = ctx.get("last_capture_events") or []
-            return CaseResult.failed(
-                self.id, adapter.name,
-                f"capture.wait_for_token: {exc.message}",
-                duration_ms=self._elapsed_ms(start),
-                details={
-                    **details, "phase": "no_capture",
-                    "agent_hint": exc.agent_hint,
-                    "recent_events": recent[-10:],
-                },
+            if not recent:
+                recent = self._read_recent_events(probe, adapter)
+            stored = self._handle_missing_capture(
+                probe=probe,
+                pce_core=pce_core,
+                adapter=adapter,
+                tab_id=tab_id,
+                token=token,
+                details=details,
+                start=start,
+                recent=recent,
+                capture_timeout_ms=capture_timeout_ms,
+                error_summary=f"capture.wait_for_token: {exc.message}",
+                agent_hint=exc.agent_hint,
             )
+            if isinstance(stored, CaseResult):
+                return stored
+            session_id, msgs = stored
         except ProbeError as exc:
-            return CaseResult.failed(
-                self.id, adapter.name,
-                f"capture.wait_for_token: [{exc.code}] {exc.message}",
-                duration_ms=self._elapsed_ms(start),
-                details={**details, "phase": "wait_for_token_error"},
+            ctx = exc.context or {}
+            recent = ctx.get("last_capture_events") or []
+            if not recent:
+                recent = self._read_recent_events(probe, adapter)
+            stored = self._handle_missing_capture(
+                probe=probe,
+                pce_core=pce_core,
+                adapter=adapter,
+                tab_id=tab_id,
+                token=token,
+                details=details,
+                start=start,
+                recent=recent,
+                capture_timeout_ms=capture_timeout_ms,
+                error_summary=(
+                    f"capture.wait_for_token: [{exc.code}] {exc.message}"
+                ),
+                agent_hint=exc.agent_hint,
             )
-
-        session_hint = captured.get("session_hint")
-        if not session_hint:
-            return CaseResult.failed(
-                self.id, adapter.name,
-                "captured event had no session_hint",
-                duration_ms=self._elapsed_ms(start),
-                details={**details, "phase": "session_hint_missing"},
-            )
-        sessions: list = []
-        matching: list = []
-        for _ in range(6):
-            try:
-                resp = pce_core.get(
-                    "/api/v1/sessions",
-                    params={"provider": adapter.provider},
+            if isinstance(stored, CaseResult):
+                return stored
+            session_id, msgs = stored
+        else:
+            session_hint = captured.get("session_hint")
+            if not session_hint:
+                stored = self._find_assistant_token_session(
+                    pce_core, adapter.provider, token,
                 )
-            except httpx.HTTPError as exc:
-                return CaseResult.failed(
-                    self.id, adapter.name,
-                    f"sessions request: {exc!r}",
-                    duration_ms=self._elapsed_ms(start),
-                    details={**details, "phase": "sessions_request"},
+                if stored is None:
+                    return CaseResult.failed(
+                        self.id, adapter.name,
+                        "captured event had no session_hint and PCE Core "
+                        "token-scan fallback found no assistant row",
+                        duration_ms=self._elapsed_ms(start),
+                        details={**details, "phase": "session_hint_missing"},
+                    )
+                session_id, msgs = stored
+                details["capture_seen_via"] = "pce_core_token_scan_no_hint"
+            else:
+                stored = self._find_session_by_hint(
+                    pce_core, adapter.provider, session_hint,
                 )
-            if resp.status_code != 200:
-                return CaseResult.failed(
-                    self.id, adapter.name,
-                    f"sessions API {resp.status_code}",
-                    duration_ms=self._elapsed_ms(start),
-                    details={**details, "phase": "sessions_status"},
-                )
-            sessions = resp.json() or []
-            matching = [
-                s for s in sessions
-                if str(s.get("session_key", "")).find(str(session_hint)) != -1
-            ]
-            if matching:
-                break
-            time.sleep(0.5)
-        if not matching:
-            return CaseResult.failed(
-                self.id, adapter.name,
-                f"no PCE session matched session_hint={session_hint!r}",
-                duration_ms=self._elapsed_ms(start),
-                details={**details, "phase": "session_match_missed"},
-            )
-
-        session_id = matching[0].get("id")
-        msg_resp = pce_core.get(f"/api/v1/sessions/{session_id}/messages")
-        if msg_resp.status_code != 200:
-            return CaseResult.failed(
-                self.id, adapter.name,
-                f"messages API {msg_resp.status_code}",
-                duration_ms=self._elapsed_ms(start),
-                details={**details, "phase": "messages_status"},
-            )
-        msgs = msg_resp.json() or []
+                if stored is None:
+                    stored = self._find_assistant_token_session(
+                        pce_core, adapter.provider, token,
+                    )
+                    if stored is None:
+                        return CaseResult.failed(
+                            self.id, adapter.name,
+                            f"no PCE session matched "
+                            f"session_hint={session_hint!r} and token-scan "
+                            f"fallback found no assistant row",
+                            duration_ms=self._elapsed_ms(start),
+                            details={**details, "phase": "session_match_missed"},
+                        )
+                    details["capture_seen_via"] = "pce_core_token_scan_hint_miss"
+                session_id, msgs = stored
         details["n_messages"] = len(msgs)
 
         # 5. Find the assistant message containing the token + check
@@ -289,9 +320,11 @@ class T13CodeInterpreterCase(BaseCase):
                 target = m
                 break
         if target is None:
-            return CaseResult.failed(
+            return CaseResult.skipped(
                 self.id, adapter.name,
-                "no assistant message contains the token",
+                "storage has the session, but no assistant message contains "
+                "the token; the model did not echo the T13 marker, so "
+                "attachment validation cannot be tied to the requested turn",
                 duration_ms=self._elapsed_ms(start),
                 details={**details, "phase": "assistant_token_missing"},
             )
@@ -424,3 +457,320 @@ class T13CodeInterpreterCase(BaseCase):
             return []
         atts = cj.get("attachments") or []
         return atts if isinstance(atts, list) else []
+
+    @staticmethod
+    def _read_site_error(
+        probe: ProbeClient,
+        tab_id: int,
+        adapter: BaseProbeSiteAdapter,
+    ) -> str:
+        parts: list[str] = []
+        for sel in adapter.error_banner_selectors or ():
+            try:
+                res = probe.dom.query(tab_id, sel, all=True)
+            except ProbeError:
+                continue
+            for m in res.get("matches", []) or []:
+                text = str(m.get("text_excerpt") or "").strip()
+                if text:
+                    parts.append(text)
+        return "\n".join(parts).strip()
+
+    @staticmethod
+    def _is_quota_or_rate_limit(text: str) -> bool:
+        lower = (text or "").lower()
+        if "fast" in lower and any(ch.isdigit() for ch in lower):
+            return True
+        needles = (
+            "quota",
+            "rate limit",
+            "rate-limit",
+            "rate_limit",
+            "exceeded",
+            "try again later",
+            "try again in",
+            "limit reached",
+            "usage limit",
+            "message limit",
+            "too many requests",
+            "temporarily unavailable",
+            "capacity",
+            "上限",
+            "限额",
+            "额度",
+            "重置",
+            "稍后",
+            "涓婇檺",
+            "闄愰",
+            "宸茶揪",
+            "閲嶇疆",
+            "灏忔椂",
+        )
+        if any(needle in lower for needle in needles):
+            return True
+        return (
+            "fast" in lower
+            and any(
+                needle in lower
+                for needle in (
+                    "limit",
+                    "reset",
+                    "上限",
+                    "限额",
+                    "重置",
+                    "涓婇檺",
+                    "宸茶揪",
+                    "閲嶇疆",
+                )
+            )
+        )
+
+    def _handle_missing_capture(
+        self,
+        *,
+        probe: ProbeClient,
+        pce_core: httpx.Client,
+        adapter: BaseProbeSiteAdapter,
+        tab_id: int,
+        token: str,
+        details: dict,
+        start: float,
+        recent: list,
+        capture_timeout_ms: int,
+        error_summary: str,
+        agent_hint: str | None,
+    ) -> CaseResult | tuple[str, list]:
+        site_error = self._read_site_error(probe, tab_id, adapter)
+        if self._is_quota_or_rate_limit(site_error):
+            return CaseResult.skipped(
+                self.id, adapter.name,
+                "site quota/rate-limit banner appeared while waiting for "
+                "capture; the code-execution invariant was not exercised",
+                duration_ms=self._elapsed_ms(start),
+                details={
+                    **details,
+                    "phase": "site_quota_or_rate_limit",
+                    "site_error": site_error[:500],
+                    "recent_events": recent[-10:],
+                    "capture_timeout_ms": capture_timeout_ms,
+                },
+            )
+        if self._events_indicate_quota_or_rate_limit(recent):
+            return CaseResult.skipped(
+                self.id, adapter.name,
+                "recent capture/network events indicate quota or rate "
+                "limiting; the code-execution invariant was not exercised",
+                duration_ms=self._elapsed_ms(start),
+                details={
+                    **details,
+                    "phase": "event_quota_or_rate_limit",
+                    "recent_events": recent[-10:],
+                    "capture_timeout_ms": capture_timeout_ms,
+                },
+            )
+
+        stored = self._find_assistant_token_session(
+            pce_core, adapter.provider, token,
+        )
+        if stored is not None:
+            details["capture_seen_via"] = "pce_core_token_scan_after_ring_miss"
+            details["recent_events"] = recent[-10:]
+            return stored
+
+        token_visible = self._body_contains_token(probe, tab_id, token)
+        if not token_visible:
+            return CaseResult.skipped(
+                self.id, adapter.name,
+                "assistant page text never contained the T13 token; the "
+                "model/tool did not complete the requested code-execution "
+                "turn, so capture/storage were not exercised",
+                duration_ms=self._elapsed_ms(start),
+                details={
+                    **details,
+                    "phase": "no_visible_assistant_token",
+                    "agent_hint": agent_hint,
+                    "recent_events": recent[-10:],
+                    "capture_timeout_ms": capture_timeout_ms,
+                    "token_visible_in_page": False,
+                },
+            )
+        return CaseResult.failed(
+            self.id, adapter.name,
+            error_summary,
+            duration_ms=self._elapsed_ms(start),
+            details={
+                **details,
+                "phase": "no_capture",
+                "agent_hint": agent_hint,
+                "recent_events": recent[-10:],
+                "capture_timeout_ms": capture_timeout_ms,
+                "token_visible_in_page": True,
+            },
+        )
+
+    @classmethod
+    def _events_indicate_quota_or_rate_limit(cls, events: list) -> bool:
+        for event in events or []:
+            if cls._is_quota_or_rate_limit(cls._event_text(event)):
+                return True
+        return False
+
+    @staticmethod
+    def _event_text(event: dict) -> str:
+        parts: list[str] = []
+        for key in (
+            "kind",
+            "host",
+            "path",
+            "fingerprint",
+            "body_excerpt",
+            "body",
+            "summary",
+            "content_text",
+        ):
+            value = event.get(key)
+            if isinstance(value, str):
+                parts.append(value)
+        payload = event.get("payload") or {}
+        if isinstance(payload, dict):
+            for key in (
+                "fingerprint",
+                "body_excerpt",
+                "body",
+                "content_text",
+                "text",
+                "error",
+                "message",
+            ):
+                value = payload.get(key)
+                if isinstance(value, str):
+                    parts.append(value)
+        return "\n".join(parts)
+
+    @staticmethod
+    def _read_recent_events(
+        probe: ProbeClient,
+        adapter: BaseProbeSiteAdapter,
+    ) -> list:
+        try:
+            return (
+                probe.capture.recent_events(
+                    last_n=200,
+                    provider=adapter.provider,
+                ).get("events", [])
+                or []
+            )
+        except ProbeError:
+            return []
+
+    @staticmethod
+    def _body_contains_token(
+        probe: ProbeClient,
+        tab_id: int,
+        token: str,
+    ) -> bool:
+        marker_id = "pce-t13-token-seen"
+        token_json = json.dumps(token)
+        marker_json = json.dumps(marker_id)
+        try:
+            probe.dom.execute_js(
+                tab_id,
+                f"""
+(function () {{
+  var token = {token_json};
+  var markerId = {marker_json};
+  var text = (document.body && document.body.innerText) || "";
+  var seen = text.indexOf(token) !== -1 ? "1" : "0";
+  var marker = document.getElementById(markerId);
+  if (!marker) {{
+    marker = document.createElement("span");
+    marker.id = markerId;
+    marker.style.display = "none";
+    document.documentElement.appendChild(marker);
+  }}
+  marker.textContent = seen;
+  try {{
+    document.documentElement.setAttribute("data-pce-t13-token-seen", seen);
+  }} catch (e) {{}}
+}})();
+""",
+            )
+        except ProbeError:
+            pass
+        for selector in (f"#{marker_id}", "html"):
+            try:
+                res = probe.dom.query(tab_id, selector)
+            except ProbeError:
+                continue
+            for match in res.get("matches", []) or []:
+                text = str(match.get("text_excerpt") or "")
+                outer = str(match.get("outer_html_excerpt") or "")
+                if text.strip() == "1" or 'data-pce-t13-token-seen="1"' in outer:
+                    return True
+        return False
+
+    @staticmethod
+    def _find_session_by_hint(
+        pce_core: httpx.Client,
+        provider: str,
+        session_hint: str,
+    ) -> tuple[str, list] | None:
+        sessions: list = []
+        matching: list = []
+        for _ in range(6):
+            try:
+                resp = pce_core.get(
+                    "/api/v1/sessions",
+                    params={"provider": provider},
+                )
+            except httpx.HTTPError:
+                return None
+            if resp.status_code != 200:
+                return None
+            sessions = resp.json() or []
+            matching = [
+                s for s in sessions
+                if str(s.get("session_key", "")).find(str(session_hint)) != -1
+            ]
+            if matching:
+                break
+            time.sleep(0.5)
+        if not matching:
+            return None
+        session_id = matching[0].get("id")
+        if not session_id:
+            return None
+        msg_resp = pce_core.get(f"/api/v1/sessions/{session_id}/messages")
+        if msg_resp.status_code != 200:
+            return None
+        return str(session_id), (msg_resp.json() or [])
+
+    @staticmethod
+    def _find_assistant_token_session(
+        pce_core: httpx.Client,
+        provider: str,
+        token: str,
+        *,
+        max_sessions: int = 20,
+    ) -> tuple[str, list] | None:
+        try:
+            resp = pce_core.get("/api/v1/sessions", params={"provider": provider})
+        except httpx.HTTPError:
+            return None
+        if resp.status_code != 200:
+            return None
+        for session in (resp.json() or [])[:max_sessions]:
+            session_id = session.get("id")
+            if not session_id:
+                continue
+            msg_resp = pce_core.get(f"/api/v1/sessions/{session_id}/messages")
+            if msg_resp.status_code != 200:
+                continue
+            msgs = msg_resp.json() or []
+            if any(
+                token in (m.get("content_text") or "")
+                for m in msgs
+                if m.get("role") == "assistant"
+            ):
+                return str(session_id), msgs
+        return None

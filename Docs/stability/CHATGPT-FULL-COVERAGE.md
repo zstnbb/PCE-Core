@@ -219,6 +219,64 @@ until every row is ✅ on live ChatGPT.
 | T19 | 21 error | ✅ `20260422-113248` | Force an error (e.g. trigger rate limit or poor prompt) | NO capture with the error toast as assistant message | G8 |
 | T20 | 20 settings | ✅ `20260422-112322` | Open `/settings/data-controls`, just navigate | ZERO captures produced | idle honesty |
 
+### III.1.A Probe-framework vertical (2026-04-30)
+
+> **What changed.** The new probe-driven matrix
+> (`@f:\INVENTION\You.Inc\PCE Core\tests\e2e_probe\test_matrix.py`)
+> replaces the legacy autopilot Selenium loop with a stricter,
+> per-cell isolated runner. Every cell calls real PCE Core
+> sessions/messages APIs for round-trip verification — there is
+> no string-similarity, no DOM-only assertion. A single fresh
+> ChatGPT × 21-cell run on 2026-04-30 (Profile 1, logged-in
+> account) produced this stable distribution; back-to-back reruns
+> reproduced the same per-cell outcomes (zero flake on the
+> 17 non-FAIL cells; T10/T11 fail deterministically on the same
+> root cause).
+
+**Distribution: 10 ✅ pass / 9 ⏸ skip / 2 ❌ fail (4m25s)**
+
+| ID | Probe status | Note |
+|---|---|---|
+| T00 | ✅ pass | input found, pipeline healthy |
+| T01 | ✅ pass | token round-tripped through capture + ingest (after `response_timeout_ms` 90s → 120s cold-start fix in `@f:\INVENTION\You.Inc\PCE Core\tests\e2e_probe\sites\chatgpt.py:64`) |
+| T02 | ✅ pass | streaming: 0 mid-stream captures, 1 post-stream capture |
+| T03 | ✅ pass | stop click landed; partial assistant text captured |
+| T04 | ✅ pass | URL flipped `/` → `/c/<uuid>`; session_hint extracted |
+| T05 | ✅ pass | code_block in attachments (in_attachment=True) |
+| T06 | ⏸ skip | model-switcher selector hidden — reasoning mode not exercised on this account/UI variant |
+| T07 | ✅ pass | edit roundtrip; n_messages=3, seed_capture_seen=True |
+| T08 | ⏸ skip | regenerate click succeeded but no new capture in SW ring (model variance / no-op regen) |
+| T09 | ⏸ skip | branch prev/next arrow not rendered (UI-blocked, matches prior memory) |
+| **T10** | **❌ fail** | **PDF user upload: `content_json: NoneType`. SW extractor drops file chip metadata during normalization.** |
+| **T11** | **❌ fail** | **Image user upload: same root cause as T10. Image attaches at DOM level (chip rendered, prompt sent), but SW emits no `image_url` attachment on the user message.** |
+| T12 | ⏸ skip | DALL-E refused / auto-router miss (no token in any assistant text) |
+| T13 | ⏸ skip | model wrote code but didn't execute (auto-router didn't trigger sandbox) |
+| T14 | ✅ pass | web search: 3 citations captured, all external |
+| T15 | ⏸ skip | Canvas didn't auto-trigger; model answered inline |
+| T16 | ⏸ skip | requires `$PCE_PROBE_CHATGPT_GPT_URL` to point at a Custom GPT |
+| T17 | ⏸ skip | requires `$PCE_PROBE_CHATGPT_PROJECT_URL` to point at a Project |
+| T18 | ✅ pass | temporary chat round-trip; 2 messages, n_sessions ok |
+| T19 | ⏸ skip | adapter has no `error_banner_selectors`; can't verify silence without knowing banner shape |
+| T20 | ✅ pass | settings modal: 0 new PCE_CAPTURE in 8s |
+
+The 9 SKIPs are not regressions — they are the probe matrix
+correctly refusing to assert on cells that didn't enter the
+state the case is meant to validate (model fallback, missing
+config, UI not rendered). The legacy autopilot table above
+remains the canonical "best-of" record of what the capture
+pipeline can do under hand-driven runs.
+
+**Open issue G10 — SW extractor drops user-upload attachments
+on ChatGPT (T10 / T11).** Root cause confirmed by inspecting
+PCE Core sessions for both cases: the user message row has
+`content_text` containing the prompt, but `content_json` is
+`None`, so the file/image chip metadata never reaches storage.
+This is independent of the test framework — it reproduces on
+fresh sessions every run. See **`Docs/stability/CHATGPT-T10-T11-EXTRACTOR-HANDOFF.md`**
+for the SW-side investigation handoff (file/image upload
+extractor path, expected `_clean_content` behavior on
+`image_asset_pointer` + `attachments` arrays in the WS frame).
+
 ### III.2 Defer-to-v1.1 (record outcome but don't block)
 
 | ID | Surface | Status | User action | Expected | Notes |

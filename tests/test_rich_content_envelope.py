@@ -43,6 +43,26 @@ def test_build_content_json_returns_none_without_attachments():
     assert build_content_json(None, plain_text="plain") is None
 
 
+def test_build_content_json_can_store_threading_contract_without_attachments():
+    payload = build_content_json(
+        [],
+        plain_text="regenerated answer",
+        threading={
+            "type": "assistant_variant",
+            "variant_group_id": "g1",
+            "variant_id": "v2",
+            "current_variant_id": "v2",
+        },
+    )
+
+    assert payload is not None
+    data = json.loads(payload)
+    assert data["attachments"] == []
+    assert data["threading"]["variant_group_id"] == "g1"
+    assert data["rich_content"]["variant_group"]["id"] == "g1"
+    assert data["rich_content"]["current_variant"]["id"] == "v2"
+
+
 def test_load_attachments_from_envelope_only_payload():
     envelope = build_rich_content_envelope(
         "Look at this",

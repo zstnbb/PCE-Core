@@ -43,7 +43,7 @@ declare global {
     __PCE_CLAUDE_ACTIVE?: boolean;
     __PCE_DEEPSEEK_ACTIVE?: boolean;
     __PCE_GEMINI_ACTIVE?: boolean;
-    __PCE_GOOGLE_AI_STUDIO_ACTIVE?: boolean;
+    __PCE_GOOGLE_AI_STUDIO_ACTIVE?: boolean | string;
     __PCE_MANUS_ACTIVE?: boolean;
     __PCE_PERPLEXITY_ACTIVE?: boolean;
     __PCE_GROK_ACTIVE?: boolean;
@@ -146,6 +146,14 @@ export function findChatContainer(doc: Document = document): Element | null {
 
 export const MESSAGE_SELECTORS: readonly string[] = [
   "[data-message-author-role]",
+  // Grok and other React/Tailwind sites mark turns via ``data-testid``
+  // (``user-message`` / ``assistant-message``). Include both shapes
+  // (exact + substring) so Strategy A matches before Strategy B
+  // falls back to alternating children.
+  '[data-testid="user-message"]',
+  '[data-testid="assistant-message"]',
+  '[data-testid*="user-message"]',
+  '[data-testid*="assistant-message"]',
   "[class*='message'][class*='user']",
   "[class*='message'][class*='assistant']",
   "[class*='message'][class*='human']",
@@ -162,6 +170,8 @@ type RolePredicate = (el: Element) => boolean;
 
 export const USER_INDICATORS: readonly RolePredicate[] = [
   (el) => el.getAttribute("data-message-author-role") === "user",
+  (el) => /\buser-message\b/i.test(el.getAttribute("data-testid") || ""),
+  (el) => /\bhuman-turn\b/i.test(el.getAttribute("data-testid") || ""),
   (el) => el.getAttribute("data-role") === "user",
   (el) => el.getAttribute("data-author") === "user",
   (el) => /\buser\b/i.test(cls(el)),
@@ -173,6 +183,9 @@ export const USER_INDICATORS: readonly RolePredicate[] = [
 
 export const ASSISTANT_INDICATORS: readonly RolePredicate[] = [
   (el) => el.getAttribute("data-message-author-role") === "assistant",
+  (el) =>
+    /\bassistant-message\b/i.test(el.getAttribute("data-testid") || ""),
+  (el) => /\bassistant-turn\b/i.test(el.getAttribute("data-testid") || ""),
   (el) => el.getAttribute("data-role") === "assistant",
   (el) => el.getAttribute("data-role") === "bot",
   (el) => el.getAttribute("data-author") === "assistant",
@@ -182,6 +195,50 @@ export const ASSISTANT_INDICATORS: readonly RolePredicate[] = [
   (el) => /\breceived\b/i.test(cls(el)),
   (el) => /\bleft\b/i.test(cls(el)) && /\bmessage\b/i.test(cls(el)),
 ];
+
+/**
+ * Walk up from a matched user/assistant turn wrapper to the closest
+ * ancestor whose subtree includes an attachment chip signal.
+ *
+ * Several sites (Claude, Grok, etc.) render the user-upload chip as a
+ * SIBLING of the text-only ``[data-testid="user-message"]`` /
+ * ``[data-message-author-role]`` wrapper, NOT inside it. Calling
+ * ``extractAttachments(wrapper)`` therefore misses the chip.
+ *
+ * This helper widens the scope by walking up to 6 ancestors looking
+ * for any of the known chip-shaped descendants. Falls back to the
+ * original element if nothing matches, so we never accidentally widen
+ * to ``<main>`` and pick up adjacent turns.
+ *
+ * Mirror of the per-site helper in ``claude.content.ts`` so the
+ * universal extractor benefits the rest of the S2/S1 sites without
+ * having to ship a dedicated content script per site.
+ */
+export function widenScopeForAttachments(el: Element): Element {
+  const CHIP_SIGNALS =
+    '[class*="thumbnail" i], [class*="chip" i], ' +
+    '[class*="attachment" i], [class*="preview" i], ' +
+    '[data-testid$=".pdf" i], [data-testid$=".png" i], ' +
+    '[data-testid$=".jpg" i], [data-testid$=".jpeg" i], ' +
+    '[data-testid$=".webp" i], [data-testid$=".csv" i], ' +
+    '[data-testid$=".docx" i], [data-testid$=".xlsx" i], ' +
+    '[data-testid$=".txt" i], [data-testid$=".md" i], ' +
+    '[data-testid$=".json" i]';
+  let walker: Element | null = el.parentElement;
+  for (let depth = 0; depth < 6 && walker; depth++) {
+    try {
+      if (walker.querySelector(CHIP_SIGNALS)) {
+        return walker;
+      }
+    } catch {
+      // Tailwind arbitrary-variant tokens (``group/chip`` etc.) can
+      // throw on some older querySelector implementations. Treat as
+      // no-match and keep walking.
+    }
+    walker = walker.parentElement;
+  }
+  return el;
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function cls(el: any): string {
@@ -316,7 +373,14 @@ function buildMessageForRole(
   }
   if (!text || text.length <= 1) return null;
   const msg: ExtractedMessage = { role, content: text };
-  const att = extractAttachments(el);
+  // For user turns the attachment chip frequently lives OUTSIDE the
+  // text-only wrapper (Grok puts it in a sibling, Claude put it in
+  // the parent ``div.group``). Widen the scope so extractAttachments
+  // can find the chip. Assistant turns don't need this — generated
+  // attachments (canvas, code blocks, citations) are emitted INSIDE
+  // the assistant message wrapper.
+  const scope = role === "user" ? widenScopeForAttachments(el) : el;
+  const att = extractAttachments(scope);
   if (att.length > 0) msg.attachments = att;
   return msg;
 }

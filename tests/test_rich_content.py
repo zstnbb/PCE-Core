@@ -291,6 +291,49 @@ class TestConversationRichContent:
         for m in result.messages:
             assert m.content_json is None
 
+    def test_regenerate_action_adds_variant_contract(self):
+        body = json.dumps({
+            "messages": [
+                {"role": "assistant", "content": "New regenerated answer"},
+            ],
+            "conversation_id": "conv-123",
+            "_capture_meta": {
+                "capture_mode": "message_update",
+                "updated_message_index": 1,
+                "behavior": {
+                    "last_action": {"type": "regenerate", "label": "Try again"},
+                },
+            },
+        })
+        result = self.n.normalize(body, body, **self.kwargs)
+        msg = result.messages[0]
+        data = json.loads(msg.content_json)
+
+        assert data["threading"]["variant_group_id"].startswith("conv-123:variant:")
+        assert data["rich_content"]["variant_group"]["current_variant_id"]
+        assert data["rich_content"]["current_variant"]["id"]
+
+    def test_branch_action_adds_branch_contract(self):
+        body = json.dumps({
+            "messages": [
+                {"role": "user", "content": "Original branch prompt"},
+            ],
+            "conversation_id": "conv-123",
+            "_capture_meta": {
+                "capture_mode": "message_update",
+                "updated_message_index": 0,
+                "behavior": {
+                    "last_action": {"type": "branch_prev", "label": "Previous response"},
+                },
+            },
+        })
+        result = self.n.normalize(body, body, **self.kwargs)
+        msg = result.messages[0]
+        data = json.loads(msg.content_json)
+
+        assert data["threading"]["branch_group_id"].startswith("conv-123:branch:")
+        assert data["rich_content"]["branch_tree"]["current_branch_id"]
+        assert data["rich_content"]["current_branch"]["id"]
 
     def test_file_upload_detected_from_content(self):
         """User message starting with filename.ext should produce a file attachment."""

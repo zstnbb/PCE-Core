@@ -1267,6 +1267,9 @@ def insert_message(
     oi_input_tokens: Optional[int] = None,
     oi_output_tokens: Optional[int] = None,
     oi_attributes_json: Optional[str] = None,
+    branch_id: Optional[str] = None,
+    branch_parent_id: Optional[str] = None,
+    turn_index: Optional[int] = None,
     db_path: Optional[Path] = None,
 ) -> Optional[str]:
     """Insert a message. Returns message id or None on failure.
@@ -1276,24 +1279,63 @@ def insert_message(
     don't populate them will produce rows with NULL OI columns; a
     background job or the export layer can backfill later by invoking
     the mapper.
+
+    The ``branch_*`` / ``turn_index`` parameters are the branch
+    semantics fields added in migration 0008 (ADR-2026-04-26 §5.1).
+    They are also additive:
+
+    - ``branch_id`` defaults to ``'0'`` (the main branch) at the
+      column level, so callers that don't pass it will produce main-
+      branch rows — which is the right behaviour for every
+      pre-T07/T08/T09 capture path.
+    - ``turn_index`` is computed on the fly as ``max(turn_index)+1``
+      within ``(session_id, branch_id)`` when the caller leaves it
+      ``None``. This means even callers that haven't been updated for
+      G1 still produce sensible turn ordering, and the reconciler can
+      override with an explicit value when it has a better signal.
+    - ``branch_parent_id`` is nullable and only populated by the
+      normalizer when a fork is detected; for the default branch it
+      stays ``NULL``.
     """
     msg_id = new_id()
+    # Normalize empty-string branch_id to the default so callers that
+    # read ``threading.branch_id`` directly (which can be ``None`` or
+    # ``""`` for non-forked messages) don't accidentally create a
+    # garbage branch.
+    effective_branch_id = branch_id if branch_id else "0"
     try:
         conn = get_connection(db_path)
         try:
+            # Compute turn_index lazily if the caller did not supply
+            # one. We read ``max(turn_index)`` from the existing rows
+            # on the same (session, branch) so that inserts remain
+            # monotonic even across process restarts. A fresh branch
+            # (no rows yet) starts at ``0``.
+            if turn_index is None:
+                row = conn.execute(
+                    "SELECT MAX(turn_index) FROM messages "
+                    "WHERE session_id = ? AND branch_id = ?",
+                    (session_id, effective_branch_id),
+                ).fetchone()
+                max_ti = row[0] if row and row[0] is not None else -1
+                turn_index = int(max_ti) + 1
+
             conn.execute(
                 """
                 INSERT INTO messages
                     (id, session_id, capture_pair_id, ts, role,
                      content_text, content_json, model_name, token_estimate,
                      oi_role_raw, oi_input_tokens, oi_output_tokens,
-                     oi_attributes_json, oi_schema_version)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                     oi_attributes_json, oi_schema_version,
+                     branch_id, branch_parent_id, turn_index)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1,
+                        ?, ?, ?)
                 """,
                 (msg_id, session_id, capture_pair_id, ts, role,
                  content_text, content_json, model_name, token_estimate,
                  oi_role_raw, oi_input_tokens, oi_output_tokens,
-                 oi_attributes_json),
+                 oi_attributes_json,
+                 effective_branch_id, branch_parent_id, turn_index),
             )
             # Update session message count and ended_at
             conn.execute(
@@ -1316,6 +1358,9 @@ def update_message_enrichment(
     content_json: Optional[str] = None,
     model_name: Optional[str] = None,
     token_estimate: Optional[int] = None,
+    branch_id: Optional[str] = None,
+    branch_parent_id: Optional[str] = None,
+    turn_index: Optional[int] = None,
     db_path: Optional[Path] = None,
 ) -> bool:
     """Update an existing message with richer content (e.g. newly-extracted attachments).
@@ -1324,6 +1369,14 @@ def update_message_enrichment(
     Used by the reconciler to enrich messages when a higher-quality capture
     arrives from a different channel (e.g. network adds model_name/tokens
     to a DOM-extracted message).
+
+    The ``branch_*`` / ``turn_index`` parameters let a later fork
+    detection (ADR-2026-04-26 §5.1) upgrade a row that was originally
+    inserted on the default branch: when a DOM capture arrives first
+    the row lands on branch ``'0'``, and if a subsequent network
+    capture's ``threading`` metadata reveals the row actually belongs
+    to an alternate branch, this function can re-stamp those three
+    columns without touching the rest of the payload.
     """
     sets = []
     params: list = []
@@ -1339,6 +1392,15 @@ def update_message_enrichment(
     if token_estimate is not None:
         sets.append("token_estimate = ?")
         params.append(token_estimate)
+    if branch_id is not None:
+        sets.append("branch_id = ?")
+        params.append(branch_id)
+    if branch_parent_id is not None:
+        sets.append("branch_parent_id = ?")
+        params.append(branch_parent_id)
+    if turn_index is not None:
+        sets.append("turn_index = ?")
+        params.append(turn_index)
     if not sets:
         return False
     params.append(msg_id)
@@ -1375,31 +1437,47 @@ def query_sessions(
         clauses: list[str] = []
         params: list = []
         if favorited_only:
-            clauses.append("favorited = 1")
+            clauses.append("s.favorited = 1")
         if provider:
-            clauses.append("provider = ?")
+            clauses.append("s.provider = ?")
             params.append(provider)
         if language:
-            clauses.append("language = ?")
+            clauses.append("s.language = ?")
             params.append(language)
         if topic:
-            clauses.append("topic_tags LIKE ?")
+            clauses.append("s.topic_tags LIKE ?")
             params.append(f"%{topic}%")
         if since is not None:
-            clauses.append("started_at >= ?")
+            clauses.append("s.started_at >= ?")
             params.append(since)
         if until is not None:
-            clauses.append("started_at <= ?")
+            clauses.append("s.started_at <= ?")
             params.append(until)
         if min_messages is not None:
-            clauses.append("message_count >= ?")
+            clauses.append("s.message_count >= ?")
             params.append(min_messages)
         if title_search:
-            clauses.append("title_hint LIKE ?")
+            clauses.append("s.title_hint LIKE ?")
             params.append(f"%{title_search}%")
 
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
-        sql = f"SELECT * FROM sessions{where} ORDER BY started_at DESC LIMIT ?"
+        # Surface branch_count via a correlated subquery on messages.
+        # The composite index idx_messages_session_branch (migration
+        # 0008) covers ``(session_id, branch_id)`` so this stays cheap
+        # even on large sessions. ``COALESCE(..., 1)`` keeps empty
+        # sessions reporting "1 branch" — the linear default — instead
+        # of leaking a 0/null into ``SessionRecord.branch_count``.
+        sql = (
+            "SELECT s.*, "
+            "COALESCE("
+            " NULLIF("
+            "  (SELECT COUNT(DISTINCT branch_id) FROM messages "
+            "   WHERE messages.session_id = s.id),"
+            "  0),"
+            " 1) AS branch_count "
+            f"FROM sessions s{where} "
+            "ORDER BY s.started_at DESC LIMIT ?"
+        )
         params.append(last)
         rows = conn.execute(sql, params).fetchall()
         return [dict(r) for r in rows]
@@ -1428,13 +1506,176 @@ def query_messages_by_pair(
         conn.close()
 
 
-def query_messages(session_id: str, db_path: Optional[Path] = None) -> list[dict]:
-    """Return all messages in a session, ordered by timestamp."""
+def _collapse_branches(rows: list[dict]) -> list[dict]:
+    """Project a multi-branch row set down to the "current path" (G2 / ADR §5.3).
+
+    Algorithm (deterministic, two passes):
+
+    1. Group rows by ``branch_id``. If only branch ``'0'`` is present
+       there's no fork to collapse, skip to step 3.
+    2. Pick the *winning* branch — the one whose newest row has the
+       largest ``ts``. ADR §6.1 records "wall-clock latest" as the v1
+       answer to "which branch is current?". If the winning branch is
+       not ``'0'``, return all rows on the default branch that pre-date
+       the winning branch's first row (the shared prefix) plus every
+       row on the winning branch. If the winning branch *is* ``'0'``,
+       all alternates are stale — return only branch ``'0'`` rows.
+    3. Final dedup pass: walk the result in ``ts`` order and squash
+       consecutive same-role rows down to the latest one. This handles
+       Regenerate (C08 in ADR §1) where the normalizer currently leaves
+       both variants on ``branch_id='0'`` because variant-vs-branch
+       semantics aren't unified at the threading layer yet — we still
+       want the "latest reply wins" UX without forcing the upstream
+       normalizer change in this commit.
+
+    The function is pure: input list isn't mutated, output is a new
+    list of new dict refs (same row objects though — callers must
+    treat as read-only).
+    """
+    if not rows:
+        return []
+
+    by_branch: dict[str, list[dict]] = {}
+    for r in rows:
+        by_branch.setdefault(str(r.get("branch_id") or "0"), []).append(r)
+
+    # --- Step 1+2: branch selection ---------------------------------
+    if len(by_branch) <= 1:
+        # No fork; the only branch wins by default.
+        selected = list(rows)
+    else:
+        # ``max(ts)`` per branch — use ``or 0.0`` to tolerate rows
+        # that somehow lack a ts (treat them as the oldest).
+        branch_max_ts = {
+            bid: max((float(r.get("ts") or 0.0)) for r in members)
+            for bid, members in by_branch.items()
+        }
+        winning_branch = max(branch_max_ts, key=lambda b: branch_max_ts[b])
+        if winning_branch == "0":
+            selected = list(by_branch.get("0", []))
+        else:
+            # Find the alt branch's earliest row + its declared
+            # ``branch_parent_id``. That parent row is what got
+            # *replaced* by the fork (the user-edit's old prompt or
+            # the assistant's old reply), so the shared prefix is
+            # everything on main STRICTLY BEFORE the parent — never
+            # the parent itself.
+            alt_rows_sorted = sorted(
+                by_branch[winning_branch],
+                key=lambda r: (float(r.get("ts") or 0.0), str(r.get("id") or "")),
+            )
+            alt_first = alt_rows_sorted[0]
+            parent_id = alt_first.get("branch_parent_id")
+            main_rows = list(by_branch.get("0", []))
+            parent_row = (
+                next((r for r in main_rows if r.get("id") == parent_id), None)
+                if parent_id else None
+            )
+
+            if parent_row is not None and parent_row.get("turn_index") is not None:
+                # Preferred path: turn_index gives a strict total order
+                # inside the main branch even when several rows landed
+                # in the same wall-clock millisecond (C07's APPLES
+                # user + apples asst from the same completion).
+                pti = parent_row.get("turn_index")
+                shared_prefix = [
+                    r for r in main_rows
+                    if r.get("turn_index") is not None
+                    and r.get("turn_index") < pti
+                ]
+            elif parent_row is not None:
+                # Parent known but no turn_index (legacy / synthetic
+                # rows) — fall back to (ts, id) lexicographic.
+                pkey = (float(parent_row.get("ts") or 0.0), str(parent_row.get("id") or ""))
+                shared_prefix = [
+                    r for r in main_rows
+                    if r.get("id") != parent_row.get("id")
+                    and (float(r.get("ts") or 0.0), str(r.get("id") or "")) < pkey
+                ]
+            else:
+                # No branch_parent_id (or it didn't resolve) — keep the
+                # original ts-strict-less-than heuristic so pre-G6
+                # synthetic test fixtures still collapse the same way.
+                winning_first_ts = float(alt_first.get("ts") or 0.0)
+                shared_prefix = [
+                    r for r in main_rows
+                    if float(r.get("ts") or 0.0) < winning_first_ts
+                ]
+
+            selected = shared_prefix + by_branch[winning_branch]
+        # Sort by (ts, turn_index, id). ``turn_index`` breaks ties when
+        # the user + assistant of the same completion share a wall-clock
+        # ts — without it ``id`` lexicographic order can put the
+        # assistant ahead of the user (random ULIDs). ``or -1`` lets
+        # rows that genuinely lack ``turn_index`` (legacy) sort first
+        # which keeps the existing G2 fixtures stable.
+        selected.sort(key=lambda r: (
+            float(r.get("ts") or 0.0),
+            r.get("turn_index") if r.get("turn_index") is not None else -1,
+            str(r.get("id") or ""),
+        ))
+
+    # --- Step 3: consecutive same-role squash -----------------------
+    # If two assistant rows sit next to each other in time, the second
+    # is a regenerate of the first — keep only the second. Same applies
+    # to back-to-back user rows (in-place edit captured in two passes
+    # before the threading reconciler caught up).
+    out: list[dict] = []
+    for r in selected:
+        if out and out[-1].get("role") == r.get("role"):
+            out[-1] = r
+        else:
+            out.append(r)
+    return out
+
+
+def query_messages(
+    session_id: str,
+    *,
+    branches: str = "expand",
+    db_path: Optional[Path] = None,
+) -> list[dict]:
+    """Return messages in a session, ordered by timestamp.
+
+    The ``branches`` parameter (added in G2 / ADR-2026-04-26 §5.3)
+    selects which projection is returned:
+
+    - ``"expand"`` (default at the DB layer): every row, ordered by
+      ``ts``. Behaviour unchanged from the pre-G2 helper, which is why
+      every existing caller (reconciler, exporter, tests) keeps
+      working. The HTTP route layer flips its own default to
+      ``"collapse"`` separately.
+    - ``"collapse"``: project down to the current/winning branch path
+      using ``_collapse_branches``. This is what the dashboard wants
+      so the default session view doesn't show C07/C08 artefacts.
+    - any other value: treated as a specific ``branch_id`` filter —
+      return only rows whose ``branch_id`` matches verbatim, ordered
+      by ``turn_index`` then ``ts``. Used by the
+      ``?branch=<id>`` query-string variant in the API.
+
+    The DB-layer default is ``expand`` (not ``collapse``) so this
+    function stays a faithful "give me the rows" helper. The HTTP
+    surface chooses its own default — see ``server.get_session_messages``.
+    """
     conn = get_connection(db_path)
     conn.row_factory = sqlite3.Row
     try:
+        if branches in ("expand", "collapse"):
+            rows = conn.execute(
+                "SELECT * FROM messages WHERE session_id = ? ORDER BY ts",
+                (session_id,),
+            ).fetchall()
+            result = [dict(r) for r in rows]
+            if branches == "collapse":
+                result = _collapse_branches(result)
+            return result
+        # Specific branch filter — keep ordering stable on (turn_index, ts)
+        # so consumers iterating a single branch get a predictable sequence
+        # even if two rows in the same branch share a timestamp.
         rows = conn.execute(
-            "SELECT * FROM messages WHERE session_id = ? ORDER BY ts", (session_id,)
+            "SELECT * FROM messages WHERE session_id = ? AND branch_id = ? "
+            "ORDER BY turn_index, ts",
+            (session_id, branches),
         ).fetchall()
         return [dict(r) for r in rows]
     finally:

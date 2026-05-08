@@ -299,6 +299,14 @@ same server will be serialized at the agent-callable layer (Python
   needs MAIN-world access for unblocking a specific case, that becomes
   an explicit verb in v2 with extra warnings.
 
+The remote-binding + HMAC + HTTP-facade work needed for a VPS-deployed
+agent driving the probe across machines is **deferred** and tracked
+as gaps **G1–G9** in
+`@f:\INVENTION\You.Inc\PCE Core\Docs\docs\engineering\adr\ADR-011-probe-remote-agent-autonomous-testing.md`.
+Until ADR-011 is upgraded from Proposed to Accepted, the bullets
+above are the binding contract — do not loosen them in code without
+a follow-up ADR.
+
 ## 8. Versioning policy
 
 - `v: 1` is **stable** once Step 4 of Stage 1 ships green.

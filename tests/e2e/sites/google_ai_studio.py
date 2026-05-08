@@ -779,10 +779,21 @@ class GoogleAIStudioAdapter(BaseSiteAdapter):
                 'button[aria-label*="Rerun this turn" i]',
                 'button[name="rerun-button"]',
                 'button[aria-label*="Rerun" i]',
+                'button[aria-label*="Retry" i]',
+                'button[aria-label*="Try again" i]',
                 'button[aria-label*="Regenerate" i]',
-                'button[aria-label*="重新" i]',
+                'button[title*="Retry" i]',
+                'button[title*="Try again" i]',
                 'button[mattooltip*="Rerun" i]',
+                'button[mattooltip*="Retry" i]',
             ],
+        ):
+            time.sleep(0.8)
+            return True
+        if self._click_first(
+            driver,
+            [self._xpath_contains_text(["Retry", "Try again", "Rerun"])],
+            by=By.XPATH,
         ):
             time.sleep(0.8)
             return True
@@ -802,15 +813,80 @@ class GoogleAIStudioAdapter(BaseSiteAdapter):
         if target is not None and self._click_element(driver, target):
             time.sleep(0.8)
             return True
+        try:
+            turn_rect = turn.rect
+            turn_center_y = turn_rect["y"] + (turn_rect["height"] / 2)
+        except Exception:
+            turn_rect = None
+            turn_center_y = None
+        global_candidates = []
+        for by, selector in (
+            (
+                By.XPATH,
+                self._xpath_contains_aria(
+                    ["Edit", "Edit prompt", "Edit message", "Save and submit"]
+                ),
+            ),
+            (
+                By.XPATH,
+                (
+                    '//button[.//mat-icon[normalize-space(.)="edit"] '
+                    'or contains(translate(normalize-space(.), '
+                    '"ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "edit")]'
+                ),
+            ),
+            (
+                By.CSS_SELECTOR,
+                'button[aria-label*="Edit" i], button[title*="Edit" i], '
+                'button[mattooltip*="Edit" i]',
+            ),
+        ):
+            global_candidates.extend(self._find_elements_safe(driver, by, selector))
+        scored = []
+        for candidate in global_candidates:
+            try:
+                if not candidate.is_displayed():
+                    continue
+                rect = candidate.rect
+                if turn_center_y is not None:
+                    center_y = rect["y"] + (rect["height"] / 2)
+                    if abs(center_y - turn_center_y) > max(120, turn_rect["height"] * 1.5):
+                        continue
+                scored.append((abs((rect["y"] + rect["height"] / 2) - (turn_center_y or rect["y"])), candidate))
+            except Exception:
+                continue
+        for _, candidate in sorted(scored, key=lambda item: item[0]):
+            if self._click_element(driver, candidate):
+                time.sleep(0.8)
+                return True
         return False
 
     def edit_last_user_message(self, driver: WebDriver, new_message: str) -> bool:
+        turn = self.last_turn(driver, "user")
         if not self.click_edit_last_user_message(driver):
             return False
         candidates = self._find_elements(
             driver, '[contenteditable="true"], textarea'
         )
-        editor = self._first_displayed(candidates)
+        editor = None
+        if turn is not None:
+            try:
+                turn_rect = turn.rect
+                turn_center_y = turn_rect["y"] + (turn_rect["height"] / 2)
+                displayed = []
+                for candidate in candidates:
+                    if not candidate.is_displayed():
+                        continue
+                    rect = candidate.rect
+                    center_y = rect["y"] + (rect["height"] / 2)
+                    if abs(center_y - turn_center_y) <= max(180, turn_rect["height"] * 2):
+                        displayed.append((abs(center_y - turn_center_y), candidate))
+                if displayed:
+                    editor = sorted(displayed, key=lambda item: item[0])[0][1]
+            except Exception:
+                editor = None
+        if editor is None:
+            editor = self._first_displayed(candidates)
         if editor is None:
             return False
         try:
@@ -830,7 +906,11 @@ class GoogleAIStudioAdapter(BaseSiteAdapter):
             [
                 'button[aria-label*="Save" i]',
                 'button[aria-label*="Update" i]',
+                'button[aria-label*="Submit" i]',
                 'button[aria-label="Run" i]',
+                'button[title*="Save" i]',
+                'button[title*="Update" i]',
+                'button[title*="Submit" i]',
                 'button[type="submit"]',
             ],
         ):
@@ -1047,6 +1127,19 @@ class GoogleAIStudioAdapter(BaseSiteAdapter):
                 return False
         try:
             driver.execute_cdp_cmd("Network.enable", {})
+            try:
+                driver.execute_cdp_cmd(
+                    "Network.setBlockedURLs",
+                    {
+                        "urls": [
+                            "*GenerateContent*",
+                            "*StreamGenerateContent*",
+                            "*MakerSuiteService/GenerateContent*",
+                        ],
+                    },
+                )
+            except Exception:
+                pass
             driver.execute_cdp_cmd(
                 "Network.emulateNetworkConditions",
                 {
@@ -1061,6 +1154,10 @@ class GoogleAIStudioAdapter(BaseSiteAdapter):
                 return False
             return self.wait_for_error_state(driver, timeout_s=20)
         finally:
+            try:
+                driver.execute_cdp_cmd("Network.setBlockedURLs", {"urls": []})
+            except Exception:
+                pass
             try:
                 driver.execute_cdp_cmd(
                     "Network.emulateNetworkConditions",
