@@ -161,6 +161,44 @@ function safeInnerText(el: any): string {
   return "";
 }
 
+function isRenderable(el: Element | null): boolean {
+  if (!el) return false;
+  try {
+    let cursor: Element | null = el;
+    while (cursor && cursor !== document.documentElement) {
+      if (
+        cursor.hasAttribute("hidden") ||
+        cursor.hasAttribute("inert") ||
+        cursor.getAttribute("aria-hidden") === "true"
+      ) {
+        return false;
+      }
+      const style = window.getComputedStyle(cursor);
+      if (style.display === "none" || style.visibility === "hidden") return false;
+      cursor = cursor.parentElement;
+    }
+    const rect = el.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  } catch {
+    return true;
+  }
+}
+
+function visibleOrAll(nodes: NodeListOf<Element>): Element[] {
+  const all = Array.from(nodes);
+  const visible = all.filter(isRenderable);
+  return visible.length ? visible : all;
+}
+
+function currentVisibleText(el: Element, selectors: string): string {
+  const candidates = visibleOrAll(el.querySelectorAll(selectors));
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    const text = safeInnerText(candidates[i]).trim();
+    if (text) return text;
+  }
+  return safeInnerText(el).trim();
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function elementTop(el: any): number {
   if (!el || typeof el.getBoundingClientRect !== "function") return 0;
@@ -176,8 +214,57 @@ interface PositionedMessage extends ExtractedMessage {
   _top: number;
 }
 
+/**
+ * Walk up from a Claude user-message wrapper to the closest ancestor
+ * that includes the attachment chip row.
+ *
+ * Claude's post-send DOM (verified 2026-05-03):
+ *
+ *   <div class="mb-1 mt-6 group">              ← target ancestor
+ *     <h2 class="sr-only">You said: ...</h2>
+ *     <div class="... flex flex-wrap justify-end">
+ *       <div class="relative group/thumbnail">
+ *         <div data-testid="<filename>" class="rounded-lg ..."> ← chip
+ *     <div data-user-message-bubble="true">
+ *       <div data-testid="user-message">       ← starting el
+ *
+ * Strategy: walk up at most 5 ancestors and return the first one whose
+ * subtree contains a known chip signal (``[class*="thumbnail"]``,
+ * ``[data-user-message-bubble]`` siblings, or a filename-shaped
+ * ``data-testid``). Falls back to ``el`` if nothing matches so we
+ * never accidentally widen to ``<main>`` and pull in adjacent turns.
+ *
+ * Cap at 5 levels because Claude's wrapper is at most 4 ancestors
+ * above ``[data-testid="user-message"]``.
+ */
+function widenScopeForAttachments(el: Element): Element {
+  const CHIP_SIGNALS =
+    '[class*="thumbnail" i], [data-testid$=".pdf" i], ' +
+    '[data-testid$=".png" i], [data-testid$=".jpg" i], ' +
+    '[data-testid$=".jpeg" i], [data-testid$=".webp" i], ' +
+    '[data-testid$=".csv" i], [data-testid$=".docx" i], ' +
+    '[data-testid$=".xlsx" i], [data-testid$=".txt" i], ' +
+    '[data-testid$=".md" i], [data-testid$=".json" i]';
+  let walker: Element | null = el.parentElement;
+  for (let depth = 0; depth < 5 && walker; depth++) {
+    try {
+      if (walker.querySelector(CHIP_SIGNALS)) {
+        return walker;
+      }
+    } catch {
+      // Some Claude builds emit class tokens with ``/`` (Tailwind
+      // arbitrary variants like ``group/thumbnail``) that throw on
+      // older querySelector implementations. Treat as no-match and
+      // keep walking.
+    }
+    walker = walker.parentElement;
+  }
+  return el;
+}
+
 const HUMAN_TURN_SELECTORS = [
   '[data-testid="human-turn"]',
+  '[data-testid="user-message"]',
   '[data-testid*="user-message"]',
   '[class*="human-turn"]',
   ".font-user-message",
@@ -214,16 +301,36 @@ export function extractMessages(
   if (!isConversationPath(pathname)) return [];
 
   // Strategy 1
-  const humanTurns = doc.querySelectorAll(HUMAN_TURN_SELECTORS);
-  const assistantTurns = doc.querySelectorAll(ASSISTANT_TURN_SELECTORS);
+  const humanTurns = visibleOrAll(doc.querySelectorAll(HUMAN_TURN_SELECTORS));
+  const assistantTurns = visibleOrAll(doc.querySelectorAll(ASSISTANT_TURN_SELECTORS));
 
   if (humanTurns.length > 0 || assistantTurns.length > 0) {
     const collected: PositionedMessage[] = [];
 
     humanTurns.forEach((el) => {
-      const text = safeInnerText(el).trim();
+      const text = currentVisibleText(
+        el,
+        '[data-testid="user-message"], [data-user-message-bubble="true"], .font-user-message',
+      );
       if (!text) return;
-      const att = extractAttachments(el);
+      // Claude renders the attachment chip as a SIBLING of the
+      // ``[data-testid="user-message"]`` text wrapper, NOT inside it.
+      // The shared layout is::
+      //
+      //   <div class="mb-1 mt-6 group">              ← outer (both)
+      //     <h2 class="sr-only">You said: ...</h2>
+      //     <div class="flex flex-wrap justify-end"> ← chip row
+      //       <div class="relative group/thumbnail">
+      //         <div data-testid="<filename>" class="rounded-lg ...">
+      //     <div data-user-message-bubble="true">    ← text bubble
+      //       <div data-testid="user-message">       ← matched here
+      //
+      // Walk up to the closest ancestor that contains an attachment-
+      // like sibling so ``extractAttachments`` scopes wide enough.
+      // Cap at 5 levels to avoid scoping to ``main`` and pulling in
+      // unrelated turns. Closes the C10/C11 reconciler-join gap.
+      const attachmentScope = widenScopeForAttachments(el);
+      const att = extractAttachments(attachmentScope);
       const turn: PositionedMessage = {
         role: "user",
         content: text,
@@ -234,7 +341,10 @@ export function extractMessages(
     });
 
     assistantTurns.forEach((el) => {
-      const text = safeInnerText(el).trim();
+      const text = currentVisibleText(
+        el,
+        '[data-testid*="assistant-message"], .font-claude-message',
+      );
       if (!text) return;
       const thinking = extractThinking(el);
       const content = thinking

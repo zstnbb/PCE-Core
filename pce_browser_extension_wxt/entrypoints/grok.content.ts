@@ -118,7 +118,18 @@ export function extractMessages(
     if (seen.has(key)) return;
     seen.add(key);
 
-    const att = extractAttachments(bubble);
+    // Grok renders the user-upload chip as a SIBLING of the
+    // ``.message-bubble`` text wrapper, NOT inside it (verified
+    // 2026-05-03 DOM diag). The chip wrapper has class
+    // ``...group/chip...`` and contains an ``<img>`` whose src is
+    // ``https://assets.grok.com/users/<u>/<f>/preview-image``.
+    // Scope the attachment extractor to the turn wrapper (``node``,
+    // which is ``[id^='response-']``) so the chip is in scope. For
+    // assistant turns, generated attachments (code blocks, citations)
+    // live inside the bubble — passing ``node`` is still safe but we
+    // keep the narrower scope to avoid pulling in adjacent turn art.
+    const attachmentScope = role === "user" ? node : bubble;
+    const att = extractAttachments(attachmentScope);
     const msg: ExtractedMessage = { role, content: text };
     if (att.length > 0) msg.attachments = att;
     messages.push(msg);
