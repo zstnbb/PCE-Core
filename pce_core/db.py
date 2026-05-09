@@ -104,15 +104,16 @@ CREATE INDEX IF NOT EXISTS idx_sessions_provider ON sessions(provider);
 CREATE INDEX IF NOT EXISTS idx_sessions_key      ON sessions(session_key);
 
 CREATE TABLE IF NOT EXISTS messages (
-    id              TEXT PRIMARY KEY,
-    session_id      TEXT NOT NULL,
-    capture_pair_id TEXT,
-    ts              REAL NOT NULL,
-    role            TEXT NOT NULL,
-    content_text    TEXT,
-    content_json    TEXT,
-    model_name      TEXT,
-    token_estimate  INTEGER,
+    id               TEXT PRIMARY KEY,
+    session_id       TEXT NOT NULL,
+    capture_pair_id  TEXT,
+    ts               REAL NOT NULL,
+    role             TEXT NOT NULL,
+    content_text     TEXT,
+    content_json     TEXT,
+    model_name       TEXT,
+    token_estimate   INTEGER,
+    interaction_kind TEXT,  -- migration 0010: chat/tool_call/tool_result/thinking/system
     FOREIGN KEY (session_id) REFERENCES sessions(id)
 );
 
@@ -217,6 +218,11 @@ SOURCE_CDP = "cdp-embedded"
 # provenance is different: posture A is agent self-report, posture B
 # is transparent wire-tap. Registered by migration 0009.
 SOURCE_MCP_PROXY = "mcp-proxy-default"
+# P5.B.2 — L3d CDP launcher attached to a user-launched Electron
+# desktop AI app (Claude Desktop, Cursor, Windsurf). Distinct from
+# ``SOURCE_CDP`` (PCE-launched embedded Chromium for kiosk/CI use).
+# Registered by migration 0010 (ADR-016 §3.2).
+SOURCE_DESKTOP_ELECTRON = "desktop-electron-default"
 
 _DEFAULT_SOURCES = [
     (SOURCE_PROXY, "proxy", "mitmproxy", "complete", "default proxy source"),
@@ -224,6 +230,7 @@ _DEFAULT_SOURCES = [
     (SOURCE_MCP, "mcp", "pce-mcp-server", "light", "default MCP server source"),
     (SOURCE_CDP, "cdp_embedded", "playwright-chromium", "complete", "embedded Chromium capture via CDP"),
     (SOURCE_MCP_PROXY, "mcp_proxy", "pce-mcp-proxy", "complete", "default MCP middleware proxy capture source (UCS L3f, posture B)"),
+    (SOURCE_DESKTOP_ELECTRON, "desktop_electron", "pce-app-launcher", "complete", "default Electron desktop app capture source via L3d CDP launcher (UCS L3d, ADR-016)"),
 ]
 
 

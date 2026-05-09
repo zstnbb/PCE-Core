@@ -30,6 +30,7 @@ from .config import (
 )
 from .db import (
     SOURCE_BROWSER_EXT,
+    SOURCE_DESKTOP_ELECTRON,
     SOURCE_MCP,
     SOURCE_PROXY,
     add_custom_domain,
@@ -118,6 +119,9 @@ _SOURCE_MAP = {
     "proxy": SOURCE_PROXY,
     "browser_extension": SOURCE_BROWSER_EXT,
     "mcp": SOURCE_MCP,
+    # ADR-016 §3.2 — L3d CDP launcher attached to a user-launched
+    # Electron desktop AI app (Claude Desktop / Cursor / Windsurf).
+    "desktop_electron": SOURCE_DESKTOP_ELECTRON,
 }
 
 
@@ -1046,6 +1050,8 @@ _V1_TO_V2_SOURCE: dict[str, str] = {
     "mcp": "L3c_vscode_ext",
     "ide_plugin": "L3c_vscode_ext",
     "local_model": "L3e_litellm",
+    # ADR-016 §3.2 — desktop Electron capture via L3d CDP launcher.
+    "desktop_electron": "L3d_cdp",
 }
 
 
