@@ -33,8 +33,9 @@ P5.A Subscription Capture (v1.0)                   → ✅ browser slice sealed
     + back-end CaptureEvent v2 + normalizer             + back-end carries forward
 
 P5.B IDE & Desktop & MCP (v1.1)                    → 🟢 ACTIVE (this doc)
-    MCP middleware (L3f) + Electron preload (L3b)
+    MCP middleware (L3f) + CDP launcher (L3d)
     + CLI gateway (L3e)
+    [L3b Electron preload deferred per ADR-016]
 
 P6 Pinning-Proof (v1.2)                            → ⏸ future
     L2 Frida + surviving pinned clients
@@ -101,8 +102,10 @@ not product-first:
 ```
 Plane M (MCP)       → 9 products in one surface   → P5.B.0 + P5.B.1
 Plane H (process)   → 4-5 Electron products       → P5.B.2 + P5.B.3
+                    (via L3d CDP launcher — ADR-016)
 Plane N (local)     → 5-8 CLI/local products      → P5.B.4
-Plane N (pinned)    → ChatGPT Desktop             → P6 (out of P5.B)
+Plane N (pinned)    → ChatGPT Desktop             → P6 (or earlier
+                    if CDP launcher works on it — see ADR-016 §3.8)
 Plane U (AX/UIA)    → Raycast / native clients    → P6/P7 (out of P5.B)
 ```
 
@@ -194,54 +197,101 @@ upstream MCP server that duplicates every JSON-RPC frame into PCE.
 - Do NOT build a new `Tool Tape` dashboard view here. Ship data
   first; render archetype ships in a separate slice (§5).
 
-### P5.B.2 — L3b Electron preload (Claude Desktop) — 1-2 weeks
+### P5.B.2 — L3d CDP launcher + `.mcpb` packaging (Claude Desktop) — ~4 days
 
-**Goal**: demonstrate one end-to-end Electron preload capture path.
-Claude Desktop is picked because it's **not SSL-pinned** and is
-MCP-native (gives L3f cross-validation for free).
+**Goal**: deliver Claude Desktop H-plane chat capture **without
+modifying any Anthropic binaries**. Reuses `pce_core/cdp/driver.py`
+(80% built in P4) plus Anthropic's official `.mcpb` Desktop
+Extensions one-click install path. **Supersedes the original
+"L3b Electron preload + ASAR repack" plan per ADR-016 (§3.1).**
 
-**Deliverables**
+**Deliverables — split into 4 phases (each independently shippable)**
 
-- `pce_preload/claude_desktop/` (new) — preload script injected via
-  a user-run install command. Hooks:
-  - `fetch` / `XMLHttpRequest` for chat N-plane traffic
-  - `child_process.spawn` for child MCP subprocess visibility
-    (姿态 C — 姿态 B proxy captures the same payload; 姿态 C adds
-     the spawn context so we can reconcile which MCP call came
-     from which chat turn)
+**Phase 1 (~0.5d) — `pce_mcp.mcpb` packaging**
+
+- `pce_mcp/mcpb/manifest.json` (spec v0.3) + `server/index.js`
+  Node stdio→HTTP proxy (~150 lines) + bundled `node_modules/`.
+  Built with `@anthropic-ai/mcpb` CLI.
+- `privacy_policies` field filled with explicit "captures all your
+  Claude conversations into a local SQLite database" disclosure.
+- Distribution: GitHub releases (self-host) **and parallel**
+  Anthropic public directory submission per ADR-016 §3.4.
+- UX result: drag `pce_mcp.mcpb` into Claude Desktop Settings →
+  click Install → done. Matches browser-extension UX baseline.
+
+**Phase 2 (~0.5d) — `pce_mcp_proxy` install helper**
+
+- `pce-mcp-proxy install --upstream <name>` CLI that idempotently
+  edits `claude_desktop_config.json` to wrap an existing MCP server
+  (with backup + uninstall).
+- Wrapper mode is not natively `.mcpb`-able (manifest expects fixed
+  command); CLI helper is the substitute that keeps friction low.
+
+**Phase 3 (~2-3d) — CDP launcher (`pce_app_launcher/claude_desktop/`)**
+
+- Python launcher that starts Claude Desktop with
+  `--remote-debugging-port=9222`, connects via existing
+  `pce_core/cdp/driver.py`, subscribes to `Network.responseReceived`
+  + `Network.webSocketFrameReceived`, normalises via
+  `pce_core/normalizer/anthropic.py`, posts to
+  `/api/v1/captures/v2`.
+- Replaces the desktop shortcut so users double-click the same icon
+  (Win: `.lnk` swap; macOS: LaunchServices wrapper — see ADR-016
+  §6 Open Question).
 - `pce_core/models.py` — add `desktop_electron` to source_type.
-- `Docs/install/PCE_CLAUDE_DESKTOP_INSTALL.md` — install steps;
-  call out the Electron preload caveat (app signing / auto-update).
+- `Docs/install/PCE_CLAUDE_DESKTOP_INSTALL.md` — covers all 3
+  phases as a single onboarding doc.
 - `tests/e2e_desktop/test_claude_desktop.py` — probe-style test.
+
+**Phase 4 (~0.5d) — Migration 0010 (`interaction_kind`) + impl-side doc sync**
+
+- `pce_core/migrations/0010_interaction_kind.py` — adds
+  `messages.interaction_kind TEXT NULL DEFAULT NULL`. Idempotent
+  guard. `EXPECTED_SCHEMA_VERSION = 10`.
+- Renumber from the originally-proposed 0009 (which was claimed by
+  `mcp-proxy-default` source row in P5.B.1; see ADR-015 §4.2).
+- (ADR-016 doc-sync commits already landed at v1.1.0-alpha.3-docs.)
 
 **Acceptance**
 
-- [ ] A live Claude Desktop conversation captures in PCE with the
-      same `storage_paths` / `render_paths` contract as web Claude
-      (re-uses the sealed browser-extension freeze bar).
+- [ ] User can install `pce_mcp.mcpb` in Claude Desktop in ≤30
+      seconds (drag + click Install + 1 confirmation prompt).
+- [ ] A live Claude Desktop conversation captured via CDP launcher
+      lands in PCE with the same `storage_paths` / `render_paths`
+      contract as web Claude.
 - [ ] `interaction_kind=chat` rows from Claude Desktop and
-      `interaction_kind=chat` rows from web Claude are **merged
-      into the same user session** (if conversation_id matches), or
-      at least linked by `session_key`.
+      `interaction_kind=chat` rows from web Claude **merge into the
+      same user session** if conversation_id matches, or at least
+      link by `session_key`.
+- [ ] **No Anthropic binaries modified on disk** (audit: `app.asar`
+      hash unchanged after install).
 
 **Non-goals**
 
-- Do NOT build ChatGPT Desktop support here (pinning → P6).
+- Do NOT build ChatGPT Desktop support here (P5.B.4-C; CDP may make
+  this easier than originally scoped — re-evaluate when that
+  sub-track starts, per ADR-016 §3.8).
 - Do NOT generalise to Cursor/Windsurf yet — that's P5.B.3.
+- Do NOT modify `app.asar` of any Electron app (formally rejected
+  per ADR-016 §3.1).
 
-### P5.B.3 — L3b Electron preload (Cursor / Windsurf) — 1-2 weeks
+### P5.B.3 — L3d CDP launcher (Cursor / Windsurf) — ~1 week
 
-**Goal**: reuse the P5.B.2 scaffolding for the IDE-class sub-type.
-Deliver **Code Session** archetype as a new render tube.
+**Goal**: reuse the P5.B.2 CDP launcher scaffolding for the
+IDE-class sub-type. Deliver **Code Session** archetype as a new
+render tube. **Workload reduced** from the original 1-2 week
+estimate because no per-app `app.asar` reverse-engineering is
+required (per ADR-016 §3.7).
 
 **Deliverables**
 
-- `pce_preload/cursor/` + `pce_preload/windsurf/` — adapter configs.
+- `pce_app_launcher/cursor/` + `pce_app_launcher/windsurf/` —
+  adapter configs over the same `pce_core/cdp/driver.py`.
 - `pce_core/normalizer/ide_interactions.py` — segment ① adapter for
   IDE-class products; distinguishes `interaction_kind ∈ {chat,
   completion, composer, inline_edit, lint_diff}`.
-- Migration 0009 (proposed) — add `messages.interaction_kind
-  TEXT NULL`. Idempotent guard + default NULL (treated as `chat`).
+- Migration 0010 already landed in P5.B.2 Phase 4; consumed here
+  (no new migration needed).
 - `pce_core/dashboard/` — new **Code Session** archetype view: file
   tree + diff + chat side panel. storage/render contract per
   framework §6.1.
@@ -351,6 +401,13 @@ Before/during P5.B.0, these ADRs should be authored (1 page each):
   ADR-015 because ADR-011 is already taken by the probe-remote-agent
   decision.) **✅ landed 2026-05-09 alongside the `pce_mcp_proxy/`
   package shipping in P5.B.1.**
+- **ADR-016** — P5.B.2 implementation pivot: rejects "L3b Electron
+  preload + ASAR repack", switches to **L3d CDP launcher** (reusing
+  `pce_core/cdp/driver.py`) + **`.mcpb` Desktop Extensions** for
+  `pce_mcp/` packaging. Renumbers `interaction_kind` migration from
+  0009 to 0010. Defers L3b Electron preload from v1.1 entirely.
+  **✅ landed 2026-05-09 in v1.1.0-alpha.3-docs alongside this
+  doc sync.**
 
 ---
 
@@ -410,8 +467,8 @@ sub-phase · (blank) = not addressed by this sub-phase
 |---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
 | **P5.B.0** 姿态 A | ⏳ | | ⏳ | ⏳ | | ⏳ | ⏳ | ⏳ |
 | **P5.B.1** L3f | ➕ | | ➕ | ➕ | | ➕ | ➕ | ➕ |
-| **P5.B.2** L3b Claude | ➕ | | | | | | | |
-| **P5.B.3** L3b IDE | | | ➕ | ➕ | | | | |
+| **P5.B.2** L3d Claude | ➕ | | | | | | | |
+| **P5.B.3** L3d IDE | | | ➕ | ➕ | | | | |
 | **P5.B.4-A** L1 Copilot | | | | | ⏳ | | | |
 | **P5.B.4-B** L3e gateway | | | | | | ➕ | ➕ | ➕ |
 | **P5.B.4-C** ChatGPT probe | | ⏳ (best-effort) | | | | | | |
@@ -431,22 +488,28 @@ sub-phase · (blank) = not addressed by this sub-phase
 ### 10.3 Critical dependencies
 
 - **P5.B.1 must land before P5.B.2 starts**, because Claude Desktop
-  preload (P5.B.2) reuses the `mcp_jsonrpc.py` normalizer that L3f
-  (P5.B.1) introduces.
+  CDP launcher (P5.B.2) reuses the `mcp_jsonrpc.py` normalizer that
+  L3f (P5.B.1) introduces — landed ✅.
 - **P5.B.2 must land before P5.B.3 starts**, because Cursor /
-  Windsurf preload (P5.B.3) reuses the install scaffolding pattern
-  proven on Claude Desktop.
+  Windsurf CDP adapters (P5.B.3) reuse the launcher scaffolding
+  pattern proven on Claude Desktop (`pce_app_launcher/`).
 - **P5.B.4 sub-tracks A/B/C are parallelisable**; they share no
   code path beyond the unchanged Capture Ingest API.
 
-### 10.4 Migration 0009 (proposed)
+### 10.4 Migration 0010 (`interaction_kind`)
 
-`messages.interaction_kind TEXT NULL DEFAULT NULL` lands in P5.B.3
-but is consumed across P5.B.2 (where `chat` is the implicit
-default), P5.B.4-A (where Copilot's `inline_completion` rows go),
-and P5.B.4-B (where CLI agent rows are tagged `agent_loop`). This
-is a single-column nullable migration; idempotent guard in
-`pce_core/db.py` per existing pattern.
+`messages.interaction_kind TEXT NULL DEFAULT NULL` lands in P5.B.2
+Phase 4 (renumbered from the originally-proposed 0009 because
+`mcp-proxy-default` claimed 0009 in P5.B.1; see ADR-015 §4.2 +
+ADR-016 §3.6). Consumed across P5.B.2 (where `chat` is the
+implicit default), P5.B.3 (where `composer` / `completion` /
+`inline_edit` rows materialise), P5.B.4-A (where Copilot's
+`inline_completion` rows go), and P5.B.4-B (where CLI agent rows
+are tagged `agent_loop`). Single-column nullable migration with
+idempotent guard per existing pattern.
+
+`EXPECTED_SCHEMA_VERSION` will increment from 9 → 10 in P5.B.2
+Phase 4.
 
 ---
 
@@ -463,14 +526,18 @@ P5.B ships (i.e. tag `v1.1.0`) when:
       products** end-to-end.
 - [ ] `tests/e2e_mcp/`, `tests/e2e_desktop/`, `tests/e2e_cli/` each
       have ≥3 passing D-cases.
-- [ ] Migration 0009 (`interaction_kind`) landed and idempotent.
+- [ ] Migration 0010 (`interaction_kind`) landed and idempotent
+      (renumbered from the originally-proposed 0009 per ADR-016
+      §3.6; 0009 belongs to `mcp-proxy-default` source row).
 - [ ] 4 normalizer modules: `mcp_jsonrpc.py`, `ide_interactions.py`,
       `copilot_proxy.py`, plus extension to existing `anthropic.py`
       / `openai.py` / `genai_semconv.py` for desktop variants.
 - [ ] The messages table, at v1.1, represents **chat / tool /
       code / run** archetypes without further migration.
-- [ ] ADR-012, ADR-013, ADR-014 (✅ 2026-05-08) and ADR-015 (✅
-      2026-05-09 alongside `pce_mcp_proxy/`) all landed.
+- [ ] ADR-012, ADR-013, ADR-014 (✅ 2026-05-08), ADR-015 (✅
+      2026-05-09 alongside `pce_mcp_proxy/`), and ADR-016 (✅
+      2026-05-09 in v1.1.0-alpha.3-docs — P5.B.2 implementation
+      pivot to CDP + .mcpb) all landed.
 - [ ] `Docs/docs/PROJECT.md` reflects the transition.
 - [ ] `CHANGELOG.md` has a v1.1 section documenting what's new.
 

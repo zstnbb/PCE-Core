@@ -94,7 +94,7 @@ risks**, **install path expected**, **first-probe verification list**.
 |---|---|
 | OS | Windows + macOS |
 | Primary plane / layer | **M / L3f** (transparent MCP middleware) |
-| Secondary plane / layer | H / L3b (Electron preload) |
+| Secondary plane / layer | H / L3d (CDP launcher — ADR-016) |
 | Tertiary plane / layer | N / L1 (system proxy fallback) |
 | Normalizer | `pce_core/normalizer/anthropic.py` ✅ + `mcp_jsonrpc.py` ⬜ new |
 | `source_type` | `mcp_proxy` (M path) + `desktop_electron` (H path) |
@@ -108,7 +108,7 @@ risks**, **install path expected**, **first-probe verification list**.
 | Field | Value |
 |---|---|
 | OS | Windows + macOS |
-| Primary plane / layer | **H / L3b** (preload — pinning forces this) |
+| Primary plane / layer | **H / L3d** (CDP launcher — pinning is bypassed because CDP runs above TLS; per ADR-016 §3.8) |
 | Secondary plane / layer | M / L3f (姿态 A — agent-self-report only, since OpenAI MCP support is partial) |
 | Tertiary plane / layer | N / L1 (best-effort; expected to fail on pinned endpoints) |
 | Normalizer | `pce_core/normalizer/openai.py` ✅ |
@@ -116,29 +116,29 @@ risks**, **install path expected**, **first-probe verification list**.
 | Archetype | Chat Tube ✅ |
 | Risks | 🟡 SSL pinning confirmed by community as of 2025; 🟡 Electron version uses a custom packaging (Mac native chrome wrapper vs Win Edge WebView2-style) — **first-probe must verify Electron actually applies** |
 | Install assets | `Docs/install/PCE_CHATGPT_DESKTOP_INSTALL.md` |
-| First-probe checklist | **a)** confirm Electron preload injection point exists per OS · **b)** mitmproxy attempt + capture the pinning failure mode · **c)** decide between L3b + best-effort vs hand-off to P6 (Frida) |
+| First-probe checklist | **a)** confirm ChatGPT Desktop accepts `--remote-debugging-port=9222` (Electron default; OpenAI build may differ) · **b)** mitmproxy attempt to map pinning failure surface for L1 fallback · **c)** if CDP works, P2 may move out of P6 deferred bucket per ADR-016 §3.8; if CDP blocked, hand off to P6 (Frida) |
 
 ### 4.3 P3 — Cursor
 
 | Field | Value |
 |---|---|
 | OS | Windows + macOS + Linux |
-| Primary plane / layer | **H / L3b** (Electron preload — VS Code fork) |
+| Primary plane / layer | **H / L3d** (CDP launcher — VS Code fork is Electron, accepts `--remote-debugging-port`; per ADR-016 §3.7) |
 | Secondary plane / layer | M / L3f (only when user has configured Cursor MCP servers) |
 | Tertiary plane / layer | N / L1 (limited — Cursor uses gRPC-web + protobuf for upstream; mitmproxy sees binary bodies) |
 | Normalizer | `openai.py` / `anthropic.py` ✅ + `ide_interactions.py` ⬜ new (for `interaction_kind ∈ {chat, completion, composer, inline_edit, lint_diff}`) |
 | `source_type` | `desktop_electron` |
 | Archetype | **Code Session** ⬜ new + Chat Tube fallback |
-| Risks | 🟡 private gRPC-web protocol; preload sees **structured JS objects** before they hit the wire so risk is bounded; 🟡 frequent Cursor releases may break preload selectors |
+| Risks | 🟡 private gRPC-web protocol; CDP `Network.responseReceived` sees **already protobuf-encoded bodies** — may need additional `Network.requestWillBeSent` correlation · 🟡 frequent Cursor releases may shift fetch URLs (rebind selectors via probe-style adapter §6 of framework) |
 | Install assets | `Docs/install/PCE_CURSOR_INSTALL.md` |
-| First-probe checklist | **a)** confirm `app.asar` is unpacked or unpacking is permissible · **b)** locate the renderer-process IPC channel where `chat.send` / `composer.run` / `inline.complete` flow · **c)** verify IPC payloads carry `model`, `messages`, `interaction_kind` fields recoverable from JS-side hooks |
+| First-probe checklist | **a)** confirm Cursor accepts `--remote-debugging-port=9222` (Electron + VS Code fork should) · **b)** locate the renderer-process `fetch` / WebSocket calls where `chat.send` / `composer.run` / `inline.complete` flow (CDP event filtering) · **c)** verify CDP-captured payloads carry `model`, `messages`, `interaction_kind` fields after protobuf decode (or fall through to L1 mitmproxy on plain endpoints) |
 
 ### 4.4 P4 — Windsurf
 
 | Field | Value |
 |---|---|
 | OS | Windows + macOS + Linux |
-| Primary plane / layer | **H / L3b** (Electron preload — reuses P3 scaffolding) |
+| Primary plane / layer | **H / L3d** (CDP launcher — reuses P3 launcher scaffolding; ADR-016 §3.7) |
 | Secondary plane / layer | M / L3f |
 | Normalizer | same as P3 (Codeium uses standard provider APIs underneath) |
 | `source_type` | `desktop_electron` |
@@ -342,7 +342,12 @@ with the right schema.
 (e.g. "summarise this directory") and PCE has every `tools/call` +
 `tools/result` frame correlated.
 
-### P5.B.2 — L3b Electron preload — Claude Desktop only
+### P5.B.2 — L3d CDP launcher + `.mcpb` packaging — Claude Desktop only
+
+**Per ADR-016**: implementation pivoted from "L3b Electron preload
++ ASAR repack" to **L3d CDP launcher** (reusing
+`pce_core/cdp/driver.py`) + **`.mcpb` Desktop Extension** for
+`pce_mcp/` packaging. **No Anthropic binaries modified on disk.**
 
 **Unlocks**: D01-D07, D10-D12 for P1 (Claude Desktop's chat path,
 filling the gap that L3f doesn't cover — chat text doesn't traverse
@@ -353,7 +358,12 @@ MCP frames).
 **Acceptance**: P1 hits ≥85% of its 12 applicable D-cases. **D0
 gate met.**
 
-### P5.B.3 — L3b Electron preload — Cursor + Windsurf
+### P5.B.3 — L3d CDP launcher — Cursor + Windsurf
+
+**Per ADR-016 §3.7**: P5.B.3 carries forward the CDP launcher
+scaffolding (`pce_app_launcher/`) from P5.B.2, not the original
+preload scaffolding. Workload reduced (~1 week vs original
+1–2 weeks).
 
 **Unlocks**: D01-D11 for P3 + P4. Code Session archetype lands.
 
@@ -404,7 +414,8 @@ sub-phase progress.
       pass ≥50% OR have a formal P6 hand-off ADR
 - [ ] All 4 normalizer additions exist and have unit tests:
       `mcp_jsonrpc.py`, `ide_interactions.py`, `copilot_proxy.py`,
-      and the migration 0009 (`interaction_kind` column)
+      and the migration 0010 (`interaction_kind` column —
+      renumbered from originally-proposed 0009 per ADR-016 §3.6)
 - [ ] All 8 install docs under `Docs/install/` exist and have been
       walk-through tested
 - [ ] `tests/e2e_mcp/`, `tests/e2e_desktop/`, `tests/e2e_cli/` each
@@ -412,7 +423,10 @@ sub-phase progress.
 - [ ] ADR-012 (P5.B scope reorder), ADR-013 (`pce_mcp/` Open Core),
       ADR-014 (Type 5/6/7 deferral; this document's out-of-scope
       closure — see §10) all landed ✅ 2026-05-08; ADR-015 (UCS L3f
-      amendment) landed ✅ 2026-05-09 alongside `pce_mcp_proxy/`.
+      amendment) landed ✅ 2026-05-09 alongside `pce_mcp_proxy/`;
+      **ADR-016** (P5.B.2 pivot to CDP launcher + `.mcpb` packaging,
+      with L3b Electron preload formally deferred from v1.1) landed
+      ✅ 2026-05-09 in v1.1.0-alpha.3-docs.
 - [ ] `CHANGELOG.md` has v1.1 section
 - [ ] `Docs/docs/PROJECT.md` updated to v1.1 phase pointer
 
@@ -426,9 +440,9 @@ sub-phase progress.
 | **DR-02** | Cursor's IPC shape changes between releases | P3 | Probe-style adapter with version detection; fail-soft on unknown shape |
 | **DR-03** | Copilot adds SSL pinning to chat panel | P5 | Pre-stipulated D2 gate + monitor and hand off to P6 if needed |
 | **DR-04** | Codex / Gemini CLI MCP support absent → forced to L3e gateway path | P7, P8 | Path documented (L3e CLI gateway in P5.B.4 sub-track B); no schedule impact |
-| **DR-05** | Electron preload + app auto-update conflict | P1, P2, P3, P4 | Install doc explicitly documents "re-run installer after auto-update"; future P5.C may build a daemon-watcher |
+| **DR-05** | App auto-update overwrites desktop shortcut (CDP launcher loses its `--remote-debugging-port` injection point) | P1, P2, P3, P4 | Install doc covers "re-run launcher install after auto-update"; daemon-watcher checks for shortcut drift on `pce_core` startup. **Lower severity than the original L3b preload risk** — nothing on disk inside the app bundle is modified per ADR-016 §3.1; only the user-side launcher shortcut needs re-pointing. |
 | **DR-06** | MCP middleware adds latency that breaks user UX | All MCP-using | p95 < 50ms target; fail-open if proxy crashes (PROJECT.md §7.6 fail-open principle) |
-| **DR-07** | normalizer divergence between desktop and web Claude/ChatGPT for the same `conversation_id` | P1, P2 | Migration 0009 includes `interaction_kind` (or its equivalent for desktop); reconciler in `pce_core/normalizer/conversation.py` extends to merge identical conversation_ids across sources |
+| **DR-07** | normalizer divergence between desktop and web Claude/ChatGPT for the same `conversation_id` | P1, P2 | Migration 0010 (`interaction_kind`, renumbered per ADR-016 §3.6) covers desktop variants; reconciler in `pce_core/normalizer/conversation.py` extends to merge identical conversation_ids across sources |
 
 ---
 
@@ -447,13 +461,13 @@ AI plugins (Windows).
 **Why deferred**:
 
 - Capture requires AX (macOS Accessibility) / UIA (Windows UI
-  Automation) — these are L3d / L4b in UCS, scheduled for **P6** /
-  **P7**.
+  Automation) — these are **L4b** in UCS canonical (L3d is reserved
+  for CDP per ADR-016 §4.5), scheduled for **P6** / **P7**.
 - Persona analysis: native clients are a **secondary** entry point
   for the persona; primary daily AI exposure for them is browser
   + Electron + IDE + CLI, all of which are covered.
-- Per ADR-010 (Open Core boundaries), L3d / L4b are Pro-tier;
-  shipping them in v1.1 would cross the OSS / Pro line prematurely.
+- Per ADR-010 (Open Core boundaries), L4b is Pro-tier; shipping it
+  in v1.1 would cross the OSS / Pro line prematurely.
 
 **Reopen criteria**:
 

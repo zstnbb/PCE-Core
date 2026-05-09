@@ -196,7 +196,7 @@ PCE 的长期演化路径定义为：
 | 阶段 | 版本 | 切片内容 | 工时估 |
 |---|---|---|---|
 | **P5.A** ✅ | v1.0 Subscription Capture | L1 收尾 + L3a 扩展 F2 站点 + CaptureEvent v2 + 首跑向导 + Pinning 诊断 | 3–4 周 — **浏览器扩展子系统 2026-05-08 硬冻结**（freeze handoff 已落地） |
-| **P5.B** 🟢 | v1.1 IDE & Desktop & MCP | **L3f MCP middleware 先行** + L3b Electron preload (Claude Desktop / Cursor / Windsurf) + L3e CLI gateway。L3c VS Code 扩展**重排到 P5.C**（见 ADR-012 拟） | 5–7 周 |
+| **P5.B** 🟢 | v1.1 IDE & Desktop & MCP | **L3f MCP middleware 先行** + **L3d CDP launcher** (Claude Desktop / Cursor / Windsurf, ADR-016 取代 L3b preload) + L3e CLI gateway + `.mcpb` Desktop Extensions 官方一键安装。L3c VS Code 扩展**重排到 P5.C**（见 ADR-012）。L3b Electron preload 在 v1.1 不实施（见 ADR-016）。 | 4–6 周 |
 | P5.C | v1.1.1 IDE plugin | L3c VS Code Extension API + Copilot research（原 P5.B 余项） | 3–4 周 |
 | P6 | v1.2 Pinning-Proof | L2 Frida SSL hook（解锁 ChatGPT Desktop 等 pinned 客户端）+ S2/S3 站点重启可选 | 6–8 周 |
 | P7 | v1.3 Force Capture + Fallback | L0 Kernel + L4b AX + L4c OCR + JetBrains | 8–10 周 |
@@ -262,6 +262,7 @@ ADR：
 - `ADR-013` ✅ (**P5.B.0 2026-05-08 落地**) `pce_mcp/` 子系统的 Open Core 归属（OSS）
 - `ADR-014` ✅ (**P5.B.0 2026-05-08 落地**) 应用 Type 5/6/7 在 v1.1 显式延后 + reopen criteria
 - `ADR-015` ✅ (**P5.B.1 2026-05-09 落地**) UCS 增设 L3f MCP middleware 层
+- `ADR-016` ✅ (**P5.B.2 kickoff 2026-05-09 落地**) P5.B.2 实施转向：否决 L3b Electron preload + ASAR repack，改 L3d CDP launcher + `.mcpb` Desktop Extensions 打包；migration 0009→0010 重编号
 
 任务单：
 - `tasks/TASK-001-proxy-poc.md` — 已完成 (Foundation)

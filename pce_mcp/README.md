@@ -30,7 +30,7 @@
 |---|---|---|---|
 | **A — PCE 作为 MCP 服务** | agent 主动调 `pce_capture` 自报告 | **本包 `pce_mcp/`** | ✅ v1.0 已上线 |
 | **B — PCE 作为 MCP 中继** | 透明拦截 host ↔ upstream 之间的 JSON-RPC 帧 | [`pce_mcp_proxy/`](../pce_mcp_proxy/README.md) | ✅ P5.B.1 已落地 (2026-05-09) |
-| **C — Electron preload + MCP 子进程注入** | 既听 chat 也跟踪 child_process MCP spawn | `pce_preload/` 内 | ⏳ P5.B.2 实现 |
+| **C — L3d CDP launcher + L3f middleware 联合** | L3d 抓 chat（renderer fetch）+ L3f middleware 抓 MCP 工具调用全帧 | `pce_app_launcher/` + 已有 `pce_mcp_proxy/` | ⏳ P5.B.2 实现（[ADR-016](../Docs/docs/engineering/adr/ADR-016-cdp-launcher-and-mcpb-packaging.md) 把原 preload 路线改为 CDP）|
 
 姿态 A 与姿态 B 互补、可同时启用。典型场景：用户把 `pce_mcp` 配到 Claude Desktop 当一个普通 MCP server，同时把其他 MCP servers（filesystem / git / postgres / sequential-thinking）通过 `pce_mcp_proxy` 包一层。前者是 agent-cooperative ledger，后者是 transparent wire capture。
 
