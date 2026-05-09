@@ -1,0 +1,13 @@
+# Node build artifacts
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# .mcpb packed artifact (rebuilt on each release via scripts/build_mcpb.ps1)
+*.mcpb
+pack-output/
+
+# Editor scratch
+.DS_Store
+Thumbs.db

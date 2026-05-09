@@ -87,6 +87,8 @@ from .models import (
     CaptureRecord,
     HealthOut,
     HostPinningStats,
+    McpCaptureIn,
+    McpCaptureOut,
     MessageRecord,
     OnboardingCaptureVerify,
     PinningReport,
@@ -1188,6 +1190,168 @@ def ingest_capture(
             )
 
     return CaptureOut(id=capture_id, pair_id=pair_id, source_id=source_id)
+
+
+# ---------------------------------------------------------------------------
+# MCP capture (ADR-016 §3.3 — pce-mcp.mcpb Node proxy backend)
+# ---------------------------------------------------------------------------
+#
+# This endpoint mirrors the ``pce_capture`` MCP tool defined in
+# ``pce_mcp/server.py``. It exists so the Node .mcpb bundle can forward
+# MCP tool calls to pce_core over HTTP without needing to embed any of
+# the Python stack. Behaviourally it is equivalent to calling the
+# Python tool directly: same source tagging (``SOURCE_MCP``), same
+# auto-normalization, same error-recording semantics.
+#
+# The duplication with ``pce_mcp/server.py:pce_capture`` is deliberate
+# for Phase 1 (see ADR-016 §5.3). If the duplication grows painful in a
+# future phase, refactor into a shared helper in ``pce_mcp/shared.py``
+# that both the MCP tool and this endpoint delegate to.
+
+@app.post("/api/v1/mcp/capture", response_model=McpCaptureOut)
+def mcp_capture(payload: McpCaptureIn) -> McpCaptureOut:
+    """Record an AI interaction tagged as coming from the MCP channel.
+
+    Used by the ``pce-mcp.mcpb`` Node bundle to forward MCP ``pce_capture``
+    tool calls. Same semantics as ``pce_mcp/server.py:pce_capture``.
+    """
+    pair_id = new_pair_id()
+    meta_json = json.dumps(payload.meta, ensure_ascii=False) if payload.meta else None
+    summary_parts: list[str] = []
+
+    log_event(
+        logger, "mcp_capture.received",
+        pair_id=pair_id[:8],
+        provider=payload.provider, direction=payload.direction, host=payload.host,
+        has_conversation=bool(payload.conversation_json),
+        has_request=bool(payload.request_body),
+        has_response=bool(payload.response_body),
+    )
+
+    if payload.direction == "conversation" and payload.conversation_json:
+        capture_id = insert_capture(
+            direction="conversation",
+            pair_id=pair_id,
+            host=payload.host,
+            path=payload.path,
+            method=payload.method,
+            provider=payload.provider,
+            model_name=payload.model_name,
+            headers_redacted_json="{}",
+            body_text_or_json=payload.conversation_json,
+            body_format="json",
+            meta_json=meta_json,
+            source_id=SOURCE_MCP,
+        )
+        if capture_id is None:
+            record_pipeline_error(
+                "ingest", "mcp conversation insert returned None",
+                source_id=SOURCE_MCP, pair_id=pair_id,
+                details={"provider": payload.provider, "host": payload.host},
+            )
+            return McpCaptureOut(
+                ok=False, pair_id=pair_id, error="Failed to insert capture",
+            )
+        summary_parts.append(f"Captured conversation: {capture_id[:8]}")
+        try:
+            from .db import query_by_pair
+            rows = query_by_pair(pair_id)
+            if rows:
+                session_id = normalize_conversation(
+                    rows[0], source_id=SOURCE_MCP, created_via="mcp",
+                )
+                if session_id:
+                    summary_parts.append(f"Normalized → session: {session_id[:8]}")
+        except Exception as exc:
+            summary_parts.append(f"Conversation normalization skipped: {exc}")
+            record_pipeline_error(
+                "normalize",
+                f"mcp normalize_conversation: {type(exc).__name__}: {exc}",
+                source_id=SOURCE_MCP, pair_id=pair_id,
+                details={"provider": payload.provider, "host": payload.host},
+            )
+
+    elif payload.request_body or payload.response_body:
+        if payload.request_body:
+            capture_id = insert_capture(
+                direction="request",
+                pair_id=pair_id,
+                host=payload.host,
+                path=payload.path,
+                method=payload.method,
+                provider=payload.provider,
+                model_name=payload.model_name,
+                headers_redacted_json="{}",
+                body_text_or_json=payload.request_body,
+                body_format="json",
+                meta_json=meta_json,
+                source_id=SOURCE_MCP,
+            )
+            if capture_id:
+                summary_parts.append(f"Captured request: {capture_id[:8]}")
+            else:
+                record_pipeline_error(
+                    "ingest", "mcp request insert returned None",
+                    source_id=SOURCE_MCP, pair_id=pair_id,
+                    details={"provider": payload.provider, "host": payload.host},
+                )
+
+        if payload.response_body:
+            capture_id = insert_capture(
+                direction="response",
+                pair_id=pair_id,
+                host=payload.host,
+                path=payload.path,
+                method=payload.method,
+                provider=payload.provider,
+                model_name=payload.model_name,
+                status_code=payload.status_code,
+                latency_ms=payload.latency_ms,
+                headers_redacted_json="{}",
+                body_text_or_json=payload.response_body,
+                body_format="json",
+                meta_json=meta_json,
+                source_id=SOURCE_MCP,
+            )
+            if capture_id:
+                summary_parts.append(f"Captured response: {capture_id[:8]}")
+            else:
+                record_pipeline_error(
+                    "ingest", "mcp response insert returned None",
+                    source_id=SOURCE_MCP, pair_id=pair_id,
+                    details={"provider": payload.provider, "host": payload.host},
+                )
+
+            if payload.request_body:
+                try:
+                    session_id = try_normalize_pair(
+                        pair_id, source_id=SOURCE_MCP, created_via="mcp",
+                    )
+                    if session_id:
+                        summary_parts.append(f"Normalized → session: {session_id[:8]}")
+                except Exception as exc:
+                    summary_parts.append(f"Normalization skipped: {exc}")
+                    record_pipeline_error(
+                        "normalize",
+                        f"mcp try_normalize_pair: {type(exc).__name__}: {exc}",
+                        source_id=SOURCE_MCP, pair_id=pair_id,
+                        details={"provider": payload.provider, "host": payload.host},
+                    )
+    else:
+        return McpCaptureOut(
+            ok=False, pair_id=pair_id,
+            error="Provide either conversation_json or request_body/response_body",
+        )
+
+    log_event(
+        logger, "mcp_capture.completed",
+        pair_id=pair_id[:8],
+        outcome="; ".join(summary_parts) if summary_parts else "no-op",
+    )
+    return McpCaptureOut(
+        ok=True, pair_id=pair_id,
+        summary="; ".join(summary_parts) if summary_parts else "no-op",
+    )
 
 
 # ---------------------------------------------------------------------------

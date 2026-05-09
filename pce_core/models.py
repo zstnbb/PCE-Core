@@ -74,6 +74,42 @@ class CaptureOut(BaseModel):
     source_id: str
 
 
+class McpCaptureIn(BaseModel):
+    """Payload accepted by POST /api/v1/mcp/capture.
+
+    Mirrors the 12 arguments of the ``pce_capture`` MCP tool defined in
+    ``pce_mcp/server.py`` so the ``pce-mcp.mcpb`` Node proxy (ADR-016
+    §3.3) can forward tool calls as-is without having to translate into
+    the v1 ``CaptureIn`` / v2 ``CaptureEventIn`` shapes.
+
+    The endpoint applies the same source tagging (``SOURCE_MCP``) and
+    auto-normalization as the Python tool — the two paths are intended
+    to be behaviourally identical.
+    """
+
+    provider: str = Field(..., description="AI provider name (openai | anthropic | google | ...)")
+    direction: str = Field(default="conversation", description="request | response | conversation")
+    host: str = Field(default="")
+    path: str = Field(default="")
+    method: str = Field(default="POST")
+    model_name: str = Field(default="")
+    request_body: str = Field(default="", description="JSON string of the request body")
+    response_body: str = Field(default="", description="JSON string of the response body")
+    conversation_json: str = Field(default="", description="JSON string of a full conversation")
+    status_code: Optional[int] = None
+    latency_ms: Optional[float] = None
+    meta: Optional[dict] = None
+
+
+class McpCaptureOut(BaseModel):
+    """Response returned by POST /api/v1/mcp/capture."""
+
+    ok: bool
+    pair_id: str
+    summary: str = ""
+    error: Optional[str] = None
+
+
 # ---------------------------------------------------------------------------
 # Query API models
 # ---------------------------------------------------------------------------

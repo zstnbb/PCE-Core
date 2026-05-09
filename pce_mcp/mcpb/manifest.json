@@ -1,0 +1,100 @@
+{
+  "manifest_version": "0.2",
+  "name": "pce-mcp",
+  "display_name": "PCE — Personal Cognitive Engine",
+  "version": "0.1.0",
+  "description": "Captures your Claude conversations and MCP tool calls into a local SQLite database for personal review.",
+  "long_description": "PCE (Personal Cognitive Engine) is a local-first capture layer for AI conversations. This Desktop Extension exposes six MCP tools (pce_capture, pce_query, pce_stats, pce_sessions, pce_session_messages, pce_capture_pair) that let Claude record its own interactions, query previously captured data, and summarise your AI usage — all stored on your machine in a SQLite database with full-text search. Data never leaves your computer; no telemetry; no cloud sync. Requires the pce_core daemon (Python, Apache-2.0) running locally on 127.0.0.1:9800 (configurable via the pce_core_url user setting).",
+  "author": {
+    "name": "PCE Contributors",
+    "url": "https://github.com/zstnbb/PCE-Core"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zstnbb/PCE-Core.git"
+  },
+  "homepage": "https://github.com/zstnbb/PCE-Core#readme",
+  "documentation": "https://github.com/zstnbb/PCE-Core/blob/master/pce_mcp/README.md",
+  "support": "https://github.com/zstnbb/PCE-Core/issues",
+  "icon": "icon.png",
+  "keywords": [
+    "mcp",
+    "capture",
+    "pce",
+    "personal-cognitive-engine",
+    "local-first",
+    "sqlite",
+    "claude",
+    "conversation-history",
+    "observability"
+  ],
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/server/index.js"
+      ],
+      "env": {
+        "PCE_CORE_URL": "${user_config.pce_core_url}"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "pce_capture",
+      "description": "Record an AI interaction into the local PCE database. Use this to capture your own conversations or API calls."
+    },
+    {
+      "name": "pce_query",
+      "description": "Query recent AI interaction captures from the local PCE database (filter by provider / host / direction)."
+    },
+    {
+      "name": "pce_stats",
+      "description": "Get summary statistics from the local PCE database: total captures, by provider, by direction, by source."
+    },
+    {
+      "name": "pce_sessions",
+      "description": "List normalized conversation sessions from the local PCE database."
+    },
+    {
+      "name": "pce_session_messages",
+      "description": "Get all messages from a specific PCE conversation session."
+    },
+    {
+      "name": "pce_capture_pair",
+      "description": "Get the full request/response pair for a given pair_id from the PCE database."
+    }
+  ],
+  "tools_generated": false,
+  "user_config": {
+    "pce_core_url": {
+      "type": "string",
+      "title": "PCE Core daemon URL",
+      "description": "URL of the local pce_core HTTP API. Default works out-of-the-box with a standard PCE install.",
+      "default": "http://127.0.0.1:9800",
+      "required": false,
+      "sensitive": false
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  },
+  "privacy_policies": [
+    "This extension captures the content of your AI conversations (prompts, responses, tool calls) into a local SQLite database at a platform-default PCE data directory (Windows: %LOCALAPPDATA%\\PCE, macOS: ~/Library/Application Support/PCE, Linux: ~/.local/share/PCE).",
+    "All data is stored on your computer. Nothing is transmitted to PCE developers, Anthropic, or any third party by this extension.",
+    "The extension communicates exclusively with a locally-running pce_core daemon over HTTP on 127.0.0.1 (default port 9800). No external network connections are made.",
+    "To delete captured data, stop the pce_core daemon and remove the PCE data directory. You may also use pce_core's built-in retention sweep endpoint.",
+    "Source code is Apache-2.0 and published at https://github.com/zstnbb/PCE-Core — auditable end-to-end."
+  ]
+}

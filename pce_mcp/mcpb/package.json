@@ -1,0 +1,30 @@
+{
+  "name": "pce-mcp",
+  "version": "0.1.0",
+  "description": "PCE MCP .mcpb bundle — captures Claude conversations and MCP tool calls into a local SQLite database via the pce_core daemon.",
+  "type": "module",
+  "main": "server/index.js",
+  "license": "Apache-2.0",
+  "author": {
+    "name": "PCE Contributors",
+    "url": "https://github.com/zstnbb/PCE-Core"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zstnbb/PCE-Core.git"
+  },
+  "homepage": "https://github.com/zstnbb/PCE-Core#readme",
+  "bugs": {
+    "url": "https://github.com/zstnbb/PCE-Core/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node --test server/index.test.mjs"
+  }
+}
