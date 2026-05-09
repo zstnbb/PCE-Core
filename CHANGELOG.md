@@ -5,6 +5,33 @@ All notable changes to PCE (core + browser extension) are documented in this fil
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0-alpha.1] - 2026-05-08 — P5.B.0: `pce_mcp` formalisation
+
+Posture A (`pce_mcp/` as MCP server) is named, documented, and
+covered by real wire-protocol e2e tests. The OSS classification
+debate is closed by ADR-013, the P5.B scope re-ordering is recorded
+by ADR-012, and the Type 5/6/7 deferral is closed by ADR-014. Browser
+subsystem hard-frozen; all forward motion now lives in P5.B.
+
+### Added
+
+- `pce_mcp/README.md` — explicit posture A vs B vs C boundary.
+- `Docs/install/PCE_MCP_INSTALL.md` — 8-host install guide for
+  posture A.
+- `tests/e2e_mcp/` — subprocess + JSON-RPC stdio harness with
+  `MCPStdioClient`; 11 e2e cases (E01 – E11) all GREEN.
+- ADRs 012 / 013 / 014.
+
+### Fixed
+
+- **FastMCP `pre_parse_json` interop bug discovered during e2e**:
+  `pce_capture` body fields were `str | None`, which made FastMCP
+  silently `json.loads` JSON-encoded conversation/request/response
+  bodies into dicts before pydantic validation. Strict MCP hosts
+  (notably Claude Desktop) hit this on every call. Fix: declare body
+  fields as plain `str = ""` so the auto-parse path skips them.
+  Documented in `pce_mcp/server.py` docstring + ADR-013 footnote.
+
 ## [1.0.1] - 2026-04-22 — first public release (v1.0.0 was rejected in review)
 
 v1.0.0 was submitted to the Chrome Web Store on 2026-04-21 and rejected on

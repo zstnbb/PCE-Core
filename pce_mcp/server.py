@@ -57,10 +57,10 @@ def pce_capture(
     host: str = "",
     path: str = "",
     method: str = "POST",
-    model_name: str | None = None,
-    request_body: str | None = None,
-    response_body: str | None = None,
-    conversation_json: str | None = None,
+    model_name: str = "",
+    request_body: str = "",
+    response_body: str = "",
+    conversation_json: str = "",
     status_code: int | None = None,
     latency_ms: float | None = None,
     meta: dict[str, Any] | None = None,
@@ -82,6 +82,15 @@ def pce_capture(
         status_code: HTTP status code (for responses)
         latency_ms: Response latency in milliseconds
         meta: Additional metadata dict
+
+    Note on string field types: body and model fields are typed as plain
+    ``str`` (not ``str | None``) on purpose. FastMCP's
+    func_metadata.pre_parse_json step auto-JSON-parses string values whose
+    field annotation is anything other than literal ``str`` — which would
+    silently turn JSON-encoded conversation/request/response bodies into
+    ``dict`` before reaching this tool, then fail pydantic validation.
+    Plain ``str`` opts out. Empty string is treated as "absent". See
+    ADR-013 + tests/e2e_mcp/test_pce_mcp_stdio.py.
     """
     _ensure_db()
 

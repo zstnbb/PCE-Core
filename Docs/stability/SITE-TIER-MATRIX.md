@@ -5,6 +5,13 @@ format, and E2E test depth. Supersedes the volume-first tiering
 previously implied by `P5B-PLAN.md §Inventory` (Tier 1 P0/P1/P2).
 
 **Adopted:** 2026-04-25.
+**Amended:** 2026-05-08 — S2/S3 formally deferred to v1.2+; browser-
+extension sub-system hard-frozen (see §10 at the bottom of this file
+and `Docs/handoff/HANDOFF-BROWSER-EXT-FREEZE-2026-05-08.md`). The
+§2-§9 tier definitions below are **retained unchanged** as the
+historical v1.0/v1.1 bar; the 2026-05-08 amendment in §10 changes
+only **scope** (which tiers are in-flight), not **structure** (tier
+definitions, doc format obligations, E2E depth).
 **Reviewer target:** every agent / contributor touching `Docs/stability/*`,
 `pce_browser_extension_wxt/entrypoints/*.content.ts`, or
 `tests/e2e/sites/*.py`.
@@ -400,3 +407,73 @@ Follow-up tasks (NOT in the landing commit — tracked separately):
    If all three score low, park it in SX or drop it entirely.
 5. **NotebookLM-style "folded-into-parent" decisions** belong in
    the parent site's spec, not as ghost standalone specs.
+
+---
+
+## 10. 2026-05-08 Amendment — S2/S3 formal deferral & browser-ext freeze
+
+> Adopted 2026-05-08 by user decision. Structural; supersedes only the
+> "which tiers are in-flight" portion of §1-§9. Tier definitions,
+> coverage-doc format obligations, and E2E depth requirements are
+> retained.
+
+### 10.1 What changed
+
+| Sub-system | Pre-2026-05-08 status | Post-2026-05-08 status |
+|---|---|---|
+| `pce_browser_extension_wxt/` | P5.A active development | **HARD FREEZE** — see `Docs/handoff/HANDOFF-BROWSER-EXT-FREEZE-2026-05-08.md` |
+| S0 (ChatGPT, Claude) | Active, release gate 95% | **SEALED** at best-of 19/20 and 16/20 respectively — see freeze handoff §2 |
+| S1 (Gemini, Google AI Studio, Perplexity) | Active, release gate 90% | **SEALED** at best-of 17/20, 13/20, (Perplexity pending) |
+| S2 (Grok, Copilot, DeepSeek) | Planned for v1.1 with diff runner | **DEFERRED to v1.2+** — no further investment |
+| S3 (HuggingFace, Poe, Kimi, ZhiPu, Mistral, Manus) | Smoke matrix | **DEFERRED to v1.2+** — smoke scripts retained, no further hardening |
+| SX (M365 Copilot, Notion AI, Gmail, Figma AI) | Stubs awaiting DOM probe | **DEFERRED to v1.2+** — unchanged in practice |
+
+### 10.2 What moves into scope
+
+The capture surface for the project shifts **from "browsers" to
+"desktop apps + IDE + MCP"** per `Docs/research/DESKTOP-CAPTURE-COGNITIVE-FRAMEWORK.md`
+(adopted 2026-05-08). This site-tier matrix governs only **browser-
+extension coverage**; desktop/IDE/MCP capture lives under a new
+tiering axis in the framework document.
+
+Consequently, sections of this document that **presume active browser-
+extension work** are retained as historical state but should not
+direct new work:
+
+- §5 "E2E test-level matrix" — S0/S1 full runners remain the
+  authoritative best-of record; the "S2 diff runner — design"
+  subsection is **frozen as design-only**, not as a build target.
+- §7 "Acceptance criteria mapped to tiers" — the v1.0 criteria are
+  **already met or waived** per the freeze handoff §2.1 best-of
+  matrix. Future v1.x acceptance gates live in the IDE/Desktop
+  kickoff doc.
+- §8 "Deployment of this matrix" — historical; the landing commits
+  listed there are in `git log` and need no further action.
+
+### 10.3 Follow-up tasks from §8 — final disposition
+
+| Follow-up | 2026-04-25 intent | 2026-05-08 disposition |
+|---|---|---|
+| `test_s2_diff.py` scaffold + parametrised runner | S2 uplift for v1.1 | **Cancelled for v1.0/v1.1; revisit in v1.2 if S2 sites re-enter scope** |
+| First live Perplexity full-run evidence pass | v1.0/v1.1 acceptance | **Deferred** — spec retained but no live-run mandate until v1.2 |
+| Live-DOM probes on SX sites | v1.0/v1.1 honesty label | **Deferred** — NOT READY label remains on SX specs |
+
+### 10.4 Reopen procedure
+
+S2/S3/SX return to active scope only via an ADR under
+`Docs/docs/decisions/` that:
+
+1. Names `Docs/handoff/HANDOFF-BROWSER-EXT-FREEZE-2026-05-08.md` as
+   the document being partially superseded.
+2. Explains why the specific site(s) justify breaking the hard
+   freeze.
+3. Gets user approval before any `pce_browser_extension_wxt/` edit.
+
+Simply "I want to fix this site" is **not** sufficient grounds; the
+freeze is designed to absorb that pressure.
+
+### 10.5 Pointer
+
+For the complete rationale, 4-plane capture framework, and P5.B
+attack sequence, read
+`Docs/research/DESKTOP-CAPTURE-COGNITIVE-FRAMEWORK.md` — canonical.

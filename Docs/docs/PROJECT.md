@@ -2,8 +2,8 @@
 
 - Project: PCE (working title)
 - Status: Active
-- Current Phase: P5.A Subscription Capture 即将开工；R1–R7 仓库拆分 pending；UCS 工业级架构已采纳
-- Updated: 2026-04-18
+- Current Phase: **P5.B IDE & Desktop & MCP Capture (v1.1)** — 浏览器扩展子系统 2026-05-08 硬冻结；S2/S3 正式延后到 v1.2+；下一阶段以「捕获面优先」策略推进 MCP middleware (L3f) → Electron preload (L3b) → CLI gateway (L3e)
+- Updated: 2026-05-08
 
 ## 1. 项目定义
 
@@ -195,9 +195,10 @@ PCE 的长期演化路径定义为：
 
 | 阶段 | 版本 | 切片内容 | 工时估 |
 |---|---|---|---|
-| **P5.A** | v1.0 Subscription Capture | L1 收尾 + L3a 扩展 F2 站点 + CaptureEvent v2 + 首跑向导 + Pinning 诊断 | 3–4 周 |
-| P5.B | v1.1 IDE & Electron | L3b Electron preload + L3c VS Code 扩展 | 4–5 周 |
-| P6 | v1.2 Pinning-Proof | L2 Frida SSL hook | 6–8 周 |
+| **P5.A** ✅ | v1.0 Subscription Capture | L1 收尾 + L3a 扩展 F2 站点 + CaptureEvent v2 + 首跑向导 + Pinning 诊断 | 3–4 周 — **浏览器扩展子系统 2026-05-08 硬冻结**（freeze handoff 已落地） |
+| **P5.B** 🟢 | v1.1 IDE & Desktop & MCP | **L3f MCP middleware 先行** + L3b Electron preload (Claude Desktop / Cursor / Windsurf) + L3e CLI gateway。L3c VS Code 扩展**重排到 P5.C**（见 ADR-012 拟） | 5–7 周 |
+| P5.C | v1.1.1 IDE plugin | L3c VS Code Extension API + Copilot research（原 P5.B 余项） | 3–4 周 |
+| P6 | v1.2 Pinning-Proof | L2 Frida SSL hook（解锁 ChatGPT Desktop 等 pinned 客户端）+ S2/S3 站点重启可选 | 6–8 周 |
 | P7 | v1.3 Force Capture + Fallback | L0 Kernel + L4b AX + L4c OCR + JetBrains | 8–10 周 |
 | P8 | v2.0 Full Supervisor | 完整调度 / 去重 / 自动降级 | 4–6 周 |
 
@@ -207,8 +208,16 @@ PCE 的长期演化路径定义为：
 - **Pro `github.com/zstnbb/pce-pro`**：L0 + L2 + L3b + L4b + Capture Supervisor + IDE 扩展高级版 + 仪表板高级版
 - 依赖方向约束：Pro 可 import OSS，OSS 永不 import Pro（CI 硬拦截）
 
-P5.A 任务单：`tasks/TASK-006-P5A-subscription-capture.md`  
-P5.A handoff：`handoff/HANDOFF-P5A-KICKOFF.md`
+P5.A 任务单：`tasks/TASK-006-P5A-subscription-capture.md`（浏览器子系统已封存）  
+P5.A handoff：`handoff/HANDOFF-P5A-KICKOFF.md`（已超期，由下方 P5.B 接力）  
+P5.A 封存交接：`handoff/HANDOFF-BROWSER-EXT-FREEZE-2026-05-08.md` ⭐ **2026-05-08 硬冻结**
+
+**P5.B 启动**（2026-05-08）：
+- 战略框架：`research/DESKTOP-CAPTURE-COGNITIVE-FRAMEWORK.md` ⭐ **canonical** — 4 张捕获面 × 6+1 应用类型 × normalizer 三段 × 4 archetype tube × §8 攻击顺序
+- 验证矩阵：`stability/DESKTOP-PRODUCT-MATRIX.md` ⭐ **canonical** — 8 个目标产品（P1-P8）× Tier-D（D0/D1/D2）× 13 D-cases × 实施分期 × 类型 5/6/7 显式不做
+- Kickoff handoff：`handoff/HANDOFF-IDE-DESKTOP-KICKOFF.md` ⭐ **active** — P5.B.0 → P5.B.4 子阶段，每阶段含可发布切片 / acceptance criteria / 模块落点 / 产品×子阶段 unlock 表
+- 站点 tier 修订：`stability/SITE-TIER-MATRIX.md` §10（2026-05-08 amendment）— S2/S3 正式延后
+- P5.B 任务单：`tasks/TASK-007-P5B-ide-desktop-mcp.md`（**待 P5.B.0 期间起草**，匹配 TASK-006 格式）
 
 ### P4 长期演进 — 已完成 (2026-04-18)
 - 方向：DuckDB 分析层、sqlite-vec 语义检索、OpenLLMetry instrumentor、CDP 内嵌浏览器、移动端抓包引导
@@ -226,12 +235,16 @@ P5.A handoff：`handoff/HANDOFF-P5A-KICKOFF.md`
 决议文档：
 - `docs/decisions/2026-04-05-foundation-session.md` — 基础阶段收敛
 - `docs/decisions/2026-04-17-industrialization-roadmap.md` — 工业化 P0–P3 收敛
-- `docs/decisions/2026-04-18-ucs-and-release-strategy.md` — **UCS 采纳 + Open Core + A+A 发布策略**
+- `docs/decisions/2026-04-18-ucs-and-release-strategy.md` — **UCS 采纳 + Open Core + A+A 发布策略**（P5.B 部分 scope 由 ADR-012 拟改写）
 - `docs/decisions/2026-04-18-P4-completion.md` — P4 长期演进完成回报
+- `docs/decisions/2026-04-26-regenerate-edit-branch-semantics.md` — branch/variant 存储语义（migration 0008，2026-05-08 已落地）
 
 架构文档：
-- `docs/engineering/ARCHITECTURE.md` — 版本随阶段演进，当前 v0.2（UCS 将在 P5–P8 推进到 v0.3）
+- `docs/engineering/ARCHITECTURE.md` — 版本随阶段演进，当前 v0.2（UCS 将在 P5–P8 推进到 v0.3；ADR-015 拟将 L3f MCP middleware 纳入 v0.3，随 P5.B.1 落地）
 - `docs/engineering/UNIVERSAL-CAPTURE-STACK-DESIGN.md` — **UCS 工业级设计文档**（1340 行，13 章 + 3 附录）
+- `research/DESKTOP-CAPTURE-COGNITIVE-FRAMEWORK.md` — **桌面端 × MCP 捕获认知框架 v2**（2026-05-08，P5.B 阶段所有 agent 必读 — strategy 轴）
+- `stability/DESKTOP-PRODUCT-MATRIX.md` — **P5.B 8 个目标产品验证矩阵**（2026-05-08，P5.B 阶段所有 agent 必读 — validation 轴）
+- `stability/SITE-TIER-MATRIX.md` — 浏览器站点 tier 矩阵（2026-04-25 + 2026-05-08 §10 修订；浏览器子系统已封存，矩阵留作历史与重启参考）
 
 ADR：
 - `ADR-001` 第一阶段先做记录不做干预
@@ -244,6 +257,11 @@ ADR：
 - `ADR-008` P4 可观测与分析：SQLite 只读 + DuckDB / sqlite-vec / gen_ai 别名 / CDP / 移动端向导
 - `ADR-009` **采纳 Universal Capture Stack (UCS) 作为捕获层北极星架构**
 - `ADR-010` **Open Core 模块边界 与 License 策略**
+- `ADR-011` PCE Probe 远程化 与 Agent 自治测试通道 (Proposed, deferred to P5.B)
+- `ADR-012` ✅ (**P5.B.0 2026-05-08 落地**) P5.B scope 重排：L3f/L3b 先行，L3c 移至 P5.C
+- `ADR-013` ✅ (**P5.B.0 2026-05-08 落地**) `pce_mcp/` 子系统的 Open Core 归属（OSS）
+- `ADR-014` ✅ (**P5.B.0 2026-05-08 落地**) 应用 Type 5/6/7 在 v1.1 显式延后 + reopen criteria
+- `ADR-015` (**拟，P5.B.1 期间落地**) UCS 增设 L3f MCP middleware 层
 
 任务单：
 - `tasks/TASK-001-proxy-poc.md` — 已完成 (Foundation)
@@ -251,22 +269,31 @@ ADR：
 - `tasks/TASK-003-P1-storage-standardization.md` — 已完成 (P1)
 - `tasks/TASK-004-P2-capture-ux-upgrade.md` — 已完成 (P2)
 - `tasks/TASK-005-P3-desktop-shell.md` — 已完成 (P3)
-- `tasks/TASK-006-P5A-subscription-capture.md` — **当前执行入口（R1–R7 前置中）**
+- `tasks/TASK-006-P5A-subscription-capture.md` — 浏览器子系统切片完工（2026-05-08 硬冻结）；back-end 部分 carry forward 到 P5.B
+- `tasks/TASK-007-P5B-ide-desktop-mcp.md` — **当前执行入口（待 P5.B.0 期间起草，由 `HANDOFF-IDE-DESKTOP-KICKOFF.md` 翻译为原子任务）**
 
 Handoff：
 - `handoff/HANDOFF-TASK-001.md` — 已完成
 - `handoff/HANDOFF-TASK-002.md` — 已完成
-- `handoff/HANDOFF-P5A-KICKOFF.md` — **当前活动**
+- `handoff/HANDOFF-P5A-KICKOFF.md` — 已超期（浏览器子系统切片落地后由封存 handoff 接力）
+- `handoff/HANDOFF-BROWSER-EXT-FREEZE-2026-05-08.md` ⭐ — **2026-05-08 浏览器扩展硬冻结**
+- `handoff/HANDOFF-IDE-DESKTOP-KICKOFF.md` ⭐ — **当前活动（P5.B v1.1）**
 
 ## 13. 对后来 agent 的阅读顺序推荐
 
-第一次接手 PCE 中 P5 阶段的 agent，按以下顺序读约 2–3 小时可建立全面认识：
+第一次接手 PCE 中 **P5.B 阶段**的 agent，按以下顺序读约 2–3 小时可建立全面认识：
 
-1. 本文件 `docs/PROJECT.md`（项目总边界）
-2. `docs/decisions/2026-04-18-ucs-and-release-strategy.md` （本轮决议，直接上游）
-3. `docs/engineering/UNIVERSAL-CAPTURE-STACK-DESIGN.md` （UCS 工业级设计文档，全景蓝图）
-4. `docs/engineering/adr/ADR-009`（UCS 决策）+ `ADR-010`（Open Core 边界）
-5. `tasks/TASK-006-P5A-subscription-capture.md` （当前任务单）
-6. `handoff/HANDOFF-P5A-KICKOFF.md` （执行 handoff）
+1. 本文件 `docs/PROJECT.md`（项目总边界、§11 阶段划分）
+2. **`research/DESKTOP-CAPTURE-COGNITIVE-FRAMEWORK.md`** ⭐ — strategy 轴：4 张捕获面 × 6+1 应用类型 × normalizer 三段 × 4 archetype tube。P5.B "**为什么**" 的真理来源
+3. **`stability/DESKTOP-PRODUCT-MATRIX.md`** ⭐ — validation 轴：8 个目标产品（P1-P8）× Tier-D × 13 D-cases × 子阶段 unlock 表 × 类型 5/6/7 显式不做。P5.B "**做完算什么**" 的真理来源
+4. `handoff/HANDOFF-BROWSER-EXT-FREEZE-2026-05-08.md` — 上一阶段封存了什么、哪些 known issue 不要碰
+5. `handoff/HANDOFF-IDE-DESKTOP-KICKOFF.md` ⭐ — 当前 active，P5.B.0 → .4 子阶段执行单 + 产品×子阶段 unlock 矩阵
+6. `docs/decisions/2026-04-18-ucs-and-release-strategy.md` — UCS 采纳 + Open Core（注：P5.B scope 已被 ADR-012 重排）
+7. `docs/engineering/UNIVERSAL-CAPTURE-STACK-DESIGN.md` — UCS 蓝图（注：ADR-015 拟在 v0.3 增设 L3f，随 P5.B.1 落地）
+8. `docs/engineering/adr/ADR-009`（UCS 决策）+ `ADR-010`（Open Core 边界）+ ADR-012/013/014（已落地 ✅） + ADR-015（待写）
+9. `stability/SITE-TIER-MATRIX.md` §10 — 浏览器站点 tier 现状（2026-05-08 修订；只读）
 
 还需要深入某个领域再补读对应 ADR 与早期决议。
+
+**已完结的历史阅读路径**（仅供回溯，新 agent 不再走）：
+- 旧版 P5.A 路径：`tasks/TASK-006` + `handoff/HANDOFF-P5A-KICKOFF.md` — 浏览器子系统切片版本
