@@ -177,6 +177,13 @@ CREATE TABLE IF NOT EXISTS custom_domains (
 
 
 # Default sources seeded on every fresh install.
+# Note: the MCP proxy source (``mcp-proxy-default``) is intentionally
+# *not* in this list — it lands via migration 0009 to keep the audit
+# trail visible. Migration 0009 is idempotent (INSERT OR IGNORE) so a
+# fresh install still ends up with the row by the time
+# ``apply_migrations`` returns. ``cdp-embedded`` follows the same
+# pattern (migration 0005). Keep this list scoped to baseline-era
+# defaults only.
 _DEFAULT_SOURCES: list[tuple[str, str, str, str, str]] = [
     ("proxy-default", "proxy", "mitmproxy", "complete", "default proxy source"),
     ("browser-extension-default", "browser_extension", "chrome", "light", "default browser extension source"),

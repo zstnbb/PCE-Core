@@ -240,7 +240,7 @@ P5.A 封存交接：`handoff/HANDOFF-BROWSER-EXT-FREEZE-2026-05-08.md` ⭐ **202
 - `docs/decisions/2026-04-26-regenerate-edit-branch-semantics.md` — branch/variant 存储语义（migration 0008，2026-05-08 已落地）
 
 架构文档：
-- `docs/engineering/ARCHITECTURE.md` — 版本随阶段演进，当前 v0.2（UCS 将在 P5–P8 推进到 v0.3；ADR-015 拟将 L3f MCP middleware 纳入 v0.3，随 P5.B.1 落地）
+- `docs/engineering/ARCHITECTURE.md` — 版本随阶段演进，当前 v0.2（UCS v0.3 于 P5.B.1 中增设 L3f MCP middleware，ADR-015 已落地）
 - `docs/engineering/UNIVERSAL-CAPTURE-STACK-DESIGN.md` — **UCS 工业级设计文档**（1340 行，13 章 + 3 附录）
 - `research/DESKTOP-CAPTURE-COGNITIVE-FRAMEWORK.md` — **桌面端 × MCP 捕获认知框架 v2**（2026-05-08，P5.B 阶段所有 agent 必读 — strategy 轴）
 - `stability/DESKTOP-PRODUCT-MATRIX.md` — **P5.B 8 个目标产品验证矩阵**（2026-05-08，P5.B 阶段所有 agent 必读 — validation 轴）
@@ -261,7 +261,7 @@ ADR：
 - `ADR-012` ✅ (**P5.B.0 2026-05-08 落地**) P5.B scope 重排：L3f/L3b 先行，L3c 移至 P5.C
 - `ADR-013` ✅ (**P5.B.0 2026-05-08 落地**) `pce_mcp/` 子系统的 Open Core 归属（OSS）
 - `ADR-014` ✅ (**P5.B.0 2026-05-08 落地**) 应用 Type 5/6/7 在 v1.1 显式延后 + reopen criteria
-- `ADR-015` (**拟，P5.B.1 期间落地**) UCS 增设 L3f MCP middleware 层
+- `ADR-015` ✅ (**P5.B.1 2026-05-09 落地**) UCS 增设 L3f MCP middleware 层
 
 任务单：
 - `tasks/TASK-001-proxy-poc.md` — 已完成 (Foundation)
@@ -289,8 +289,8 @@ Handoff：
 4. `handoff/HANDOFF-BROWSER-EXT-FREEZE-2026-05-08.md` — 上一阶段封存了什么、哪些 known issue 不要碰
 5. `handoff/HANDOFF-IDE-DESKTOP-KICKOFF.md` ⭐ — 当前 active，P5.B.0 → .4 子阶段执行单 + 产品×子阶段 unlock 矩阵
 6. `docs/decisions/2026-04-18-ucs-and-release-strategy.md` — UCS 采纳 + Open Core（注：P5.B scope 已被 ADR-012 重排）
-7. `docs/engineering/UNIVERSAL-CAPTURE-STACK-DESIGN.md` — UCS 蓝图（注：ADR-015 拟在 v0.3 增设 L3f，随 P5.B.1 落地）
-8. `docs/engineering/adr/ADR-009`（UCS 决策）+ `ADR-010`（Open Core 边界）+ ADR-012/013/014（已落地 ✅） + ADR-015（待写）
+7. `docs/engineering/UNIVERSAL-CAPTURE-STACK-DESIGN.md` — UCS 蓝图（v0.3 已含 ADR-015 增设的 L3f）
+8. `docs/engineering/adr/ADR-009`（UCS 决策）+ `ADR-010`（Open Core 边界）+ ADR-012/013/014/015（P5.B.0–P5.B.1 期间全部落地 ✅）
 9. `stability/SITE-TIER-MATRIX.md` §10 — 浏览器站点 tier 现状（2026-05-08 修订；只读）
 
 还需要深入某个领域再补读对应 ADR 与早期决议。

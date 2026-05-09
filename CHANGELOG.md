@@ -5,6 +5,97 @@ All notable changes to PCE (core + browser extension) are documented in this fil
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0-alpha.2] - 2026-05-09 — P5.B.1: `pce_mcp_proxy` (UCS L3f, posture B)
+
+The MCP middleware proxy ships, completing the M-plane capture story
+opened in P5.B.0. Posture A (`pce_mcp/`, agent-cooperative ledger) and
+posture B (`pce_mcp_proxy/`, transparent wire-tap) are now both
+production-grade and complementary. UCS layer L3f is formally amended
+into the architecture by ADR-015.
+
+### Added
+
+- `pce_mcp_proxy/` — new OSS package (Apache-2.0 per ADR-013/015):
+  threading-based bidirectional stdio relay that wraps any upstream
+  MCP server, transparently forwarding host ↔ upstream JSON-RPC 2.0
+  frames while side-channelling each frame into PCE. 6 files,
+  ~1100 LoC; cross-platform (Windows / macOS / Linux).
+  - `Relay` — wire-loss-free duplex forwarder with decoupled
+    observation thread so JSON parsing latency cannot stall protocol
+    bytes.
+  - `JsonRpcObserver` — threadsafe frame classifier (request /
+    notification / response / response_error / server_initiated)
+    with pending-id pairing and best-effort SQLite write.
+  - `RelayConfig` + argv split-on-`--` parser; `--upstream-name /
+    --data-dir / --print-stats / --quiet / --log-file` flags.
+- `pce_core/migrations/0009_mcp_proxy_source.py` — registers the
+  `mcp-proxy-default` source row (idempotent INSERT OR IGNORE).
+  Bumps `EXPECTED_SCHEMA_VERSION` 8 → 9.
+- `pce_core/db.py::SOURCE_MCP_PROXY` constant (`mcp-proxy-default`)
+  and matching `_DEFAULT_SOURCES` entry. Distinct from `SOURCE_MCP`
+  so the dashboard can tell wire-tapped traffic from agent-reported
+  traffic at a glance.
+- `pce_core/normalizer/mcp_jsonrpc.py` — Tier 1 normaliser for
+  `tools/call` / `resources/read` / `prompts/get` JSON-RPC pairs.
+  Produces OpenAI-style `role=assistant` (with `tool_calls`) +
+  `role=tool` (with `tool_call_id`) message pairs, namespaced as
+  `<upstream>.<tool_name>` for cross-upstream uniqueness, dedup-
+  resistant via `tool_call_id` suffix in `content_text`.
+- `tests/e2e_mcp/_mock_upstream.py` — scriptable mini MCP server
+  driven by `PCE_MOCK_RESPONSES` env var; supports `@@delay_ms`,
+  `@@drop`, `@@close`, `@@exit_code`, server-initiated frames.
+- `tests/e2e_mcp/test_pce_mcp_proxy_stdio.py` — 11 end-to-end cases
+  (R01 – R11) covering handshake forwarding, capture pair, Tier 1
+  normalisation, tool-level + JSON-RPC-level error paths, multi-call
+  session collapsing, byte passthrough, upstream exit code
+  propagation, and missing-upstream error handling. All GREEN.
+- `Docs/install/PCE_MCP_PROXY_INSTALL.md` — 8-host install guide
+  (Claude Desktop / Cursor / Windsurf / Claude Code / Codex CLI /
+  Gemini CLI / Cascade-Windsurf / generic) with concrete diff-from-
+  vanilla configs and a §9 section on running posture A and B
+  side-by-side.
+- `pce_mcp_proxy/README.md` — package boundary contract (MUST /
+  MUST NOT) + architecture diagram + cross-references.
+- `Docs/docs/engineering/adr/ADR-015-ucs-l3f-mcp-middleware.md` —
+  formal UCS amendment introducing L3f as a first-class layer,
+  closing the architectural debt P5.B.1 carried.
+
+### Changed
+
+- `pce_core/normalizer/registry.py::_auto_register` now registers
+  `MCPJsonRpcNormalizer` between Anthropic and the conversation
+  catch-all. Existing OpenAI / Anthropic / conversation behaviour is
+  unchanged.
+- `pce_mcp/README.md` — §M 面姿态表 status for posture B flipped from
+  ⏳ (P5.B.1 implement) to ✅ (P5.B.1 landed 2026-05-09); added a
+  paragraph on running A + B together.
+- `Docs/docs/PROJECT.md` — ADR list + reading order updated to mark
+  ADR-015 as landed; architecture v0.3 description is now present
+  tense rather than aspirational.
+- `Docs/handoff/HANDOFF-IDE-DESKTOP-KICKOFF.md` and
+  `Docs/stability/DESKTOP-PRODUCT-MATRIX.md` updated to reflect the
+  P5.B.1 milestone.
+
+### Test counts
+
+- `tests/e2e_mcp/` — **22/22 GREEN** (11 posture-A stdio + 11
+  posture-B relay).
+- `tests/test_mcp.py` — **11/11 GREEN** (in-process posture-A).
+- Combined: **33/33 GREEN**, zero regressions on the posture-A
+  surface from P5.B.0.
+
+### Known limitations (deferred)
+
+- v1 normaliser only handles `tools/call` / `resources/read` /
+  `prompts/get`. `initialize` / `tools/list` / `ping` /
+  `sampling/createMessage` stay in Tier 0 only — see ADR-015 §7 for
+  the rationale and re-open criteria.
+- Session boundaries use a day-bucketed key (`mcp-proxy:<upstream>:
+  <YYYY-MM-DD>`); P5.B.2 should refine to lifecycle-bracketed
+  sessions tied to the proxy process boundary.
+- Observation queue is unbounded; tighten with a high-water mark +
+  drop policy when production data shows the need.
+
 ## [1.1.0-alpha.1] - 2026-05-08 — P5.B.0: `pce_mcp` formalisation
 
 Posture A (`pce_mcp/` as MCP server) is named, documented, and

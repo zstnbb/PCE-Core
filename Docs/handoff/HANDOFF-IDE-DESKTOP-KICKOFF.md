@@ -349,8 +349,8 @@ Before/during P5.B.0, these ADRs should be authored (1 page each):
   a first-class UCS layer. Updates
   `UNIVERSAL-CAPTURE-STACK-DESIGN.md` §layer enumeration. (Numbered
   ADR-015 because ADR-011 is already taken by the probe-remote-agent
-  decision.) **Lands with P5.B.1 since that's when L3f first gets
-  built.**
+  decision.) **✅ landed 2026-05-09 alongside the `pce_mcp_proxy/`
+  package shipping in P5.B.1.**
 
 ---
 
@@ -469,8 +469,8 @@ P5.B ships (i.e. tag `v1.1.0`) when:
       / `openai.py` / `genai_semconv.py` for desktop variants.
 - [ ] The messages table, at v1.1, represents **chat / tool /
       code / run** archetypes without further migration.
-- [ ] ADR-012, ADR-013, ADR-014 all landed (✅ 2026-05-08); ADR-015
-      lands with P5.B.1.
+- [ ] ADR-012, ADR-013, ADR-014 (✅ 2026-05-08) and ADR-015 (✅
+      2026-05-09 alongside `pce_mcp_proxy/`) all landed.
 - [ ] `Docs/docs/PROJECT.md` reflects the transition.
 - [ ] `CHANGELOG.md` has a v1.1 section documenting what's new.
 

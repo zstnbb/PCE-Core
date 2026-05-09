@@ -411,8 +411,8 @@ sub-phase progress.
       have ≥3 passing cases
 - [ ] ADR-012 (P5.B scope reorder), ADR-013 (`pce_mcp/` Open Core),
       ADR-014 (Type 5/6/7 deferral; this document's out-of-scope
-      closure — see §10) landed (✅ 2026-05-08); ADR-015 (UCS L3f
-      amendment) lands with P5.B.1
+      closure — see §10) all landed ✅ 2026-05-08; ADR-015 (UCS L3f
+      amendment) landed ✅ 2026-05-09 alongside `pce_mcp_proxy/`.
 - [ ] `CHANGELOG.md` has v1.1 section
 - [ ] `Docs/docs/PROJECT.md` updated to v1.1 phase pointer
 
@@ -518,7 +518,7 @@ AnythingLLM Desktop, Open WebUI.
 | Know the build order (capture-plane axis, not product axis) | `Docs/handoff/HANDOFF-IDE-DESKTOP-KICKOFF.md` §4 |
 | See per-D-case implementation pattern | (planned) `tests/e2e_desktop/cases/d**.py` modelled on `tests/e2e_probe/cases/t**.py` |
 | Know what was sealed on the browser side | `Docs/handoff/HANDOFF-BROWSER-EXT-FREEZE-2026-05-08.md` |
-| Know what UCS layers we touch | `Docs/docs/engineering/UNIVERSAL-CAPTURE-STACK-DESIGN.md` (note: ADR-015 amends with L3f, lands with P5.B.1) |
+| Know what UCS layers we touch | `Docs/docs/engineering/UNIVERSAL-CAPTURE-STACK-DESIGN.md` (UCS v0.3 includes L3f per ADR-015, ✅ 2026-05-09) |
 | Know normalizer entry points | `pce_core/normalizer/__init__.py` |
 | Re-evaluate tier of a product | follow §3 + §10 reopen criteria → ADR |
 

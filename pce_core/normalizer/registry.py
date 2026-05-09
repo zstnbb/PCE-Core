@@ -43,9 +43,14 @@ def _auto_register():
     from .openai import OpenAIChatNormalizer
     from .anthropic import AnthropicMessagesNormalizer
     from .conversation import ConversationNormalizer
+    from .mcp_jsonrpc import MCPJsonRpcNormalizer
 
     register_normalizer(OpenAIChatNormalizer())
     register_normalizer(AnthropicMessagesNormalizer())
+    # MCP middleware proxy (UCS L3f, posture B). Specific to
+    # provider="mcp:*" + host="stdio", so ordering is moot — but kept
+    # before Conversation (the catch-all) so it stays explicit.
+    register_normalizer(MCPJsonRpcNormalizer())
     # Conversation normalizer is registered last as a catch-all for
     # browser extension DOM-extracted captures (DeepSeek, Gemini, etc.)
     register_normalizer(ConversationNormalizer())

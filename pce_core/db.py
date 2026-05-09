@@ -212,12 +212,18 @@ SOURCE_MCP = "mcp-default"
 # is a foreign key into ``capture_sources`` and must exist before the first
 # insert, regardless of whether the optional Playwright dep is installed.
 SOURCE_CDP = "cdp-embedded"
+# P5.B.1 — MCP middleware proxy (姿态 B / UCS L3f). Distinct from
+# ``SOURCE_MCP`` (姿态 A — PCE as MCP server) because the data
+# provenance is different: posture A is agent self-report, posture B
+# is transparent wire-tap. Registered by migration 0009.
+SOURCE_MCP_PROXY = "mcp-proxy-default"
 
 _DEFAULT_SOURCES = [
     (SOURCE_PROXY, "proxy", "mitmproxy", "complete", "default proxy source"),
     (SOURCE_BROWSER_EXT, "browser_extension", "chrome", "light", "default browser extension source"),
     (SOURCE_MCP, "mcp", "pce-mcp-server", "light", "default MCP server source"),
     (SOURCE_CDP, "cdp_embedded", "playwright-chromium", "complete", "embedded Chromium capture via CDP"),
+    (SOURCE_MCP_PROXY, "mcp_proxy", "pce-mcp-proxy", "complete", "default MCP middleware proxy capture source (UCS L3f, posture B)"),
 ]
 
 

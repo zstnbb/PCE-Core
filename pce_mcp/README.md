@@ -24,13 +24,15 @@
 
 ## M 面的两种姿态
 
-`pce_mcp` 只承担姿态 A。完整的 M 面捕获能力还包括姿态 B 与姿态 C（后两者在 P5.B.1 / P5.B.2 实现）：
+`pce_mcp` 只承担姿态 A。姿态 B（中继 / wire-tap）在 P5.B.1 已落地为兄弟包 `pce_mcp_proxy/`；姿态 C 仍待 P5.B.2 实现：
 
 | 姿态 | 作用 | 实现 | 状态 |
 |---|---|---|---|
 | **A — PCE 作为 MCP 服务** | agent 主动调 `pce_capture` 自报告 | **本包 `pce_mcp/`** | ✅ v1.0 已上线 |
-| **B — PCE 作为 MCP 中继** | 透明拦截 host ↔ upstream 之间的 JSON-RPC 帧 | `pce_mcp_proxy/`（待建） | ⏳ P5.B.1 实现 |
+| **B — PCE 作为 MCP 中继** | 透明拦截 host ↔ upstream 之间的 JSON-RPC 帧 | [`pce_mcp_proxy/`](../pce_mcp_proxy/README.md) | ✅ P5.B.1 已落地 (2026-05-09) |
 | **C — Electron preload + MCP 子进程注入** | 既听 chat 也跟踪 child_process MCP spawn | `pce_preload/` 内 | ⏳ P5.B.2 实现 |
+
+姿态 A 与姿态 B 互补、可同时启用。典型场景：用户把 `pce_mcp` 配到 Claude Desktop 当一个普通 MCP server，同时把其他 MCP servers（filesystem / git / postgres / sequential-thinking）通过 `pce_mcp_proxy` 包一层。前者是 agent-cooperative ledger，后者是 transparent wire capture。
 
 ## 暴露的工具（6 个）
 
