@@ -408,6 +408,14 @@ Before/during P5.B.0, these ADRs should be authored (1 page each):
   0009 to 0010. Defers L3b Electron preload from v1.1 entirely.
   **✅ landed 2026-05-09 in v1.1.0-alpha.3-docs alongside this
   doc sync.**
+- **ADR-017** — Cross-lane Test Conductor + Agent-callable MCP
+  contract: introduces `pce_test_conductor/` (OSS) as the unified
+  orchestration layer above existing `pce_probe/` (browser) and
+  new `tests/e2e_desktop/` (desktop via L3d). Defines 8 MCP tools,
+  9-value `FailureKind` enum, JSON Schema canary store, and 3
+  templated patch generators. Honours ADR-011 G9 stance — `propose_patch`
+  returns diff data only; physical patch application stays on the
+  agent side. Drafted 2026-05-09; implementation in Phase 4.D.1–6.
 
 ---
 
@@ -510,6 +518,23 @@ idempotent guard per existing pattern.
 
 `EXPECTED_SCHEMA_VERSION` will increment from 9 → 10 in P5.B.2
 Phase 4.
+
+### 10.5 Test orchestration obligation (per ADR-017)
+
+Every new target adapter under `tests/e2e/sites/` or
+`tests/e2e_desktop/apps/` **must** register itself in
+`pce_test_conductor/targets/<id>.yaml` in the same PR. The
+conductor is the single discovery surface for any agent-driven
+test run; orphan adapters that do not register are invisible to
+`list_cases` and `run_case`, defeating ADR-017's cross-lane
+guarantee. The conformance check lives in
+`tests/test_pce_test_conductor.py::test_all_adapters_registered`
+and will fail PR CI when violated.
+
+`pce_test_conductor/` itself ships in Phase 4.D.1–6 (post P5.B.2
+Phase 3 / pre P5.B.3). Browser lane wraps `pce_probe/` and the
+5 existing `test_*_full.py` matrices without modifying their
+internals — see ADR-017 §3.6.
 
 ---
 

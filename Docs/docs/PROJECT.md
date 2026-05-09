@@ -263,6 +263,7 @@ ADR：
 - `ADR-014` ✅ (**P5.B.0 2026-05-08 落地**) 应用 Type 5/6/7 在 v1.1 显式延后 + reopen criteria
 - `ADR-015` ✅ (**P5.B.1 2026-05-09 落地**) UCS 增设 L3f MCP middleware 层
 - `ADR-016` ✅ (**P5.B.2 kickoff 2026-05-09 落地**) P5.B.2 实施转向：否决 L3b Electron preload + ASAR repack，改 L3d CDP launcher + `.mcpb` Desktop Extensions 打包；migration 0009→0010 重编号
+- `ADR-017` 📝 (**Proposed 2026-05-09，实施 Phase 4.D.1–6**) 跨 lane 测试编排与 Agent 可调用契约：新建 `pce_test_conductor/`（OSS）统一 browser lane (`pce_probe/`) 与 desktop lane (`tests/e2e_desktop/`)，暴露 8 个 MCP tool + 9 值 FailureKind 本体 + JSON Schema canary + 3 个补丁模板；honour ADR-011 G9 "agent 侧实现，插件不投资"——补丁仅作为 diff data 返回，物理 apply 由调用方 agent 落地
 
 任务单：
 - `tasks/TASK-001-proxy-poc.md` — 已完成 (Foundation)

@@ -361,3 +361,43 @@ before the matrix even runs.
 - Triage CLI: `@f:\INVENTION\You.Inc\PCE Core\pce_probe\triage.py`
 - Triage tests (the runnable spec): `@f:\INVENTION\You.Inc\PCE Core\tests\test_pce_probe_triage.py`
 - Conformance tests: `@f:\INVENTION\You.Inc\PCE Core\tests\test_pce_probe_adapter_contract.py`
+
+---
+
+## 5. Appendix · Cross-lane via Test Conductor (ADR-017)
+
+This runbook covers the **browser lane** loop only — driving Chrome
+via Selenium + the WXT extension, running `pce_probe/`, reading
+`triage --json`, fixing site adapters or normalizers, replaying.
+Browser is the only lane this doc addresses, and that scope does
+**not** change.
+
+For **desktop targets** (Claude Desktop, Cursor, Windsurf — captured
+via L3d CDP launcher per ADR-016) the equivalent loop runs through
+`pce_test_conductor/` (drafted in ADR-017, lands in Phase 4.D.1–6).
+That conductor:
+
+- exposes the same case-as-data shape this doc relies on, but via
+  MCP stdio JSON-RPC instead of WS verbs
+- wraps `pce_probe/` for browser without modifying it (subprocess
+  + `summary.json` reshaped into the conductor's `run_case` return
+  schema), so this doc's loop continues to work unchanged
+- adds `tests/e2e_desktop/apps/` mirror of `tests/e2e/sites/` so
+  desktop adapters follow the same 8-verb base contract
+- adds a JSON Schema canary store and 3 templated patch generators
+  (`add_content_block_type`, `add_url_path`, `widen_schema_field`)
+  that supply the desktop equivalent of "selector changed, here's
+  the adapter patch" workflow this doc describes for browser
+
+**Critical preserved invariant**: ADR-011 G9 ("LLM auto-fix is on
+the agent side, not the tool side") still holds. Conductor's
+`propose_patch` returns unified-diff *data*; the agent (Cascade /
+Claude Code / etc.) applies via its own edit tools and then calls
+`verify_patch` for the rerun. The conductor never mutates
+repository files.
+
+If you are triaging a desktop capture failure and want this loop's
+ergonomics, wait for Phase 4.D.1 (post-ADR-017 implementation)
+before opening a desktop section in this runbook. Until then,
+desktop debugging is manual: read `tests/e2e_desktop/reports/<ts>/`
+artifacts directly.

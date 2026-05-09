@@ -427,6 +427,13 @@ sub-phase progress.
       **ADR-016** (P5.B.2 pivot to CDP launcher + `.mcpb` packaging,
       with L3b Electron preload formally deferred from v1.1) landed
       ✅ 2026-05-09 in v1.1.0-alpha.3-docs.
+- [ ] **ADR-017** (cross-lane Test Conductor + agent-callable MCP
+      contract) implementation Phase 4.D.1–6 landed; conductor MCP
+      surface exposes ≥1 desktop target and runs T01–T05 of
+      Claude Desktop end-to-end with `propose_patch` covering at
+      least the `CONTENT_BLOCK_UNKNOWN` failure class. (ADR-017 itself
+      drafted 2026-05-09; Phase 4.D landing version `v1.1.0-alpha.7-conductor`
+      onward.)
 - [ ] `CHANGELOG.md` has v1.1 section
 - [ ] `Docs/docs/PROJECT.md` updated to v1.1 phase pointer
 
@@ -443,6 +450,7 @@ sub-phase progress.
 | **DR-05** | App auto-update overwrites desktop shortcut (CDP launcher loses its `--remote-debugging-port` injection point) | P1, P2, P3, P4 | Install doc covers "re-run launcher install after auto-update"; daemon-watcher checks for shortcut drift on `pce_core` startup. **Lower severity than the original L3b preload risk** — nothing on disk inside the app bundle is modified per ADR-016 §3.1; only the user-side launcher shortcut needs re-pointing. |
 | **DR-06** | MCP middleware adds latency that breaks user UX | All MCP-using | p95 < 50ms target; fail-open if proxy crashes (PROJECT.md §7.6 fail-open principle) |
 | **DR-07** | normalizer divergence between desktop and web Claude/ChatGPT for the same `conversation_id` | P1, P2 | Migration 0010 (`interaction_kind`, renumbered per ADR-016 §3.6) covers desktop variants; reconciler in `pce_core/normalizer/conversation.py` extends to merge identical conversation_ids across sources |
+| **DR-08** | Desktop H-plane (L3d CDP) silently broken by app updates — Anthropic / Cursor / Windsurf may add new `content_block.type` values, change response schemas, or move URL paths between releases (~2–4 week cadence). Without active monitoring this surfaces only when a user reports a missing capture. | P1, P3, P4 | **ADR-017 §3.4 canary store** — auto-generated JSON Schema snapshots per (target, case, endpoint) committed to git; `diff_canary` MCP tool detects `added_property` / `enum_extension` (soft) and `removed_property` / `changed_type` (hard) in O(1). **ADR-017 §3.5 patch templates** — three templates (`add_content_block_type`, `add_url_path`, `widen_schema_field`) cover the common drift modes; agent receives unified-diff data via `propose_patch` and applies via its own edit tools per ADR-011 G9. |
 
 ---
 

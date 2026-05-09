@@ -469,6 +469,23 @@ render archetype / 距离评估。
 **图例**：🟢 现有管道复用率 > 80%；🟡 需新增局部模块；🟠 需新协议
 解码或 IP 谈判。
 
+> **ADR-016 / ADR-017 对账注记（2026-05-09）**
+>
+> 上表 1a / 1a' / 2a 行的 "UCS 层" 列保留了当时的 `L3b ⬜` 标注
+> 以备前后参考；**实际 v1.1 实施已切换为 L3d CDP launcher**（per
+> ADR-016 §3.1，ASAR repack 路线被否决），不再触碰任何 Anthropic /
+> Cursor / Windsurf 的 `app.asar`。Claude Desktop 的 1a 行因此应
+> 读作 `pce_mcp server ✅（M 面 posture A）+ pce_mcp_proxy ✅（M 面
+> posture B / L3f）+ pce_app_launcher ⚠️（H 面 / L3d CDP，e2e 验证
+> 中）`，其 "🟢 1 周可上线" 距离评估**已被超越**：Phase 1–3 在
+> 2026-05-09 已落地（v1.1.0-alpha.4 → alpha.6），剩余 ~3–5 天为
+> normalizer 落 `interaction_kind` + 真机 e2e 收尾。
+>
+> 测试编排维度（本表未列出）由 **ADR-017** 统一新建 `pce_test_conductor/`
+> 覆盖：8 个 MCP tool + 9 值 FailureKind + JSON Schema canary 主动
+> 巡检桌面 H 面更新打穿（DR-08）+ 3 个补丁模板。Phase 4.D.1–6
+> 与本表行均一一对账。
+
 ---
 
 ## 8. 第七层 · P5.B 攻击顺序推论
