@@ -42,7 +42,14 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 # Type aliases for documentation / IDE hints
 # ---------------------------------------------------------------------------
 
-# Matches the 12 UCS capture layers (5 top-level × sub-layers in L3/L4).
+# Matches the 14 UCS capture layers (5 top-level × sub-layers in L3/L4).
+# L3g added in ADR-018 Phase 3 (local persistence watcher) for closed-source
+# Store MSIX Electron AI apps where L3b (preload) and L3d (CDP) are blocked.
+# L3h added in ADR-018 Phase 4 (CLI wrap) — PATH-priority stdio interceptor
+# for user-installed CLI AI agents (canonical case: ``@anthropic-ai/claude-
+# code`` npm shim). The slot letter ``L3h`` was chosen instead of the ADR's
+# original ``L3e`` suggestion because ``L3e_litellm`` was already pinned in
+# earlier planning; see ``pce_core/db.py::SOURCE_L3H_CLI_WRAPPER``.
 CaptureSource = Literal[
     "L0_kernel",
     "L1_mitm",
@@ -53,6 +60,8 @@ CaptureSource = Literal[
     "L3d_cdp",
     "L3e_litellm",
     "L3f_otel",
+    "L3g_local_persistence",
+    "L3h_cli_wrap",
     "L4a_clipboard",
     "L4b_accessibility",
     "L4c_ocr",

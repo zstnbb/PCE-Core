@@ -223,6 +223,32 @@ SOURCE_MCP_PROXY = "mcp-proxy-default"
 # ``SOURCE_CDP`` (PCE-launched embedded Chromium for kiosk/CI use).
 # Registered by migration 0010 (ADR-016 §3.2).
 SOURCE_DESKTOP_ELECTRON = "desktop-electron-default"
+# ADR-018 Phase 3 — L3g Local Persistence Watcher. Parses application
+# self-persisted state (Chromium Local Storage / IndexedDB LevelDB,
+# ``local-agent-mode-sessions/`` manifests, ``vm_bundles/`` metadata)
+# for closed-source Store-distributed Electron AI apps where L3b
+# (Electron preload) and L3d (CDP launcher) are blocked by the MSIX
+# distribution channel. Source is distinct from all prior capture
+# sources because the provenance is "application self-persisted to
+# user-readable filesystem" rather than "intercepted on the wire" or
+# "agent self-report". Registered by migration 0011 (ADR-018 §3.4).
+SOURCE_L3G_LOCAL_PERSISTENCE = "l3g-local-persistence-default"
+# ADR-018 Phase 4 — L3h CLI wrap. PATH-priority interceptor that wraps
+# user-installed CLI AI agents (canonical case: the npm-installed
+# ``claude`` shim from ``@anthropic-ai/claude-code``) and mirrors their
+# stdin / stdout into PCE while passing every byte through to the real
+# child unchanged. Distinct from L3d (CDP launcher) because the
+# transport is process stdio, not Chrome DevTools Protocol over
+# WebSocket; distinct from L3g (persistence watcher) because the
+# capture is in-band on the live invocation rather than a polling
+# parser of post-hoc on-disk state.
+#
+# NOTE on the slot letter: ADR-018 §6 originally suggested reusing the
+# UCS letter ``L3e`` for this layer, but the v2 ``CaptureSource`` enum
+# already pinned ``L3e_litellm`` to the LiteLLM proxy in earlier
+# planning. To avoid a backward-incompatible rename we landed CLI wrap
+# under the next free letter ``L3h``. Registered by migration 0012.
+SOURCE_L3H_CLI_WRAPPER = "l3h-cli-wrapper-default"
 
 _DEFAULT_SOURCES = [
     (SOURCE_PROXY, "proxy", "mitmproxy", "complete", "default proxy source"),
@@ -231,6 +257,8 @@ _DEFAULT_SOURCES = [
     (SOURCE_CDP, "cdp_embedded", "playwright-chromium", "complete", "embedded Chromium capture via CDP"),
     (SOURCE_MCP_PROXY, "mcp_proxy", "pce-mcp-proxy", "complete", "default MCP middleware proxy capture source (UCS L3f, posture B)"),
     (SOURCE_DESKTOP_ELECTRON, "desktop_electron", "pce-app-launcher", "complete", "default Electron desktop app capture source via L3d CDP launcher (UCS L3d, ADR-016)"),
+    (SOURCE_L3G_LOCAL_PERSISTENCE, "local_persistence", "pce-persistence-watcher", "light", "default local persistence watcher capture source (UCS L3g, ADR-018)"),
+    (SOURCE_L3H_CLI_WRAPPER, "cli_wrapper", "pce-cli-wrapper", "complete", "default CLI wrapper capture source (UCS L3h, ADR-018)"),
 ]
 
 
