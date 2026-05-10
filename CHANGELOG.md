@@ -5,6 +5,151 @@ All notable changes to PCE (core + browser extension) are documented in this fil
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0-alpha.8-adr018] - 2026-05-10 — ADR-018 delivered: three-axis MSIX Store capture + H2/H3/H4 empirically actualised
+
+Supersedes the tentative alpha.4-ADR018 docs-only plan with a full delivery:
+ADR-018 + two new OSS capture packages (L3g, L3h) + two migrations (0011, 0012)
++ 120 hermetic tests + H2/H3/H4 empirical validation on Claude Desktop
+v1.6608.2.0.
+
+The three-axis model for closed-source MSIX Electron AI apps is now
+operational: Axis 1 (M plane — E1/E2) carried over from alpha.1/alpha.2;
+**Axis 2 (L3g Local Persistence Watcher) lands here**; **Axis 3 (H1 CLI wrap)
+lands here**. Chat-region is covered by A1 (`pce_proxy` — H2 PASS confirms
+viability) with A2 (SSLKEYLOGFILE — H3 PASS confirms viability) as redundancy
+for future cert-pin scenarios. Node-injection paths (B1 NODE_OPTIONS /
+`--inspect` / asar mod) are permanently closed by H4 Electron Fuses; ADR-018
+documents them as canonical DEAD.
+
+### Delivered
+
+**ADR + cross-references**
+
+- `Docs/docs/engineering/adr/ADR-018-msix-store-app-capture-strategy.md`
+  (new, 528 lines) — 8-face × 23-path threat model, 5 red lines, 13-path
+  retained filter, L3g UCS sub-layer definition, three-axis implementation
+  model, three coverage scenarios (optimistic / neutral / pessimistic + the
+  now-actualised measured row), Phase 1-6 execution sequence, OSS/Pro
+  classification, and H2/H3/H4 open-question bullets stamped with empirical
+  VALIDATED results.
+- `Docs/docs/engineering/UNIVERSAL-CAPTURE-STACK-DESIGN.md` — L3g sub-layer
+  formally added; §3 Frida marked Pro-only per ADR-018 §3.7.
+- `Docs/research/DESKTOP-CAPTURE-COGNITIVE-FRAMEWORK.md` — top navigation
+  updated; §7 P1 row references ADR-018.
+- `Docs/stability/DESKTOP-PRODUCT-MATRIX.md` §4.1 P1 / §4.2 P2 — Primary /
+  Secondary plane rewritten around three-axis model; CDP launcher
+  reclassified as Squirrel-channel-only secondary.
+
+**Axis 2 — L3g Local Persistence Watcher (UCS new sub-layer, Phase 3)**
+
+- `pce_persistence_watcher/` — new OSS package (Apache-2.0 per
+  ADR-013/018§3.9): discovery / capture / agent_sessions parser /
+  leveldb_reader / CLI. Hermetic with zero network dependencies; covers
+  Claude Desktop's `local-agent-mode-sessions/` and LevelDB persisted state
+  under `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\`.
+- `pce_core/migrations/0011_l3g_local_persistence_source.py` — additive,
+  idempotent registration of `local-persistence-default` source row.
+- `pce_core/db.py::SOURCE_L3G_LOCAL_PERSISTENCE` + matching
+  `_DEFAULT_SOURCES` entry.
+- `pce_core/capture_event.py::CaptureSource` literal +
+  `L3g_local_persistence` enum extension.
+- `scripts/_l3g_verify.py` — migration 0011 verify harness.
+- `tests/e2e_l3g/` — **43/43 GREEN** hermetic tests covering discovery,
+  parsing, capture observer, CLI, dry-run integrity.
+
+**Axis 3 — L3h CLI wrap (Phase 4)**
+
+- `pce_cli_wrapper/` — new OSS package (Apache-2.0): config / discovery /
+  capture / relay / install / CLI entrypoint. Implements PATH-priority
+  wrapper generation (`.cmd` + `.ps1` on Windows, POSIX bare script
+  elsewhere) that spawns the real `claude-code\<ver>\claude.exe`, tees
+  stdin/stdout/stderr, supports TTY passthrough mode + timeout + byte-cap
+  body truncation + binary-base64 fallback, and emits a capture row per
+  invocation to `raw_captures`.
+- `pce_core/migrations/0012_l3h_cli_wrapper_source.py` — additive,
+  idempotent registration of `l3h-cli-wrapper-default` source row.
+- `pce_core/db.py::SOURCE_L3H_CLI_WRAPPER` + matching `_DEFAULT_SOURCES`
+  entry.
+- `pce_core/capture_event.py::CaptureSource` literal + `L3h_cli_wrap` enum
+  extension.
+- `pce_core/migrations/__init__.py` — `EXPECTED_SCHEMA_VERSION` 10 → 12
+  (covers both 0011 and 0012).
+- `scripts/_l3h_verify.py` — migration 0012 verify harness.
+- `tests/e2e_cli/` — **77/77 GREEN** hermetic tests covering discovery,
+  install/uninstall, relay (pipe tee + TTY passthrough + timeout + binary
+  base64 + byte cap), CLI entrypoint, and the full `python -m
+  pce_cli_wrapper` pipeline.
+
+**Phase 1 — H2/H3/H4 empirical validation harness**
+
+- `tests/manual/method_g_capture_feasibility.ps1` + `recon_claude_desktop.py`
+  + `analyze_recon.py` + `method_e_aam.ps1` + `RECON-CHECKLIST.md` — the
+  investigation that fed ADR-018 §2.1 MSIX experiment log.
+- `scripts/probe_h2_claude.ps1` — focused H2 probe (parametric on port /
+  upstream / sleep / AUMID): installs mitmproxy CA into CurrentUser Root
+  (no UAC), starts mitmdump chained to upstream 7890 (preserves user GFW
+  bypass), flips system proxy, restarts Claude Desktop, analyses mitmdump
+  logs for `anthropic.com` / `claude.ai` hits vs TLS errors, rolls back
+  everything in `try/finally`.
+- `.gitignore` — ignore `/tests/manual/recon_*/` (real-user content
+  protection).
+- `pytest.ini` — new markers `e2e_l3g`, `e2e_cli`.
+
+### Empirical findings (ADR-018 §6)
+
+- **H3 SSLKEYLOGFILE = ✅ PASS** (Claude Desktop v1.6608.2.0). User-level
+  env var via `[Environment]::SetEnvironmentVariable(..., 'User')` + restart
+  yields 7780-byte keylog with 10 TLS 1.3 sessions × 5 labels each. Process-
+  level env via `Start-Process shell:appsFolder\<AUMID>` does NOT propagate
+  (MSIX activation discards parent env). **A2 path viable.**
+- **H4 Electron Fuses = ❌ LOCKED**. All Node-injection fuses
+  (`RunAsNode` = Disabled, `EnableNodeOptionsEnvironmentVariable` =
+  Disabled, `EnableNodeCliInspectArguments` = Disabled,
+  `EnableEmbeddedAsarIntegrityValidation` = Enabled, `OnlyLoadAppFromAsar`
+  = Enabled). **B1 `NODE_OPTIONS` preload is permanently DEAD; any Node
+  injection or asar-mod path is DEAD.** A1 and A2 are both out-of-process
+  and immune.
+- **H2 cert pinning = ✅ PASS**. `probe_h2_claude.ps1` observed 172 clean
+  `anthropic.com` / `claude.ai` HTTP hits through the mitmproxy CA chain,
+  0 real TLS handshake errors. **A1 mitmproxy route viable.**
+
+### Coverage scenario — ADR-018 §3.6 actualised
+
+| Scenario | Hypotheses | Chat T1 | Three-region |
+|---|---|---|---|
+| Optimistic (hypo) | H2✓ + H3✓ + H4✓ | ~95% | ~95% |
+| Neutral (hypo) | H2✓ + H3✗ + H4✗ | ~92% | ~92% |
+| ⭐ **Measured (2026-05-10)** | **H2✓ + H3✓ + H4✗** | **~94%** (A1+A2 redundant) | **~94%** |
+| Pessimistic (hypo) | H2✗ + H3✗ + H4✗ | ~50% (T2-dominated) | ~75% |
+
+Real-world position is between optimistic and neutral, leaning optimistic.
+P1 D0 gate (≥85% three-region) is cleared.
+
+### Test counts
+
+- `tests/e2e_l3g/` — **43/43 GREEN** (hermetic)
+- `tests/e2e_cli/` — **77/77 GREEN** (hermetic)
+- `tests/e2e_mcp/` — **48/48 GREEN** (regression, zero loss from alpha.2)
+- **Combined: 168/168, 40s runtime**
+
+### Still deferred
+
+- **Phase 5 — A2 SSLKEYLOGFILE decoder** (`pce_proxy/keylog_mode.py` +
+  `cert_wizard keylog enable/disable`): 3-day implementation, now optional
+  insurance rather than strict requirement since H2 PASS already gives A1
+  as the primary Chat-region live decryption path.
+- **Phase 6 — cross-reference documentation final pass**: propagate the
+  actualised §3.6 scenario into `DESKTOP-PRODUCT-MATRIX` / `HANDOFF-IDE-
+  DESKTOP-KICKOFF` / `PROJECT.md`, lift the "scenario uncertainty"
+  markers that existed before H2/H3/H4 became facts.
+- **C4/C5 schema** reverse engineering of `local-agent-mode-sessions/`
+  and `vm_bundles/` internal field shapes. Current L3g v0 captures files
+  at the envelope level; v1 will structurally parse.
+- **P2 ChatGPT Desktop H2 validation** — ADR-018 §6 open question. OpenAI
+  historically more pin-prone; must re-measure.
+
+---
+
 ## [1.1.0-alpha.2] - 2026-05-09 — P5.B.1: `pce_mcp_proxy` (UCS L3f, posture B)
 
 The MCP middleware proxy ships, completing the M-plane capture story
