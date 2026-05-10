@@ -5,6 +5,94 @@ All notable changes to PCE (core + browser extension) are documented in this fil
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-05-10 — P1 Claude Desktop N/L1 chat-region empirical end-to-end validation + L3g stats key fix
+
+Follow-up evidence pass after `v1.1.0-alpha.9-empirical-followup`. The
+alpha.9 release notes asserted "~94% T1 three-region coverage / P1 D0
+≥85% gate cleared", but on audit that figure was a model prediction
+(ADR-018 §3.6 hypothesis) rather than a D-case empirical run. This
+entry records the first end-to-end live execution of the **N/L1
+chat-region axis** that converts the prediction into evidence on the
+chat-region leg.
+
+### Live-validated
+
+- **`pce_proxy` upstream chain** (mitmproxy 8080 → Clash 7890 → external)
+  ran against a real Claude Desktop install (MSIX v1.6608.2.0) with one
+  short conversation. **136 raw_captures rows** landed (claude.ai 122 /
+  api.anthropic.com 8 / chatgpt.com 6) including the chat send POST
+  body (5,238 B prompt JSON with 13 tools) and assistant SSE response
+  body (3,106 B with all expected event types: `conversation_ready`,
+  `message_start`, `content_block_start` (thinking),
+  multiple `thinking_delta` + `thinking_summary_delta` frames).
+- **Normalizer pipeline** (`pce_core/normalizer/anthropic.py` →
+  `pipeline.py`) produced **1 sessions row** (`tool_family='api-direct'`,
+  derived from conversation UUID `53599e42-…`) + **2 messages rows**
+  (user + assistant, identical `pair_id`, identical `session_id`,
+  identical `model_name='claude-haiku-4-5-20251001'`). **0 pipeline_errors.**
+- **TLS interception on MSIX-packaged Electron**: H2 hypothesis
+  (no SSL pinning on `claude.ai` / `api.anthropic.com`) confirmed
+  under live conditions, not just synthetic probe.
+- **Allowlist filter** correctly dropped non-AI background traffic
+  during the capture window; only the three target hosts produced rows.
+- **System proxy restoration**: 7890 baseline saved before switch,
+  restored verbatim after run; mitmdump terminated cleanly; mitmproxy
+  CA intentionally left in `Cert:\CurrentUser\Root` (NotAfter 2036)
+  for future runs.
+
+Full evidence trail + reproduction recipe in
+`Docs/handoff/HANDOFF-P1-N-L1-VALIDATION-2026-05-10.md`.
+
+`Docs/stability/DESKTOP-PRODUCT-MATRIX.md` §4.1 P1 updated with a
+new dated note pointing at this evidence.
+
+### Live-stabilised (L3g, sibling axis)
+
+- **L3g `pce_persistence_watcher/` discover + scan + watch** ran
+  against the same live install. First scan: 7+1 captures emitted
+  (Claude 7 / ChatGPT 1). Second scan: 0 emit / 8 deduped (dedup
+  state file working). Watch loop: 3 polls × 3 s, each pass
+  re-discovers all sources and dedups correctly. IndexedDB
+  pure-Python summary scanner (alpha.9) processed Claude's
+  1.19 MB `000003.log` in one pass: 4,297 strings, 9 JSON blobs,
+  9 redacted composer drafts, 15 distinct UUIDs.
+
+### Fixed
+
+- **`pce_persistence_watcher/capture.py`** — aligned
+  `ChromiumStateObserver.stats` keys with `AgentSessionRecord.kind`.
+  The init dict pre-seeded `"sessions"` (plural) but the runtime
+  generic-incrementer (`stats[rec.kind] += 1`) used the singular
+  string `"session"` from `agent_sessions.py:171`, producing a stats
+  dict that confusingly carried both `"sessions": 0` and
+  `"session": <N>`. Init key now reads `"session"`. No public-API
+  change (counter is internal); 4-line invariant comment added so
+  future kinds get added correctly. Smoke 212/212 GREEN post-fix
+  (`8ea14b2`).
+
+### Not yet validated (reopens for next session)
+
+- D04 cancel mid-stream
+- D05 model switch mid-session
+- D06 file attachment
+- D11 long-context (50-turn)
+- D12 silent-on-idle
+- N/L1 sustained-throughput stress
+- L3g + N/L1 cross-axis reconciliation (same conversation UUID
+  visible both via mitmproxy and via L3g IndexedDB scan after restart)
+- P2 ChatGPT Desktop equivalent end-to-end run (not done in this session)
+
+### Why no new alpha tag (yet)
+
+This entry is `[Unreleased]` deliberately: the L3g stats fix is the
+only code change (1 line + 4-line comment), and the rest is empirical
+evidence + docs. Operator decides whether to spin `alpha.10` or fold
+this into the next material code commit. The git tag
+`v1.1.0-alpha.9-empirical-followup` remains the most recent shipped
+checkpoint.
+
+---
+
 ## [1.1.0-alpha.8-adr018] - 2026-05-10 — ADR-018 delivered: three-axis MSIX Store capture + H2/H3/H4 empirically actualised
 
 Supersedes the tentative alpha.4-ADR018 docs-only plan with a full delivery:

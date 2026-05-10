@@ -104,6 +104,24 @@ risks**, **install path expected**, **first-probe verification list**.
 > **H4 ❌ LOCKED** (`EnableNodeOptionsEnvironmentVariable` Disabled — B1 NODE_OPTIONS
 > preload permanently dead). » Real-world coverage scenario: ~94% T1 three-region,
 > between optimistic and neutral, P1 D0 ≥85% gate cleared. See ADR-018 §6.
+>
+> **2026-05-10 N/L1 chat-region end-to-end empirical validation** (post-alpha.9):
+> Plan A upstream chain (mitmproxy 8080 → Clash 7890 → external) executed against
+> a live Claude Desktop install with one real chat. **136 raw_captures rows**
+> landed (claude.ai 122 / api.anthropic.com 8 / chatgpt.com 6) including the
+> chat send POST (5,238 B prompt JSON with 13 tools) and the assistant SSE
+> response (3,106 B with `conversation_ready` / `message_start` /
+> `content_block_start` (thinking) / multiple `thinking_delta` +
+> `thinking_summary_delta` frames). Normalizer produced **1 sessions row**
+> (`tool_family='api-direct'`) + **2 messages rows** (user + assistant, same
+> `pair_id`, same `session_id`, same `model_name='claude-haiku-4-5-20251001'`)
+> with **0 pipeline_errors**. The alpha.9-tag's "~94% T1 three-region" coverage
+> claim — previously a pure model prediction — now has empirical backing on
+> the N/L1 axis. Full evidence + reproduction recipe in
+> `Docs/handoff/HANDOFF-P1-N-L1-VALIDATION-2026-05-10.md`. **L3g axis** also
+> live-stabilised this session (8 captures emitted on first scan, 0 emitted /
+> 8 deduped on second scan, watch loop ticking cleanly across 3 polls;
+> `8ea14b2 fix(l3g)` aligned `stats["session"]` key with `rec.kind`).
 
 | Field | Value |
 |---|---|
