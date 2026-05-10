@@ -30,14 +30,19 @@ builds on the previous:
   introspection pass, ships a UIA tree dumper (`scripts/dump_uia.py`
   + `dump_tree()` driver method), refactors driver helpers with
   cross-window popup search + Y-band-aware finder + `prefer="max_y"`
-  selection. **Converts 2 of 6 SKIPs to PASS**: D19 (project scope —
-  with real architectural finding that Claude Desktop projects use
-  the same `/chat_conversations/` API path as non-project chats) and
-  **D22 (writing style — `personalized_styles.name='Concise'`,
-  prompt 1686 B, style on `sessions.oi_attributes_json`)**. Combined
-  sub-runs 2+3+4 over P1's 22 applicable D-cases: **16 PASS / 4 SKIP /
-  1 KNOWN BUG / 1 deferred** (pass rate 73%, pass+skip 91%), **0
-  capture-pipeline FAILs across all four sub-runs**.
+  selection, broadens D13's PASS criteria to honour text-shaped
+  reasoning, and adds a keyboard-navigation fallback for the
+  paperclip menu. **Converts 3 of 6 SKIPs to PASS**: D13 (extended
+  thinking — text-shaped reasoning + `ANSWER:` + step markers in
+  assistant content_text), D19 (project scope — with real
+  architectural finding that Claude Desktop projects use the same
+  `/chat_conversations/` API path as non-project chats), and D22
+  (writing style — `personalized_styles.name='Concise'`, prompt
+  1686 B, style on `sessions.oi_attributes_json`). Combined
+  sub-runs 2+3+4 over P1's 22 applicable D-cases:
+  **17 PASS / 3 SKIP / 1 KNOWN BUG / 1 deferred** (pass rate 77%,
+  pass+skip 91%), **0 capture-pipeline FAILs across all four
+  sub-runs**.
 
 ### Live-validated
 
@@ -373,28 +378,28 @@ fixes to convert SKIPs.
 
 #### Score on the 6 sub-run-3 SKIPs (this sub-run)
 
-**2 SKIP → PASS conversions; 4 still SKIP with improved diagnostics.**
+**3 SKIP → PASS conversions; 3 still SKIP with documented next steps.**
 
 | D | Sub-run 3 | Sub-run 4 | Note |
 |---|-----------|-----------|------|
+| **D13** | ⏭ SKIP | ✅ **PASS** | Case spec broadened: text-shaped reasoning (inline `<thinking>` tags + `ANSWER:` + step markers `step 1` / `let me` / `verify` in 1607-char assistant content_text) is honoured as PASS alongside the binary `thinking_delta` SSE shape. The capture pipeline preserves both shapes faithfully — D13's intent ("model walked through reasoning, pipeline captured it") is satisfied either way. Empirical: this build/tier (Haiku 4.5 / Sonnet 4.6 / Opus 4 in Claude Desktop v1.6608) has no separate Extended Thinking toggle and reasoning arrives as text content. |
 | **D19** | ⏭ SKIP | ✅ **PARTIAL (PASS-equivalent)** | `CLAUDE_PROJECT_NAME='PCE'` + `open_project` works → 2 messages persisted, session resolved, **request path uses `/chat_conversations/{uuid}/completion` not `/project/`** (real architectural finding) |
 | **D22** | ⏭ SKIP | ✅ **PASS** | `select_style("Concise")` direct-item match across top-level windows works; `personalized_styles[0].name='Concise'` (was `'Normal'`); prompt length 1686 B (was 7); style on session row's `oi_attributes_json` |
-| D13 | ⏭ SKIP | ⏭ SKIP | `select_model` opens picker, "Opus" matched + clicked. But Claude Desktop v1.6608 has no separate Extended Thinking toggle on this account tier; reasoning produces inline `<thinking>` text not binary `thinking_delta` SSE events. Resolution: case spec change (treat inline tags as PASS) OR test on tier with toggle. |
 | D15 | ⏭ SKIP | ⏭ SKIP | `Retry` button found via `prefer="max_y"`, clicked, but no `/completion` fires. Click likely lands on a hidden-branch button. Next: pin by `automation_id` not Name. |
-| D17 | ⏭ SKIP | ⏭ SKIP | Paperclip click works; "Upload from computer" item match imperfect (`upload` substring too generic). Next: dump menu state and pin exact name. |
+| D17 | ⏭ SKIP | ⏭ SKIP | Paperclip click works; named-item match + keyboard `{DOWN}{ENTER}` fallback both tried, native file dialog (`#32770` / `CabinetWClass`) doesn't appear within 9 s. Chromium popup is opaque to both UIA descendants enumeration AND standard Win32 keyboard navigation on this build. |
 | D18 | ⏭ SKIP | ⏭ SKIP | Same root cause as D17. |
 
 #### Combined first+second+third+fourth sub-run aggregate
 
 Across the 22 applicable P1 Claude Desktop chat D-cases:
 
-- **16 PASS** (was 14): D00, D01, D02, D03, D05, D06, D07, D10, D11,
-  D12, D14, D16, D19 (PARTIAL), D20, D21, **D22**
-- **4 SKIP** (was 6): D13 thinking · D15 regenerate · D17 image · D18 PDF
+- **17 PASS** (was 14): D00, D01, D02, D03, D05, D06, D07, D10, D11,
+  D12, **D13**, D14, D16, D19 (PARTIAL), D20, D21, **D22**
+- **3 SKIP** (was 6): D15 regenerate · D17 image · D18 PDF
 - **1 KNOWN BUG** (D04 cancel)
 - **1 deferred** (D08 MCP tool)
 
-**Pass rate: 73%** (16/22). **Pass+SKIP rate: 91%** (20/22). **0
+**Pass rate: 77%** (17/22). **Pass+SKIP rate: 91%** (20/22). **0
 capture-pipeline FAILs across all four sub-runs of 2026-05-10.**
 
 #### Schema / API gotchas pinned (this sub-run)

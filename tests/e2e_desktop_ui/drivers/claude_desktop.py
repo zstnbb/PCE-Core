@@ -476,6 +476,9 @@ class ClaudeDesktopDriver(DesktopDriver):
         #    INCLUDING ones that report is_visible=False (Chromium popups
         #    transition through invisible state) and broad control types.
         upload_item = None
+        # Specific phrases only — bare ``"upload"`` matches too many
+        # unrelated chrome elements (settings, history, etc.) and the
+        # first-match-wins loop would click the wrong thing.
         upload_needles = (
             "upload from computer",
             "upload from device",
@@ -483,9 +486,12 @@ class ClaudeDesktopDriver(DesktopDriver):
             "from your computer",
             "upload a file",
             "browse files",
+            "browse file",
             "添加文件",
             "上传文件",
-            "upload",
+            "从电脑",
+            "从计算机",
+            "从此设备",
         )
         upload_types = ("MenuItem", "Button", "ListItem", "Hyperlink",
                         "TreeItem", "Custom")
@@ -516,50 +522,77 @@ class ClaudeDesktopDriver(DesktopDriver):
                 pass
             time.sleep(0.3)
 
-        if upload_item is None:
-            logger.warning(
-                "attach_file_via_picker: 'Upload from computer' menu item "
-                "not found across desktop windows; submenu may use a "
-                "different label on this build"
-            )
-            send_keys("{ESC}", pause=0.05)
-            return False
-        try:
-            upload_item.click_input()
-        except Exception as exc:
-            logger.warning("attach_file_via_picker: upload-item click failed: %s", exc)
-            send_keys("{ESC}", pause=0.05)
-            return False
+        # Helper to detect the native file-open dialog. Class names
+        # vary across Windows versions — accept the legacy ``#32770``
+        # AND modern ``CabinetWClass`` / Windows 11 picker variants.
+        def _find_open_dialog():
+            for w in self._desktop.windows():
+                try:
+                    cls = (w.class_name() or "")
+                    title = (w.window_text() or "").lower()
+                    if cls in ("#32770", "CabinetWClass") and (
+                        "open" in title or "打开" in title or title == ""
+                    ):
+                        return w
+                except Exception:
+                    continue
+            return None
 
-        # 3. Wait for native file dialog (class #32770) and drive it
-        try:
-            wait_until(
-                timeout=6.0,
-                retry_interval=0.3,
-                func=lambda: any(
-                    (w.class_name() or "") == "#32770"
-                    and "open" in (w.window_text() or "").lower()
-                    for w in self._desktop.windows()
-                ),
-            )
-        except Exception:
-            logger.warning(
-                "attach_file_via_picker: native file dialog (class=#32770) "
-                "did not appear within 6s"
-            )
-            return False
-
-        dialog = None
-        for w in self._desktop.windows():
+        if upload_item is not None:
             try:
-                if (w.class_name() or "") == "#32770" \
-                        and "open" in (w.window_text() or "").lower():
-                    dialog = w
-                    break
-            except Exception:
-                continue
+                upload_item.click_input()
+            except Exception as exc:
+                logger.warning("attach_file_via_picker: upload-item "
+                               "click failed: %s — falling through to "
+                               "keyboard fallback", exc)
+
+        # 3. Wait briefly for native file dialog. If it didn't appear
+        #    after the named-item click (or no item was found), try
+        #    keyboard navigation: Down arrow + Enter activates the
+        #    FIRST menu item, which is typically "Upload from
+        #    computer" / "Browse files" on this build.
+        deadline = time.time() + 3.0
+        dialog = None
+        while time.time() < deadline and dialog is None:
+            dialog = _find_open_dialog()
+            if dialog is not None:
+                break
+            time.sleep(0.3)
+
         if dialog is None:
-            logger.warning("attach_file_via_picker: lost dialog handle")
+            # Keyboard fallback. If we're not sure the menu is open,
+            # we may have already dismissed it via ESC — re-click the
+            # paperclip first.
+            logger.info("attach_file_via_picker: named click did not "
+                        "yield dialog; trying keyboard Down+Enter "
+                        "on the paperclip menu")
+            try:
+                clip_btn.click_input()
+                time.sleep(0.7)
+                send_keys("{DOWN}", pause=0.1)
+                time.sleep(0.2)
+                send_keys("{ENTER}", pause=0.1)
+            except Exception as exc:
+                logger.warning("attach_file_via_picker: keyboard "
+                               "fallback failed: %s", exc)
+                send_keys("{ESC}", pause=0.05)
+                return False
+
+            # Wait again for the dialog
+            deadline = time.time() + 6.0
+            while time.time() < deadline and dialog is None:
+                dialog = _find_open_dialog()
+                if dialog is not None:
+                    break
+                time.sleep(0.3)
+
+        if dialog is None:
+            logger.warning(
+                "attach_file_via_picker: native file dialog did not "
+                "appear within 9s (tried named item + keyboard "
+                "Down+Enter)"
+            )
+            send_keys("{ESC}", pause=0.05)
             return False
 
         # 4. Type path into filename Edit; press Enter

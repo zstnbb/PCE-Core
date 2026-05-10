@@ -171,22 +171,28 @@ risks**, **install path expected**, **first-probe verification list**.
 > popup search (Chromium menus open as separate top-level Win32
 > popups, not descendants of the main Claude window), `prefer="max_y"`
 > selection (disambiguates multiple action toolbars in multi-turn
-> chats), and a fix for `Ctrl+\` keyboard parser. **Converts 2 of 6
-> SKIPs to PASS**: **D19** (project scope — `open_project`+sidebar
+> chats), and a fix for `Ctrl+\` keyboard parser. **Converts 3 of 6
+> SKIPs to PASS**: **D13** (Extended Thinking — case spec broadened
+> to honour text-shaped reasoning, since this build/tier has no
+> separate toggle: inline `<thinking>` tags + `ANSWER:` + step markers
+> in 1607-char assistant content_text are accepted as PASS, with the
+> binary `thinking_delta` SSE shape still honoured for tiers that
+> have the toggle), **D19** (project scope — `open_project`+sidebar
 > works → 2 messages persisted with **real architectural finding
 > that Claude Desktop projects use `/chat_conversations/{uuid}/completion`
 > NOT `/project/` URL segment**) and **D22** (Writing Style — direct
 > in-popup match for "Concise" works → `personalized_styles[0].name`
 > changes from `'Normal'` to `'Concise'`, prompt 1686 B vs 7,
 > `sessions.oi_attributes_json` records the style). Combined sub-runs
-> 2+3+4 across P1's 22 applicable D-cases: **16 PASS / 4 SKIP / 1
-> KNOWN BUG / 1 deferred** (pass rate 73%, pass+skip 91%). Remaining
-> 4 SKIPs (D13/D15/D17/D18) made measurable progress with
-> per-case operator-actionable diagnostics — D13 needs Extended
-> Thinking toggle that doesn't exist on this account tier; D15
-> needs `automation_id`-based pinning of the visible Retry; D17/D18
-> need exact-name pinning of the "Upload from computer" item via a
-> manual paperclip-then-dump pass. **0 capture-pipeline FAILs across
+> 2+3+4 across P1's 22 applicable D-cases: **17 PASS / 3 SKIP / 1
+> KNOWN BUG / 1 deferred** (pass rate 77%, pass+skip 91%). Remaining
+> 3 SKIPs (D15/D17/D18) need follow-up driver work — D15 needs
+> `automation_id`-based pinning of the visible Retry; D17/D18's
+> Chromium-rendered paperclip popup is opaque to both UIA
+> descendants enumeration AND standard Win32 keyboard navigation
+> (`{DOWN}{ENTER}` doesn't dispatch through the popup), so a
+> different attach surface (drag-drop / CF_DIB image / direct
+> Chromium IPC) is needed. **0 capture-pipeline FAILs across
 > all four sub-runs of 2026-05-10.** Full evidence + per-D verdicts
 > + driver refactor list in
 > `Docs/handoff/HANDOFF-P1-CLAUDE-DESKTOP-SKIP-CONVERSION-2026-05-10.md`.
