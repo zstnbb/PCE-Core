@@ -179,41 +179,162 @@ class ClaudeDesktopDriver(DesktopDriver):
         send_keys("^v", pause=0.05)
         time.sleep(settle)
 
+    def dump_tree(
+        self,
+        *,
+        keywords: Optional[Iterable[str]] = None,
+        control_types: Optional[Iterable[str]] = None,
+        max_name_len: int = 120,
+    ) -> list:
+        """Walk the Claude window's UIA descendants and return a list of
+        ``(control_type, name, automation_id, rect, value)`` tuples.
+
+        ``keywords`` filters by case-insensitive substring match against
+        ``name``, ``automation_id``, or ``control_type``. Empty / None
+        keywords means "include all".
+
+        ``control_types`` filters to a specific set of UIA control types
+        (Button / MenuItem / Edit / etc.). None means "include all".
+
+        Diagnostic helper for figuring out actual button names on a
+        given Claude Desktop build.
+        """
+        w = self._ensure_window()
+        out: list = []
+        kw = tuple((s or "").lower() for s in (keywords or ())) or None
+        cts = tuple(control_types) if control_types else None
+        try:
+            for desc in w.descendants():
+                try:
+                    info = desc.element_info
+                    ct = info.control_type or ""
+                    if cts and ct not in cts:
+                        continue
+                    nm = (info.name or "")[:max_name_len]
+                    aid = info.automation_id or ""
+                    rl = info.rectangle
+                    rect_str = (
+                        f"({rl.left},{rl.top})-({rl.right},{rl.bottom})"
+                        if rl is not None else ""
+                    )
+                    val = ""
+                    try:
+                        # element_info.runtime_id is hashable, but value is
+                        # in the Pattern. Skip if not exposed cheaply.
+                        if hasattr(desc, "get_value"):
+                            v = desc.get_value()
+                            if v:
+                                val = str(v)[:max_name_len]
+                    except Exception:
+                        pass
+                    if kw is not None:
+                        hay = f"{ct} {nm} {aid} {val}".lower()
+                        if not any(k in hay for k in kw if k):
+                            continue
+                    out.append((ct, nm, aid, rect_str, val))
+                except Exception:
+                    continue
+        except Exception as exc:
+            logger.warning("dump_tree: walk failed: %s", exc)
+        return out
+
     def _find_uia_by_name_substr(
         self,
         substrings: Iterable[str],
         *,
         control_types: Iterable[str] = ("Button",),
         timeout: float = 4.0,
+        prefer: str = "first",
+        prefer_y_min: Optional[int] = None,
+        prefer_y_max: Optional[int] = None,
     ):
-        """Walk the Claude window's UIA descendants and return the first
+        """Walk the Claude window's UIA descendants and return the
         element whose ``Name`` contains any of ``substrings`` and whose
         ``ControlType`` is in ``control_types``.
 
         Substring match is case-insensitive. Returns None on timeout.
+
+        ``prefer`` controls which match wins when multiple match:
+
+        - ``"first"`` (default): tree-order first (legacy behaviour).
+        - ``"last"``: tree-order last — useful when there are multiple
+          matching action-toolbar buttons (one per assistant message)
+          and we want the one for the most recent message.
+        - ``"max_y"``: the match with the largest top-Y — typically the
+          newest item in the chat scroll.
+        - ``"min_y"``: the match with the smallest top-Y.
+
+        Optional ``prefer_y_min`` / ``prefer_y_max`` filter candidates
+        to a vertical band (useful for separating composer-area
+        controls Y > 1400 from chat-content controls).
+        """
+        all_matches = self._find_uia_by_name_substr_all(
+            substrings,
+            control_types=control_types,
+            timeout=timeout,
+            min_count=1,
+            prefer_y_min=prefer_y_min,
+            prefer_y_max=prefer_y_max,
+        )
+        if not all_matches:
+            return None
+        if prefer == "first":
+            return all_matches[0][1]
+        if prefer == "last":
+            return all_matches[-1][1]
+        if prefer == "max_y":
+            return max(all_matches, key=lambda t: t[0])[1]
+        if prefer == "min_y":
+            return min(all_matches, key=lambda t: t[0])[1]
+        return all_matches[0][1]
+
+    def _find_uia_by_name_substr_all(
+        self,
+        substrings: Iterable[str],
+        *,
+        control_types: Iterable[str] = ("Button",),
+        timeout: float = 4.0,
+        min_count: int = 1,
+        prefer_y_min: Optional[int] = None,
+        prefer_y_max: Optional[int] = None,
+    ) -> list:
+        """Same as ``_find_uia_by_name_substr`` but returns a list of
+        ``(top_y, element)`` tuples in tree order, filtered by optional
+        Y-band. Polls the window until at least ``min_count`` matches
+        are found OR ``timeout`` elapses.
         """
         w = self._ensure_window()
         deadline = time.time() + timeout
         wanted = tuple(s.lower() for s in substrings)
+        cts = tuple(control_types)
+        out: list = []
         while time.time() < deadline:
             try:
+                out = []
                 for desc in w.descendants():
                     try:
                         info = desc.element_info
                         ct = (info.control_type or "")
-                        if ct not in control_types:
+                        if ct not in cts:
                             continue
                         nm = (info.name or "").lower()
-                        if not nm:
+                        if not nm or not any(s in nm for s in wanted):
                             continue
-                        if any(s in nm for s in wanted):
-                            return desc
+                        rl = info.rectangle
+                        top_y = rl.top if rl is not None else 0
+                        if prefer_y_min is not None and top_y < prefer_y_min:
+                            continue
+                        if prefer_y_max is not None and top_y > prefer_y_max:
+                            continue
+                        out.append((top_y, desc))
                     except Exception:
                         continue
+                if len(out) >= min_count:
+                    return out
             except Exception:
                 pass
             time.sleep(0.4)
-        return None
+        return out
 
     def _hover_message(self, message_index_from_end: int = 0) -> bool:
         """Move the mouse over the Nth-most-recent message bubble to
@@ -265,13 +386,27 @@ class ClaudeDesktopDriver(DesktopDriver):
         assistant message. Returns True if a click was issued.
 
         Strategy: hover over the last visible message, then UIA-search
-        for a Button whose Name contains "retry" or "regenerate".
+        for ALL Buttons whose Name contains "retry" / "regenerate" /
+        "重新生成", and pick the one with the largest top-Y (= bottom-most
+        on screen = most recent assistant message). Empirically the
+        chat is laid out top-to-bottom, so multiple turns produce
+        multiple "Retry" buttons; we want the LAST one.
+
+        Empirically validated 2026-05-10 against Claude Desktop v1.6608+:
+        the action-toolbar button is plain ``Name="Retry"``.
         """
         if not self._hover_message(message_index_from_end=0):
             logger.warning("regenerate_last: could not hover last message")
             return False
         btn = self._find_uia_by_name_substr(
-            ("retry", "regenerate"), control_types=("Button",), timeout=3.0,
+            ("retry", "regenerate", "重新生成"),
+            control_types=("Button",),
+            timeout=3.0,
+            prefer="max_y",
+            # Stay below the conversation header (Y>200) and above the
+            # composer (Y<1400) — the action toolbars live in this band.
+            prefer_y_min=200,
+            prefer_y_max=1400,
         )
         if btn is None:
             logger.warning("regenerate_last: no retry/regenerate button found in UIA tree")
@@ -282,6 +417,167 @@ class ClaudeDesktopDriver(DesktopDriver):
             logger.warning("regenerate_last: click failed: %s", exc)
             return False
         time.sleep(0.6)
+        return True
+
+    def attach_file_via_picker(self, file_path: str, *, settle: float = 4.0) -> bool:
+        """Attach a file by clicking the paperclip button and driving
+        the resulting submenu / native file dialog.
+
+        On Claude Desktop v1.6608+ the paperclip is labelled
+        ``Add files, connectors, and more``. Clicking it opens a
+        Chromium menu (a separate top-level Win32 popup window, NOT
+        a descendant of the main window). The first item is typically
+        ``Upload from computer``, which then opens the standard
+        Windows file-open dialog. Strategy:
+
+        1. Click the paperclip button.
+        2. Poll all top-level desktop windows for one whose tree
+           contains a menu item named ``Upload from computer`` /
+           ``Upload`` / ``From this device`` / ``浏览本地文件``;
+           click it.
+        3. Wait for the native ``Open`` file dialog (matched by class
+           ``#32770`` or title containing ``Open``).
+        4. Type the absolute file path into its filename ``Edit``
+           field and press Enter.
+        5. Sleep ``settle`` seconds for Claude Desktop to upload.
+
+        Returns True if the file picker chain was driven through to
+        the submit step. Caller still needs to verify the upload
+        actually completed (e.g., by checking ``raw_captures`` for an
+        upload-shaped path).
+        """
+        from pywinauto.timings import wait_until
+
+        # 0. Make sure Claude is foreground so its UIA descendants are
+        #    fully enumerable.
+        self.focus()
+        time.sleep(0.7)
+
+        # 1. Click paperclip — same finder strategy as select_style;
+        #    no Y-band because the composer position varies between
+        #    fresh-chat (centered Y~600) and chat-with-content
+        #    (bottom Y~1446) layouts.
+        clip_btn = self._find_uia_by_name_substr(
+            ("add files, connectors", "add files,", "attach"),
+            control_types=("Button",),
+            timeout=6.0,
+        )
+        if clip_btn is None:
+            logger.warning("attach_file_via_picker: paperclip button not found")
+            return False
+        try:
+            clip_btn.click_input()
+        except Exception as exc:
+            logger.warning("attach_file_via_picker: paperclip click failed: %s", exc)
+            return False
+        time.sleep(0.7)
+
+        # 2. Click "Upload from computer" — search ALL top-level windows
+        #    INCLUDING ones that report is_visible=False (Chromium popups
+        #    transition through invisible state) and broad control types.
+        upload_item = None
+        upload_needles = (
+            "upload from computer",
+            "upload from device",
+            "from this device",
+            "from your computer",
+            "upload a file",
+            "browse files",
+            "添加文件",
+            "上传文件",
+            "upload",
+        )
+        upload_types = ("MenuItem", "Button", "ListItem", "Hyperlink",
+                        "TreeItem", "Custom")
+        deadline = time.time() + 4.0
+        while time.time() < deadline and upload_item is None:
+            try:
+                for win in self._desktop.windows():
+                    try:
+                        for desc in win.descendants():
+                            try:
+                                info = desc.element_info
+                                ct = info.control_type or ""
+                                if ct not in upload_types:
+                                    continue
+                                nm = (info.name or "").lower()
+                                if not nm:
+                                    continue
+                                if any(s in nm for s in upload_needles):
+                                    upload_item = desc
+                                    break
+                            except Exception:
+                                continue
+                        if upload_item is not None:
+                            break
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+            time.sleep(0.3)
+
+        if upload_item is None:
+            logger.warning(
+                "attach_file_via_picker: 'Upload from computer' menu item "
+                "not found across desktop windows; submenu may use a "
+                "different label on this build"
+            )
+            send_keys("{ESC}", pause=0.05)
+            return False
+        try:
+            upload_item.click_input()
+        except Exception as exc:
+            logger.warning("attach_file_via_picker: upload-item click failed: %s", exc)
+            send_keys("{ESC}", pause=0.05)
+            return False
+
+        # 3. Wait for native file dialog (class #32770) and drive it
+        try:
+            wait_until(
+                timeout=6.0,
+                retry_interval=0.3,
+                func=lambda: any(
+                    (w.class_name() or "") == "#32770"
+                    and "open" in (w.window_text() or "").lower()
+                    for w in self._desktop.windows()
+                ),
+            )
+        except Exception:
+            logger.warning(
+                "attach_file_via_picker: native file dialog (class=#32770) "
+                "did not appear within 6s"
+            )
+            return False
+
+        dialog = None
+        for w in self._desktop.windows():
+            try:
+                if (w.class_name() or "") == "#32770" \
+                        and "open" in (w.window_text() or "").lower():
+                    dialog = w
+                    break
+            except Exception:
+                continue
+        if dialog is None:
+            logger.warning("attach_file_via_picker: lost dialog handle")
+            return False
+
+        # 4. Type path into filename Edit; press Enter
+        try:
+            dialog.set_focus()
+        except Exception:
+            pass
+        time.sleep(0.3)
+        # Most Open dialogs accept paste / typing into the active edit
+        # control. Use the standard Win32 trick: Alt+N goes to "File name".
+        send_keys("%n", pause=0.1)  # Alt+N
+        time.sleep(0.2)
+        send_keys("^a", pause=0.05)
+        time.sleep(0.1)
+        send_keys(file_path, with_spaces=True, vk_packet=True, pause=0.01)
+        time.sleep(0.3)
+        send_keys("{ENTER}", pause=0.1)
+        time.sleep(settle)
         return True
 
     def edit_last_user(self, new_text: str) -> bool:
@@ -345,11 +641,16 @@ class ClaudeDesktopDriver(DesktopDriver):
         # Branch arrows are usually labelled "Previous response" /
         # "Next response" or similar; some builds use just "<" / ">"
         if direction == "right":
-            patterns = ("next", "next response", "next branch", "next variant")
+            patterns = ("next version", "next response", "next branch", "next variant")
         else:
-            patterns = ("previous", "previous response", "previous branch", "prev variant")
+            patterns = ("previous version", "previous response", "previous branch", "prev variant")
         btn = self._find_uia_by_name_substr(
-            patterns, control_types=("Button",), timeout=3.0,
+            patterns,
+            control_types=("Button",),
+            timeout=3.0,
+            prefer="max_y",
+            prefer_y_min=200,
+            prefer_y_max=1400,
         )
         if btn is None:
             logger.warning("flip_branch(%s): no branch arrow found", direction)
@@ -366,38 +667,71 @@ class ClaudeDesktopDriver(DesktopDriver):
         """Open the model picker and click the entry whose label
         contains ``name_substring`` (case-insensitive).
 
-        Strategy: find the model-picker trigger (a button near the top
-        of the chat composer area whose name typically contains the
-        currently-selected model family — "Sonnet" / "Haiku" / "Opus"),
-        click to open the picker, then click the target.
+        Strategy: find the model-picker trigger (a button at the
+        composer area whose name starts with ``"Model: "`` — empirical
+        on Claude Desktop v1.6608+), click to open the picker, then
+        click the target across all top-level desktop windows
+        (Chromium menus open in a separate Win32 popup window, NOT as
+        a descendant of the main Claude window).
+
+        Returns True if the model item was found and clicked.
         """
         self.focus()
-        self.click_composer()
-        # The composer usually exposes a model-picker button by name
-        # containing the current model family. Try a broad set.
+        time.sleep(0.7)
+        # Empirical name: ``Model: Haiku 4.5 Extended`` etc. The
+        # ``Model:`` prefix is the most reliable substring. No Y-band
+        # filter: in a brand-new chat the composer is centered
+        # (Y~600); in a chat with content it's at the bottom (Y~1446).
         trigger = self._find_uia_by_name_substr(
-            ("sonnet", "haiku", "opus", "claude ", "model"),
+            ("model:",),
             control_types=("Button",),
-            timeout=3.0,
+            timeout=6.0,
         )
         if trigger is None:
-            logger.warning("select_model: model picker trigger not found")
+            logger.warning("select_model: model picker trigger 'Model:' not found")
             return False
         try:
             trigger.click_input()
         except Exception as exc:
             logger.warning("select_model: trigger click failed: %s", exc)
             return False
-        time.sleep(0.5)
-        # Now find the menu item matching name_substring
-        target = self._find_uia_by_name_substr(
-            (name_substring,),
-            control_types=("MenuItem", "Button", "ListItem"),
-            timeout=3.0,
-        )
+        time.sleep(0.7)
+
+        # The picker menu lives in a separate top-level Win32 popup
+        # window — search ALL visible desktop windows for the item.
+        wanted = name_substring.lower()
+        target = None
+        deadline = time.time() + 4.0
+        while time.time() < deadline and target is None:
+            try:
+                for win in self._desktop.windows():
+                    try:
+                        if not win.is_visible():
+                            continue
+                        for desc in win.descendants():
+                            try:
+                                info = desc.element_info
+                                ct = info.control_type or ""
+                                if ct not in ("MenuItem", "Button", "ListItem"):
+                                    continue
+                                nm = (info.name or "").lower()
+                                if not nm or wanted not in nm:
+                                    continue
+                                target = desc
+                                break
+                            except Exception:
+                                continue
+                        if target is not None:
+                            break
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+            time.sleep(0.3)
+
         if target is None:
-            logger.warning("select_model: no model item matching %r", name_substring)
-            # Try to dismiss the open menu by pressing Esc
+            logger.warning("select_model: no model item matching %r found in any popup",
+                           name_substring)
             send_keys("{ESC}", pause=0.05)
             return False
         try:
@@ -412,33 +746,102 @@ class ClaudeDesktopDriver(DesktopDriver):
         """Open the Writing Style picker and select the entry whose
         label contains ``name_substring`` (case-insensitive).
 
-        Like ``select_model``: find the trigger, open menu, click item.
-        Trigger labels observed: "Default style", "Concise", "Explanatory",
-        "Formal", or just "Style".
+        On Claude Desktop v1.6608+ the Style picker isn't surfaced as
+        a standalone composer-area button — it's inside the paperclip
+        ``Add files, connectors, and more`` submenu OR the model-
+        picker submenu. Strategy:
+
+        1. Click the paperclip / "Add files" button to open its menu
+           (which surfaces options like ``Style``, ``Connectors``,
+           etc.).
+        2. Across all visible top-level desktop windows, search for a
+           menu item matching ``style`` / ``writing style`` and click it.
+        3. From the resulting style submenu, click the item matching
+           ``name_substring``.
+
+        Returns True if the style item was found and clicked.
         """
         self.focus()
-        self.click_composer()
-        trigger = self._find_uia_by_name_substr(
-            ("style", "concise", "explanatory", "formal", "default style"),
+        time.sleep(0.7)
+
+        # Step 1 — open the "Add files, connectors, and more" menu
+        # (the user-visible Plus / Paperclip button). Style picker is
+        # one of the submenu items on this build. The button name is
+        # unique across the tree so we don't need a Y-band filter; in
+        # a brand-new chat the composer is centered (Y~600) rather
+        # than at the bottom (Y~1446) so a Y-min filter would skip it.
+        clip_btn = self._find_uia_by_name_substr(
+            ("add files, connectors", "add files,", "attach"),
             control_types=("Button",),
-            timeout=3.0,
+            timeout=6.0,
         )
-        if trigger is None:
-            logger.warning("select_style: style picker trigger not found")
+        if clip_btn is None:
+            logger.warning("select_style: paperclip button not found "
+                           "(searched all Y across the tree)")
             return False
         try:
-            trigger.click_input()
+            clip_btn.click_input()
         except Exception as exc:
-            logger.warning("select_style: trigger click failed: %s", exc)
+            logger.warning("select_style: paperclip click failed: %s", exc)
             return False
-        time.sleep(0.5)
-        target = self._find_uia_by_name_substr(
-            (name_substring,),
-            control_types=("MenuItem", "Button", "ListItem"),
-            timeout=3.0,
-        )
+        time.sleep(0.7)
+
+        # Step 2 — find a menu item matching the style name DIRECTLY
+        # across all top-level windows (visible + hidden — Chromium
+        # popups sometimes report is_visible=False before fully
+        # rendering). On v1.6608+ the paperclip menu may surface style
+        # items directly OR through a "Use a style" submenu — try the
+        # direct path first.
+        def _find_in_popups(needles, types=("MenuItem", "Button", "ListItem",
+                                            "Hyperlink", "TreeItem", "Custom",
+                                            "RadioButton", "CheckBox")):
+            deadline = time.time() + 4.0
+            while time.time() < deadline:
+                try:
+                    for win in self._desktop.windows():
+                        try:
+                            for desc in win.descendants():
+                                try:
+                                    info = desc.element_info
+                                    ct = info.control_type or ""
+                                    if ct not in types:
+                                        continue
+                                    nm = (info.name or "").lower()
+                                    if not nm:
+                                        continue
+                                    if any(s in nm for s in needles):
+                                        return desc
+                                except Exception:
+                                    continue
+                        except Exception:
+                            continue
+                except Exception:
+                    pass
+                time.sleep(0.3)
+            return None
+
+        # Try direct style-item match first (paperclip menu may expose
+        # ``Concise`` / ``Explanatory`` etc. as flat items)
+        target = _find_in_popups((name_substring.lower(),))
         if target is None:
-            logger.warning("select_style: no style item matching %r", name_substring)
+            # Fall back: try the two-step path (click "Use a style" /
+            # "Writing Style" submenu trigger first, then look for
+            # the actual item).
+            style_trigger = _find_in_popups((
+                "use a style", "writing style", "use style",
+            ))
+            if style_trigger is not None:
+                try:
+                    style_trigger.click_input()
+                    time.sleep(0.6)
+                    target = _find_in_popups((name_substring.lower(),))
+                except Exception:
+                    pass
+
+        if target is None:
+            logger.warning("select_style: no style item matching %r found "
+                           "in popup window tree (direct or via submenu)",
+                           name_substring)
             send_keys("{ESC}", pause=0.05)
             return False
         try:
@@ -460,7 +863,13 @@ class ClaudeDesktopDriver(DesktopDriver):
         # Some Claude Desktop builds have the sidebar collapsed by
         # default. Toggle with Ctrl+\\ to be safe (idempotent if already
         # open — Claude treats double-toggle as no-op within 200ms).
-        send_keys("^{VK_OEM_5}", pause=0.05)  # Ctrl+\
+        # ``VK_OEM_5`` (the actual backslash VK code) isn't recognised
+        # by pywinauto's parser on this version; use literal ``\\``.
+        try:
+            send_keys("^\\", pause=0.05)  # Ctrl+\
+        except Exception:
+            # Some pywinauto versions still need an alternate spelling
+            send_keys("{VK_CONTROL down}\\{VK_CONTROL up}", pause=0.05)
         time.sleep(0.4)
         target = self._find_uia_by_name_substr(
             (name_substring,),

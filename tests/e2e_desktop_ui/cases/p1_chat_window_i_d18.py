@@ -68,17 +68,19 @@ def main() -> int:
     driver.new_chat()
     time.sleep(1.5)
 
-    log.info("[2] clipboard CF_HDROP %s", fixture.name)
-    copy_files_to_clipboard(str(fixture))
+    log.info("[2] attaching %s via paperclip + native file dialog", fixture.name)
+    attached = driver.attach_file_via_picker(str(fixture), settle=6.0)
+    if not attached:
+        log.warning("    attach_file_via_picker returned False — "
+                    "falling back to clipboard CF_HDROP paste")
+        copy_files_to_clipboard(str(fixture))
+        driver.focus()
+        driver.click_composer()
+        time.sleep(0.4)
+        send_keys("^v", pause=0.05)
+        time.sleep(6.0)
 
-    log.info("[3] focus + click composer + paste")
-    driver.focus()
-    driver.click_composer()
-    time.sleep(0.4)
-    send_keys("^v", pause=0.05)
-
-    log.info("[4] waiting 6s for upload + PDF preview render...")
-    time.sleep(6.0)
+    log.info("[4] (post-attach settle complete)")
 
     log.info("[5] typing prompt: %r", PROMPT)
     driver.focus()

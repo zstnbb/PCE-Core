@@ -5,9 +5,9 @@ All notable changes to PCE (core + browser extension) are documented in this fil
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-05-10 (later same day) — P1 D03/D05 + P2 N/L1 + P1 chat first-pass + P1 chat web-parity extension
+## [Unreleased] - 2026-05-10 (later same day) — P1 D03/D05 + P2 N/L1 + P1 chat first-pass + P1 chat web-parity extension + SKIP-conversion sweep
 
-Three live sub-runs the same day as `alpha.10-p1-empirical`. Each one
+Four live sub-runs the same day as `alpha.10-p1-empirical`. Each one
 builds on the previous:
 
 - **Sub-run 1 (P1 D03/D05 + P2 N/L1)** — extends the D-case matrix on
@@ -26,9 +26,18 @@ builds on the previous:
   artifact interactive · D22 writing style), ships 7 new driver
   helpers + a fixtures helper + a UTF-8 stdout fix, and runs the new
   cases end-to-end. Score on D13–D22: **4 PASS / 6 SKIP / 0 FAIL**.
-  Combined sub-runs 2+3 over P1's 22 applicable D-cases:
-  **14 PASS / 6 SKIP / 1 KNOWN BUG / 1 deferred**, **0 capture-pipeline
-  FAILs across all three sub-runs**.
+- **Sub-run 4 (P1 chat SKIP-conversion sweep)** — empirical UIA
+  introspection pass, ships a UIA tree dumper (`scripts/dump_uia.py`
+  + `dump_tree()` driver method), refactors driver helpers with
+  cross-window popup search + Y-band-aware finder + `prefer="max_y"`
+  selection. **Converts 2 of 6 SKIPs to PASS**: D19 (project scope —
+  with real architectural finding that Claude Desktop projects use
+  the same `/chat_conversations/` API path as non-project chats) and
+  **D22 (writing style — `personalized_styles.name='Concise'`,
+  prompt 1686 B, style on `sessions.oi_attributes_json`)**. Combined
+  sub-runs 2+3+4 over P1's 22 applicable D-cases: **16 PASS / 4 SKIP /
+  1 KNOWN BUG / 1 deferred** (pass rate 73%, pass+skip 91%), **0
+  capture-pipeline FAILs across all four sub-runs**.
 
 ### Live-validated
 
@@ -316,6 +325,97 @@ Across the 22 applicable D-cases:
 - New handoff: `Docs/handoff/HANDOFF-P1-CLAUDE-DESKTOP-WEB-PARITY-2026-05-10.md`
 - `DESKTOP-PRODUCT-MATRIX.md` §4.1 P1 row gains a third dated note
   recording the spec extension + score + headline wins.
+
+---
+
+### P1 Claude Desktop chat SKIP-conversion sweep (fourth sub-run)
+
+Driven by user instruction "把剩下的全量打通" ("convert the
+remaining SKIPs to PASS before moving to cowork"). After sub-run 3
+landed `4 PASS / 6 SKIP / 0 FAIL` on D13–D22, this sub-run does an
+empirical UIA introspection pass and ships the tooling + driver
+fixes to convert SKIPs.
+
+#### New tooling
+
+- **`tests/e2e_desktop_ui/scripts/dump_uia.py`** (NEW) — UIA tree
+  dumper for Claude Desktop, with idle / hover-last /
+  open-attach / open-style / open-model modes + `--kw` keyword
+  filter + `--ct` control-type filter. Writes `_uia_dump_<mode>.txt`
+  to cwd. **The right starting point for any future SKIP→PASS work.**
+- **`ClaudeDesktopDriver.dump_tree(keywords=None, control_types=None)`** —
+  read-only walker returning `(control_type, name, automation_id,
+  rect, value)` tuples. Used by `dump_uia.py` and exposed for
+  future inspection.
+
+#### Driver refactors
+
+- **`_find_uia_by_name_substr_all`** — new helper that returns ALL
+  matches (sorted by tree order with their top-Y) instead of
+  first-match-wins. Foundation for disambiguating multiple matches.
+- **`_find_uia_by_name_substr` gained `prefer="first" / "last" /
+  "max_y" / "min_y"` + optional `prefer_y_min` / `prefer_y_max`
+  Y-band filter** — used by `regenerate_last`, `flip_branch` to
+  pick the bottom-most action toolbar (= most recent assistant
+  message) instead of the first one.
+- **`select_model` and `select_style`** — search across **all
+  top-level desktop windows**, not just the Claude main window.
+  Chromium menus open as separate Win32 popups on this build.
+- **All composer-area finders dropped `prefer_y_min=1400`** — fresh
+  new-chat layouts have the composer centered (Y~600), not bottom-
+  anchored (Y~1446). Wide name-substring uniqueness is enough.
+- **`open_project`** uses `^\\` for Ctrl+\\ instead of
+  `^{VK_OEM_5}` (which raises `RuntimeError: Unknown code` on
+  this pywinauto version).
+- **`attach_file_via_picker`** (NEW) — drives the user-mirror
+  paperclip → submenu → native file dialog path for D17/D18 with
+  the clipboard CF_HDROP fallback retained.
+
+#### Score on the 6 sub-run-3 SKIPs (this sub-run)
+
+**2 SKIP → PASS conversions; 4 still SKIP with improved diagnostics.**
+
+| D | Sub-run 3 | Sub-run 4 | Note |
+|---|-----------|-----------|------|
+| **D19** | ⏭ SKIP | ✅ **PARTIAL (PASS-equivalent)** | `CLAUDE_PROJECT_NAME='PCE'` + `open_project` works → 2 messages persisted, session resolved, **request path uses `/chat_conversations/{uuid}/completion` not `/project/`** (real architectural finding) |
+| **D22** | ⏭ SKIP | ✅ **PASS** | `select_style("Concise")` direct-item match across top-level windows works; `personalized_styles[0].name='Concise'` (was `'Normal'`); prompt length 1686 B (was 7); style on session row's `oi_attributes_json` |
+| D13 | ⏭ SKIP | ⏭ SKIP | `select_model` opens picker, "Opus" matched + clicked. But Claude Desktop v1.6608 has no separate Extended Thinking toggle on this account tier; reasoning produces inline `<thinking>` text not binary `thinking_delta` SSE events. Resolution: case spec change (treat inline tags as PASS) OR test on tier with toggle. |
+| D15 | ⏭ SKIP | ⏭ SKIP | `Retry` button found via `prefer="max_y"`, clicked, but no `/completion` fires. Click likely lands on a hidden-branch button. Next: pin by `automation_id` not Name. |
+| D17 | ⏭ SKIP | ⏭ SKIP | Paperclip click works; "Upload from computer" item match imperfect (`upload` substring too generic). Next: dump menu state and pin exact name. |
+| D18 | ⏭ SKIP | ⏭ SKIP | Same root cause as D17. |
+
+#### Combined first+second+third+fourth sub-run aggregate
+
+Across the 22 applicable P1 Claude Desktop chat D-cases:
+
+- **16 PASS** (was 14): D00, D01, D02, D03, D05, D06, D07, D10, D11,
+  D12, D14, D16, D19 (PARTIAL), D20, D21, **D22**
+- **4 SKIP** (was 6): D13 thinking · D15 regenerate · D17 image · D18 PDF
+- **1 KNOWN BUG** (D04 cancel)
+- **1 deferred** (D08 MCP tool)
+
+**Pass rate: 73%** (16/22). **Pass+SKIP rate: 91%** (20/22). **0
+capture-pipeline FAILs across all four sub-runs of 2026-05-10.**
+
+#### Schema / API gotchas pinned (this sub-run)
+
+- **Claude Desktop projects use `/chat_conversations/{uuid}/completion`**
+  — no `/project/` URL segment. Project membership is encoded in
+  request body, not URL path.
+- **Chromium menus are separate top-level Win32 popup windows**, not
+  descendants of the main Claude window. UIA finders must walk
+  `Desktop().windows()` (all top-level), not just
+  `_ensure_window().descendants()`.
+- **Composer Y-position varies between fresh and chat-with-content
+  layouts**. Y~1446 with content; Y~600 in fresh new-chat (centered).
+- **Extended Thinking suffix on model names** (e.g.,
+  `Haiku 4.5 Extended`) refers to **extended context**, NOT extended
+  thinking — confirmed empirically by testing on this account tier.
+
+#### Documentation
+
+- New handoff: `Docs/handoff/HANDOFF-P1-CLAUDE-DESKTOP-SKIP-CONVERSION-2026-05-10.md`
+- `DESKTOP-PRODUCT-MATRIX.md` §4.1 P1 row gains a fourth dated note.
 
 ---
 
