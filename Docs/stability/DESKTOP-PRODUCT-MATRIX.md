@@ -133,14 +133,23 @@ risks**, **install path expected**, **first-probe verification list**.
 > sub-path layout differs — needs ChatGPT-specific discovery). H4 LOCKED
 > verdict from P1 expected to apply to P2 (same Electron Fuses fuse
 > set on MSIX-packaged Electron apps), to be re-confirmed via P2 H4
-> probe. **P2 H2 remains the largest open question** — if PASS,
-> ChatGPT Desktop also gets A1 mitmproxy as the Chat-region primary;
-> if FAIL, A2 SSLKEYLOGFILE becomes the only N-plane realtime route.
+> probe.
+>
+> **2026-05-10 H2-P2 ✅ PASS**: `scripts/probe_h2_chatgpt.ps1` ran against
+> ChatGPT Desktop v1.2026.119.0; observed **361 clean chatgpt.com /
+> ws.chatgpt.com HTTP hits** + 388 successful responses (368×200 /
+> 9×206 / 5×304 / 4×202 / 1×302 / 1×403), **0 TLS handshake or cert
+> errors**, real application cookies (`oai-client-auth-info`, `_puid`)
+> negotiated through the mitmproxy CA chain. Community 2025 pin
+> reports rebutted on this MSIX channel. » **A1 mitmproxy is now the
+> Chat-region primary for P2 too**; A2 SSLKEYLOGFILE drops from
+> "only N-plane realtime route" to "redundant insurance". P2 D2 tier
+> may upgrade to D1 once L3g LocalCache layout is verified.
 
 | Field | Value |
 |---|---|
 | OS | Windows (MSIX) + macOS |
-| Primary plane / layer | **N / L1** (system proxy + CA, `pce_proxy/`) — primary route; verdict tied to P2 H2 result (community-reported pinning as of 2025; needs first-probe re-confirm) |
+| Primary plane / layer | **N / L1** (system proxy + CA, `pce_proxy/`) — primary route; **H2-P2 ✅ PASS confirmed 2026-05-10** (361 clean hits, 0 TLS errors, app-layer cookies negotiated) |
 | Persistence axis | **L3g local persistence watcher** ✅ pkg alpha.8 — same parser stack as P1, ChatGPT-specific `LocalCache` layout discovery wired but layout itself TBD on first install probe |
 | MCP axis | **M / L3f** (only when user has configured ChatGPT Desktop MCP servers — ChatGPT MCP support is partial / 2026-evolving) |
 | Chat-region anti-pin | **A2 SSLKEYLOGFILE** patch — primary fallback if H2-on-P2 = pinned |
@@ -148,9 +157,9 @@ risks**, **install path expected**, **first-probe verification list**.
 | Normalizer | `pce_core/normalizer/openai.py` ✅ + `local_persistence.py` ⬜ new |
 | `source_type` | `local-persistence` (L3g) + `proxy` (L1) + `mcp_proxy` (M when applicable) + `desktop_electron` (Squirrel-only L3d) |
 | Archetype | Chat Tube ✅ |
-| Risks | 🟡 SSL pinning likely on `chatgpt.com` / `api.openai.com` (higher prior than P1); P2 H2 probe **not yet run** — next on the matrix; 🟡 ChatGPT MCP support roadmap uncertain → M axis may be empty; � H4 LOCKED verdict from P1 expected to apply to P2 (same Electron Fuses fuse set on MSIX-packaged Electron) — NODE_OPTIONS / `--inspect` / asar-mod paths unavailable |
+| Risks | � **H2-P2 ✅ PASS** (2026-05-10): mitmproxy CA-signed leaf cert accepted; 361 clean chatgpt.com hits / 0 TLS errors / app-layer cookies (`oai-client-auth-info`, `_puid`) negotiated successfully through chain. SSL pinning hypothesis **rebutted** for `chatgpt.com` / `ws.chatgpt.com` on this MSIX channel; 🟡 ChatGPT MCP support roadmap uncertain → M axis may be empty; 🔴 H4 LOCKED verdict from P1 expected to apply to P2 (same Electron Fuses set on MSIX-packaged Electron) — NODE_OPTIONS / `--inspect` / asar-mod paths unavailable |
 | Install assets | `Docs/install/PCE_CHATGPT_DESKTOP_INSTALL.md` (post-ADR-018 rewrite pending) |
-| First-probe checklist | **a)** **run method-G on P2** to lock H2/H3 (H4 pin/fuses/keylog verdicts) · **b)** mitmproxy attempt to map pinning failure surface; if pinned, A2 SSLKEYLOGFILE is the only N-plane realtime route · **c)** `LocalCache` first-entry dump for L3g parser work · **d)** check `/v1/chat/completions`-style endpoints for fallback normalizer compatibility |
+| First-probe checklist | **a)** ~~run method-G on P2~~ **H2-P2 ✅ PASS locked 2026-05-10 via `scripts/probe_h2_chatgpt.ps1`; see ADR-018 §6 ChatGPT Desktop H2 同等性** · **b)** ~~mitmproxy attempt to map pinning failure surface~~ **已确认无 pinning, A1 viable** · **c)** `LocalCache` first-entry dump for L3g parser work (path: `%LOCALAPPDATA%\Packages\OpenAI.ChatGPT-Desktop_2p2nqsd0c76g0\LocalCache\`) · **d)** check `/v1/chat/completions`-style endpoints for fallback normalizer compatibility |
 
 ### 4.3 P3 — Cursor
 
