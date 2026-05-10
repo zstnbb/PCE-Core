@@ -27,6 +27,7 @@ Response body example:
 
 import json
 import logging
+import re
 from typing import Optional
 
 from pce_core.rich_content import build_content_json
@@ -40,6 +41,19 @@ _MESSAGES_PATHS = {
     "/v1/messages",
     "/messages",
 }
+
+# claude.ai web/desktop completion path:
+#   /api/organizations/<ORG_UUID>/chat_conversations/<CONV_UUID>/completion
+# The CONV_UUID is the stable session identifier across multi-turn — Claude
+# Desktop POSTs each turn to the SAME path, so extracting it gives us the
+# session_key fallback when the request body itself doesn't carry one.
+# Empirically verified 2026-05-10 on Claude Desktop v1.6608.2.0 MSIX
+# (5-turn conversation, all turns hit /chat_conversations/<same UUID>/completion).
+_CHAT_CONV_PATH_RE = re.compile(
+    r"/chat_conversations/(?P<uuid>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
+    r"[0-9a-f]{4}-[0-9a-f]{12})/completion",
+    re.IGNORECASE,
+)
 
 
 class AnthropicMessagesNormalizer(BaseNormalizer):
@@ -231,7 +245,20 @@ class AnthropicMessagesNormalizer(BaseNormalizer):
             return None
 
         # Session key
+        # 1. Prefer ``conversation_id`` / ``session_id`` from the request body
+        #    (public /v1/messages API may carry this in custom wrappers).
+        # 2. Fall back to the conversation UUID embedded in the path for
+        #    claude.ai web/desktop captures
+        #    (``/api/organizations/<ORG>/chat_conversations/<UUID>/completion``).
+        #    This is the canonical multi-turn key — the desktop client
+        #    POSTs every turn to the SAME path. Without this fallback,
+        #    each turn lands in its own session row (D03 multi-turn
+        #    failure observed empirically 2026-05-10).
         session_key = req_data.get("conversation_id") or req_data.get("session_id")
+        if not session_key:
+            m = _CHAT_CONV_PATH_RE.search(path or "")
+            if m:
+                session_key = m.group("uuid")
 
         # Title hint
         title_hint = None

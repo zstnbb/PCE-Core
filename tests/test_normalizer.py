@@ -177,6 +177,57 @@ def _test_anthropic_normalizer():
     assert result4 is None
     print("[PASS] Anthropic: graceful on invalid JSON")
 
+    # claude.ai web/desktop completion path session_key fallback —
+    # regression test for D03 multi-turn split bug (empirical 2026-05-10):
+    # when request body has no conversation_id/session_id, the conversation
+    # UUID must be extracted from /chat_conversations/<UUID>/completion path
+    # so that 5 sequential POSTs to the same UUID land in 1 session row.
+    org_uuid = "8a522742-17e5-43c6-b1aa-b28bf3d7ad32"
+    conv_uuid = "0621139a-4fac-4b5e-8aab-24f6bd625483"
+    desktop_path = f"/api/organizations/{org_uuid}/chat_conversations/{conv_uuid}/completion"
+    desktop_req = (
+        '{"prompt":"what\'s 2+2?","timezone":"Asia/Shanghai",'
+        '"model":"claude-haiku-4-5-20251001","tools":[],'
+        '"rendering_mode":"messages"}'
+    )
+    desktop_resp = (
+        'event: message_start\n'
+        'data: {"type":"message_start","message":{"uuid":"abc","content":[]}}\n\n'
+        'event: content_block_start\n'
+        'data: {"type":"content_block_start","content_block":{"type":"text","text":"4"}}\n\n'
+        'event: message_stop\n'
+        'data: {"type":"message_stop"}\n\n'
+    )
+    result_desktop = n.normalize(
+        request_body=desktop_req,
+        response_body=desktop_resp,
+        provider="anthropic",
+        host="claude.ai",
+        path=desktop_path,
+    )
+    assert result_desktop is not None, "claude.ai desktop should normalize"
+    assert result_desktop.session_key == conv_uuid, (
+        f"session_key must be conversation UUID from path, "
+        f"got {result_desktop.session_key!r}"
+    )
+    print("[PASS] Anthropic: claude.ai desktop session_key from path UUID (D03 regression)")
+
+    # Negative: /v1/messages public API path should NOT match the regex
+    # (no chat_conversations segment) → session_key falls back to None.
+    result_api = n.normalize(
+        request_body='{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"}]}',
+        response_body='{"content":[{"type":"text","text":"hello"}],"role":"assistant"}',
+        provider="anthropic",
+        host="api.anthropic.com",
+        path="/v1/messages",
+    )
+    assert result_api is not None
+    assert result_api.session_key is None, (
+        f"public API path must not produce session_key from regex, "
+        f"got {result_api.session_key!r}"
+    )
+    print("[PASS] Anthropic: public /v1/messages API does not falsely match desktop regex")
+
 
 def _test_registry_dispatch():
     """Test that normalize_pair dispatches to the correct normalizer."""
