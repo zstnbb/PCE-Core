@@ -40,6 +40,8 @@ session directory must not block the rest.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import logging
 from dataclasses import dataclass
@@ -56,20 +58,26 @@ logger = logging.getLogger("pce.persistence_watcher.agent_sessions")
 
 @dataclass
 class AgentSessionRecord:
-    """A parsed record from ``local-agent-mode-sessions/``.
+    """A parsed record from a Claude Desktop persistence surface.
 
-    ``kind`` is one of ``"session"`` or ``"skills_catalogue"`` — the
-    observer uses it to route the record into the right PCE capture
-    envelope shape.
+    ``kind`` is one of ``"session"`` / ``"skills_catalogue"`` /
+    ``"local_config"`` — the observer uses it to route the record into
+    the right PCE capture envelope shape.
+
+    ``surface`` is set only for ``kind == "local_config"`` and names
+    which top-level config file the record came from (per ADR-018 §6
+    C4 supplementary findings, 2026-05-10): one of ``"preferences"``,
+    ``"cowork_owner"``, ``"git_worktrees"``, ``"device_id"``.
     """
 
-    kind: str  # "session" | "skills_catalogue"
+    kind: str  # "session" | "skills_catalogue" | "local_config"
     session_id: Optional[str]  # uuid if kind == "session", else None
     source_path: Path
     mtime_ns: int
     size_bytes: int
     body_json: dict  # parsed manifest content
     last_updated_ms: Optional[int]  # from manifest when present
+    surface: Optional[str] = None  # set when kind == "local_config"
 
 
 # ---------------------------------------------------------------------------
@@ -250,4 +258,115 @@ def count(agent_sessions_root: Path) -> dict[str, int]:
     counts = {"session": 0, "skills_catalogue": 0}
     for rec in iter_records(agent_sessions_root):
         counts[rec.kind] = counts.get(rec.kind, 0) + 1
+    return counts
+
+
+# ---------------------------------------------------------------------------
+# Local-config surfaces (ADR-018 §6 C4 supplementary, mapped 2026-05-10)
+# ---------------------------------------------------------------------------
+#
+# Claude Desktop's LocalCache profile root contains four directly-readable
+# surfaces that L3g v1 collects before falling back to LevelDB. Each is
+# plaintext, default-metadata-only, small (<1 KB), and present on a
+# normally-installed Claude Desktop profile. Missing files are skipped
+# silently — different versions / first-launch states omit some.
+#
+# Mapping: filename → logical surface name. The surface name is what
+# downstream consumers (capture observer, dashboard) see and what gets
+# baked into the capture path ``/<app_id>/local-config/<surface>``.
+
+LOCAL_CONFIG_SURFACES: dict[str, str] = {
+    "claude_desktop_config.json": "preferences",
+    "cowork-enabled-cli-ops.json": "cowork_owner",
+    "git-worktrees.json": "git_worktrees",
+    "ant-did": "device_id",
+}
+
+
+def _read_ant_did(path: Path) -> Optional[dict]:
+    """Decode the ``ant-did`` file: base64-encoded UUID → ``{"device_id": uuid}``.
+
+    Returns None if the file is unreadable, not valid base64, decodes to
+    a non-ASCII payload, or the decoded payload is not UUID-shaped.
+    """
+    try:
+        raw = path.read_bytes().strip()
+    except OSError as exc:
+        logger.debug("cannot read ant-did at %s: %s", path, exc)
+        return None
+    if not raw:
+        return None
+    try:
+        decoded = base64.b64decode(raw, validate=True).decode("ascii").strip()
+    except (binascii.Error, UnicodeDecodeError, ValueError) as exc:
+        logger.warning("ant-did file at %s is not base64-ASCII: %s", path, exc)
+        return None
+    if not _looks_like_uuid(decoded):
+        logger.warning("ant-did decoded value at %s is not UUID-shaped", path)
+        return None
+    return {"device_id": decoded}
+
+
+def iter_local_config_records(profile_root: Path) -> Iterator[AgentSessionRecord]:
+    """Walk Claude Desktop's profile-root local-config surfaces.
+
+    ``profile_root`` is the LocalCache profile root — e.g.::
+
+        %LOCALAPPDATA%\\Packages\\Claude_pzs8sxrjxfjjc\\LocalCache\\
+            Roaming\\Claude\\
+
+    Or for the test harness, any directory containing the four known
+    files at its top level. ``AppInstall.root("app_profile")`` is the
+    canonical caller-side accessor.
+
+    Yields one ``AgentSessionRecord`` per surface present, with
+    ``kind == "local_config"`` and ``surface`` set. Returns silently
+    if ``profile_root`` does not exist or contains none of the known
+    surfaces.
+    """
+    if not profile_root.exists() or not profile_root.is_dir():
+        return
+
+    for fname, surface in LOCAL_CONFIG_SURFACES.items():
+        path = profile_root / fname
+        if not path.is_file():
+            continue
+
+        stat = _stat_safe(path)
+        if stat is None:
+            continue
+        mtime_ns, size = stat
+
+        if fname == "ant-did":
+            body = _read_ant_did(path)
+        else:
+            body = _safe_read_json(path)
+        if body is None:
+            continue
+
+        last_updated_ms: Optional[int] = None
+        # Some preferences blobs include an updatedAt; harvest it when present.
+        raw_lu = body.get("updatedAt") if isinstance(body, dict) else None
+        if isinstance(raw_lu, int):
+            last_updated_ms = raw_lu
+
+        yield AgentSessionRecord(
+            kind="local_config",
+            session_id=None,
+            source_path=path,
+            mtime_ns=mtime_ns,
+            size_bytes=size,
+            body_json=body,
+            last_updated_ms=last_updated_ms,
+            surface=surface,
+        )
+
+
+def count_local_config(profile_root: Path) -> dict[str, int]:
+    """Return ``{"local_config": N, <surface>: M, ...}`` for discover mode."""
+    counts: dict[str, int] = {"local_config": 0}
+    for rec in iter_local_config_records(profile_root):
+        counts["local_config"] += 1
+        if rec.surface:
+            counts[rec.surface] = counts.get(rec.surface, 0) + 1
     return counts

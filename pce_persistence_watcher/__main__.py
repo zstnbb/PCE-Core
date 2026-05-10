@@ -37,7 +37,10 @@ from typing import Iterable, Optional
 from pce_core.db import init_db
 
 from . import __version__
-from .agent_sessions import iter_records as iter_agent_session_records
+from .agent_sessions import (
+    iter_local_config_records,
+    iter_records as iter_agent_session_records,
+)
 from .capture import ChromiumStateObserver
 from .config import WatcherConfig, parse_argv
 from .discovery import AppInstall, discover, summarise
@@ -159,6 +162,23 @@ def _scan_install(
                 n += 1
             if cfg.verbose:
                 sys.stderr.write(f"    agent_sessions records parsed: {n}\n")
+
+    # ── local-config surfaces (free, ADR-018 §6 C4 supplementary) ──
+    # The four small JSON / device-id files at the LocalCache profile
+    # root: claude_desktop_config / cowork-enabled-cli-ops / git-worktrees
+    # / ant-did. Default-metadata-only, no binary deps required.
+    if only in (None, "config"):
+        profile_root = inst.root("app_profile")
+        if profile_root is None:
+            if cfg.verbose:
+                sys.stderr.write("    (no app_profile root for this install)\n")
+        else:
+            n = 0
+            for rec in iter_local_config_records(profile_root):
+                observer.observe_agent_session(rec)
+                n += 1
+            if cfg.verbose:
+                sys.stderr.write(f"    local_config records parsed: {n}\n")
 
     # ── LevelDB (Local Storage + IndexedDB) ── optional binary backend
     if only in (None, "leveldb"):

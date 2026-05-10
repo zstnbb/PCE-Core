@@ -140,6 +140,7 @@ class ChromiumStateObserver:
             "sessions": 0,
             "skills_catalogue": 0,
             "leveldb": 0,
+            "local_config": 0,
         }
 
     # ------------------------------------------------------------------
@@ -147,7 +148,17 @@ class ChromiumStateObserver:
     # ------------------------------------------------------------------
 
     def observe_agent_session(self, rec: AgentSessionRecord) -> None:
-        """Ingest one parsed ``agent_sessions`` record."""
+        """Ingest one parsed ``agent_sessions`` record (any kind).
+
+        Routes by ``rec.kind``:
+
+        - ``"session"`` / ``"skills_catalogue"``: host=local-agent-mode,
+          path=/<app_id>/agent-session/<uuid>, session_hint=<uuid>.
+        - ``"local_config"``: host=local-config,
+          path=/<app_id>/local-config/<surface>, session_hint=None.
+          (ADR-018 §6 C4 supplementary surfaces — preferences,
+          cowork_owner, git_worktrees, device_id.)
+        """
         with self._lock:
             self.stats["records_seen"] += 1
             self.stats[rec.kind] = self.stats.get(rec.kind, 0) + 1
@@ -169,15 +180,26 @@ class ChromiumStateObserver:
                 "last_updated_ms": rec.last_updated_ms,
                 "fingerprint": fp,
             }
+            if rec.surface is not None:
+                meta["surface"] = rec.surface
+
+            if rec.kind == "local_config":
+                host = "local-config"
+                path = f"/{self.app_id}/local-config/{rec.surface or 'unknown'}"
+                session_hint: Optional[str] = None
+            else:
+                host = "local-agent-mode"
+                path = f"/{self.app_id}/agent-session/{rec.session_id or 'unknown'}"
+                session_hint = rec.session_id
 
             ok = self._write(
                 direction="conversation",
-                host="local-agent-mode",
-                path=f"/{self.app_id}/agent-session/{rec.session_id or 'unknown'}",
+                host=host,
+                path=path,
                 provider="anthropic",
                 body_str=body_str,
                 meta=meta,
-                session_hint=rec.session_id,
+                session_hint=session_hint,
             )
             if ok:
                 # dry_run must be fully side-effect-free: count but do
