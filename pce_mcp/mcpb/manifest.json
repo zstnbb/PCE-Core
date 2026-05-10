@@ -91,10 +91,7 @@
     }
   },
   "privacy_policies": [
-    "This extension captures the content of your AI conversations (prompts, responses, tool calls) into a local SQLite database at a platform-default PCE data directory (Windows: %LOCALAPPDATA%\\PCE, macOS: ~/Library/Application Support/PCE, Linux: ~/.local/share/PCE).",
-    "All data is stored on your computer. Nothing is transmitted to PCE developers, Anthropic, or any third party by this extension.",
-    "The extension communicates exclusively with a locally-running pce_core daemon over HTTP on 127.0.0.1 (default port 9800). No external network connections are made.",
-    "To delete captured data, stop the pce_core daemon and remove the PCE data directory. You may also use pce_core's built-in retention sweep endpoint.",
-    "Source code is Apache-2.0 and published at https://github.com/zstnbb/PCE-Core — auditable end-to-end."
+    "https://github.com/zstnbb/PCE-Core/blob/master/pce_mcp/mcpb/README.md#privacy-posture",
+    "https://github.com/zstnbb/PCE-Core/blob/master/Docs/docs/engineering/adr/ADR-016-cdp-launcher-and-mcpb-packaging.md"
   ]
 }

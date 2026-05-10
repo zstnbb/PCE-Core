@@ -150,14 +150,29 @@ def test_compatibility_node_version(manifest):
 # ---------------------------------------------------------------------------
 
 def test_privacy_policies_present_and_nonempty(manifest):
+    """`.mcpb` spec ≥0.2 enforces ``privacy_policies`` as
+    ``z.array(z.string().url())`` (verified empirically against
+    @anthropic-ai/mcpb v2.1.2 schemas/0.2.js / 0.3.js / 0.4.js).
+    Free-text statements live in ``pce_mcp/mcpb/README.md`` "Privacy
+    posture" §; this array carries the canonical URL anchors.
+    """
     policies = manifest.get("privacy_policies") or []
-    assert isinstance(policies, list) and len(policies) >= 3, \
-        "ADR-016 §3.3 requires ≥3 privacy policy statements"
-    joined = " ".join(policies).lower()
-    # Must call out what gets captured, where it lives, and no external upload.
-    assert "local" in joined
-    assert "sqlite" in joined or "database" in joined
-    assert "no " in joined or "not" in joined, "must explicitly negate external upload"
+    assert isinstance(policies, list) and len(policies) >= 1, \
+        "privacy_policies array must carry ≥1 URL"
+
+    for url in policies:
+        assert isinstance(url, str), f"non-string privacy policy entry: {url!r}"
+        assert re.match(r"^https?://", url), \
+            f"privacy_policies entries must be URLs (mcpb spec); got {url!r}"
+
+    # At least one entry MUST point at the canonical privacy posture in
+    # pce_mcp/mcpb/README.md (which carries the 5 detailed statements).
+    joined = " ".join(policies)
+    assert "pce_mcp/mcpb/README.md#privacy-posture" in joined, (
+        "At least one privacy_policies URL must anchor at "
+        "pce_mcp/mcpb/README.md#privacy-posture (where the 5 detailed "
+        "policy statements live)"
+    )
 
 
 # ---------------------------------------------------------------------------

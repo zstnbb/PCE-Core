@@ -123,10 +123,32 @@ The manifest declares one `user_config` field:
 ## Privacy posture
 
 This bundle only makes **local HTTP requests** on the loopback
-interface. It does **not** connect to any remote server. The manifest's
-`privacy_policies` array must always be kept in sync with
+interface. It does **not** connect to any remote server. **The five
+statements below are the canonical privacy posture for this
+extension** and the manifest's `privacy_policies` array points at
+this section's URL anchor as required by `.mcpb` spec ≥0.2 (which
+mandates URLs for that field). Keep the two in sync with
 [`Docs/docs/engineering/adr/ADR-016`](../../Docs/docs/engineering/adr/ADR-016-cdp-launcher-and-mcpb-packaging.md)
 §3.3 and the `pce_core` retention policy.
+
+1. **What is captured**: the content of your AI conversations
+   (prompts, responses, tool calls) gets written into a local SQLite
+   database at a platform-default PCE data directory:
+   - Windows: `%LOCALAPPDATA%\PCE`
+   - macOS: `~/Library/Application Support/PCE`
+   - Linux: `~/.local/share/PCE`
+2. **Where it stays**: all data is stored on your computer. Nothing is
+   transmitted to PCE developers, Anthropic, or any third party by
+   this extension.
+3. **How it talks to PCE Core**: the extension communicates exclusively
+   with a locally-running `pce_core` daemon over HTTP on `127.0.0.1`
+   (default port `9800`, configurable via the `pce_core_url` user
+   setting). No external network connections are made.
+4. **How to delete**: stop the `pce_core` daemon and remove the PCE
+   data directory listed above. You may also use `pce_core`'s built-in
+   retention sweep endpoint.
+5. **Source code**: Apache-2.0, published at
+   <https://github.com/zstnbb/PCE-Core> — auditable end-to-end.
 
 ## License
 

@@ -81,11 +81,28 @@ if (-not $mcpbCmd) {
 Write-Host "mcpb CLI  : $($mcpbCmd.Source)"
 
 # --- Pack ---
+# mcpb v2.x CLI shape is `mcpb pack [directory] [output]` where output
+# is the FULL artifact PATH (filename inclusive), not a directory.
+# Passing a directory triggers EISDIR. We resolve <name>-<version>.mcpb
+# from manifest.json and build that explicit path.
+$manifestPath = Join-Path $McpbDir "manifest.json"
+$manifestJson = Get-Content $manifestPath -Raw | ConvertFrom-Json
+$artifactName = "$($manifestJson.name)-$($manifestJson.version).mcpb"
+$artifactPath = Join-Path $OutDir $artifactName
+
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+# mcpb pack errors with EISDIR if the output path exists as a directory
+# left over from an earlier failed run; unconditionally remove a stale
+# artifact path before retrying.
+if (Test-Path $artifactPath) {
+    Remove-Item -Recurse -Force $artifactPath
+}
+
 Write-Host "`n--- mcpb pack ---"
+Write-Host "out artifact : $artifactPath"
 Push-Location $McpbDir
 try {
-    & mcpb pack . $OutDir
+    & mcpb pack . $artifactPath
     if ($LASTEXITCODE -ne 0) {
         throw "mcpb pack failed with exit code $LASTEXITCODE"
     }
