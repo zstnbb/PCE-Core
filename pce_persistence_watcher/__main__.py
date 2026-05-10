@@ -44,7 +44,13 @@ from .agent_sessions import (
 from .capture import ChromiumStateObserver
 from .config import WatcherConfig, parse_argv
 from .discovery import AppInstall, discover, summarise
-from .leveldb_reader import LevelDbUnavailable, backend_info, iter_records as iter_ldb_records
+from .leveldb_reader import (
+    LevelDbUnavailable,
+    backend_info,
+    find_log_files,
+    iter_records as iter_ldb_records,
+    scan_indexeddb_log,
+)
 
 logger = logging.getLogger("pce.persistence_watcher")
 
@@ -204,6 +210,7 @@ def _scan_install(
             else:
                 targets.append((None, ldb_root))
 
+            backend_failed = False
             for origin, target in targets:
                 try:
                     n = 0
@@ -217,18 +224,59 @@ def _scan_install(
                             f"    leveldb {storage_kind} {origin or '<default>'}: {n} records\n"
                         )
                 except LevelDbUnavailable:
-                    if cfg.verbose:
+                    if cfg.verbose and not backend_failed:
                         sys.stderr.write(
                             "    leveldb backend unavailable; install 'plyvel-ci' "
-                            "to enable Local Storage / IndexedDB capture "
-                            "(ADR-018 §3.4 still delivers via JSON sources)\n"
+                            "for per-record capture. Continuing with the plyvel-free "
+                            "IndexedDB summary scanner (ADR-018 §6 C4 supplementary).\n"
                         )
-                    break  # same backend absence holds for all targets
+                    backend_failed = True
+                    # Don't `break` here — fall through to the summary
+                    # scan below, which is plyvel-independent.
                 except Exception as exc:
                     logger.warning(
                         "leveldb scan failed for %s (%s): %s",
                         target, storage_kind, exc,
                     )
+
+            # ── plyvel-free IndexedDB summary scan (always runs for
+            # indexeddb targets, regardless of backend availability) ──
+            # Per ADR-018 §6 C4 supplementary, surfaces one T3
+            # metadata-only capture per .log file: db/store names,
+            # UUID counts, JSON blob examples (composer drafts
+            # redacted by default).
+            if storage_kind == "indexeddb":
+                for origin, target in targets:
+                    try:
+                        log_files = find_log_files(target)
+                    except Exception as exc:
+                        logger.warning(
+                            "find_log_files failed for %s: %s", target, exc,
+                        )
+                        continue
+                    if not log_files:
+                        if cfg.verbose:
+                            sys.stderr.write(
+                                f"    indexeddb-summary {origin or '<default>'}: "
+                                "no .log files found\n"
+                            )
+                        continue
+                    for log_path in log_files:
+                        try:
+                            summary = scan_indexeddb_log(log_path, redact_drafts=True)
+                            observer.observe_indexeddb_summary(summary, origin=origin)
+                            if cfg.verbose:
+                                sys.stderr.write(
+                                    f"    indexeddb-summary {origin or '<default>'} "
+                                    f"{log_path.name}: strings={summary.total_strings} "
+                                    f"json_blobs={summary.json_blob_count} "
+                                    f"drafts={summary.composer_draft_count}\n"
+                                )
+                        except Exception as exc:
+                            logger.warning(
+                                "indexeddb summary scan failed for %s: %s",
+                                log_path, exc,
+                            )
 
 
 # ---------------------------------------------------------------------------

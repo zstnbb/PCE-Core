@@ -42,7 +42,7 @@ from pce_core.db import (
 )
 
 from .agent_sessions import AgentSessionRecord
-from .leveldb_reader import LevelDbRecord
+from .leveldb_reader import IndexedDbScanSummary, LevelDbRecord
 
 logger = logging.getLogger("pce.persistence_watcher.capture")
 
@@ -141,6 +141,7 @@ class ChromiumStateObserver:
             "skills_catalogue": 0,
             "leveldb": 0,
             "local_config": 0,
+            "indexeddb_summary": 0,
         }
 
     # ------------------------------------------------------------------
@@ -265,6 +266,92 @@ class ChromiumStateObserver:
                 # See observe_agent_session() for dry-run rationale.
                 if not self.dry_run:
                     self._mark_emitted(fp, kind=f"leveldb:{storage_kind}")
+                self.stats["records_emitted"] += 1
+
+    def observe_indexeddb_summary(
+        self,
+        summary: IndexedDbScanSummary,
+        *,
+        origin: Optional[str] = None,
+    ) -> None:
+        """Ingest one IndexedDB ``.log`` scan summary as a T3 metadata-only capture.
+
+        Per ADR-018 §6 C4 supplementary "v1 envelope-level capture":
+        emits ONE row per scanned ``.log`` file, body is the summary
+        JSON (db_name_hints, object_store_hints, counts, capped+
+        redacted JSON examples).
+
+        Routes:
+          host = ``chromium-indexeddb``
+          path = ``/<app_id>/indexeddb-summary/<origin or "default">``
+          provider = ``anthropic`` | ``openai`` based on app_id
+
+        Fingerprint is content-stable: re-scanning an unchanged log
+        file produces an identical fingerprint and does not re-emit.
+        """
+        with self._lock:
+            self.stats["records_seen"] += 1
+            self.stats["indexeddb_summary"] = self.stats.get("indexeddb_summary", 0) + 1
+
+            body = {
+                "log_size_bytes": summary.log_size_bytes,
+                "total_strings": summary.total_strings,
+                "uuid_count": summary.uuid_count,
+                "uuid_v7_count": summary.uuid_v7_count,
+                "json_blob_count": summary.json_blob_count,
+                "composer_draft_count": summary.composer_draft_count,
+                "composer_drafts_redacted": summary.composer_drafts_redacted,
+                "db_name_hints": summary.db_name_hints,
+                "object_store_hints": summary.object_store_hints,
+                "json_blob_examples": summary.json_blob_examples,
+            }
+            body_str = json.dumps(
+                body, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            )
+
+            # Fingerprint seed: structural counts + db/store names.
+            # We deliberately exclude json_blob_examples + size so a
+            # log file that simply grows by one record doesn't blow
+            # away dedup; we re-emit when schema indicators or counts
+            # actually change in a meaningful way.
+            seed = (
+                f"strings={summary.total_strings}"
+                f"|uuid={summary.uuid_count}"
+                f"|jsonblobs={summary.json_blob_count}"
+                f"|drafts={summary.composer_draft_count}"
+                f"|dbs={','.join(summary.db_name_hints)}"
+                f"|stores={','.join(summary.object_store_hints)}"
+            )
+            fp = self._fingerprint(summary.source_path, "indexeddb_summary", seed)
+            if self._already_emitted(fp):
+                self.stats["records_deduped"] += 1
+                return
+
+            meta: dict[str, Any] = {
+                "app_id": self.app_id,
+                "app_channel": self.app_channel,
+                "app_version": self.app_version,
+                "source_kind": "indexeddb_summary",
+                "source_path": str(summary.source_path),
+                "log_size_bytes": summary.log_size_bytes,
+                "scanned_at_epoch": summary.scanned_at_epoch,
+                "origin": origin,
+                "fingerprint": fp,
+            }
+
+            ok = self._write(
+                direction="conversation",
+                host="chromium-indexeddb",
+                path=f"/{self.app_id}/indexeddb-summary/{origin or 'default'}",
+                provider="anthropic" if self.app_id == "claude-desktop" else "openai",
+                body_str=body_str,
+                meta=meta,
+                session_hint=None,
+            )
+            if ok:
+                # See observe_agent_session() for dry-run rationale.
+                if not self.dry_run:
+                    self._mark_emitted(fp, kind="indexeddb_summary")
                 self.stats["records_emitted"] += 1
 
     def flush_state(self) -> None:
