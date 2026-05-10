@@ -5,6 +5,115 @@ All notable changes to PCE (core + browser extension) are documented in this fil
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-05-10 (still later same day) — P1 cowork-region standard alignment
+
+Documentation-only sub-run. Lands the cowork-region acceptance bar in
+the canonical docs **before** any cowork code is written, in response
+to the user instruction:
+
+> 你先把文档材料对齐好 然后再把 cowork 的标准落下来 我们再开始做吧
+
+No new tests, no driver changes, no normaliser additions. Pure
+documentation alignment so the next sub-run (P5.B.5 implementation)
+has a single authoritative source for what "cowork-region passes" means.
+
+### Documentation changes
+
+- **`Docs/stability/DESKTOP-PRODUCT-MATRIX.md`**:
+  - **Tier-1 fixes** (§4.1 P1 Field table): flipped `mcp_jsonrpc.py`
+    to ✅ (alpha.1 shipped); clarified `local_persistence.py` ⬜
+    status as "envelope-level rows shipped alpha.8, structural
+    normaliser gated by ≥1 cowork D-case (now C14)"; **unbundled
+    archetype** — Chat Tube ✅ (chat-region) + Tool Tape ⬜
+    (cowork-region) + Run Trace ⬜ (cowork+code regions).
+  - **§4.1.B (new)** — P1 Claude Desktop cowork-region subsection:
+    product positioning, three-axis coverage with M middleware as
+    fourth axis, observed endpoints (`/cowork_settings`,
+    `/environments?included_worker_types=cowork`,
+    `/skills/list-skills`, `/wiggle/upload-file`,
+    `/wiggle/download-file`, `/referral/eligibility?source=cowork`,
+    `/chat_conversations/<uuid>/completion` for cowork tasks),
+    existing tooling status, pending tooling for P5.B.5, acceptance
+    gate (≥80% C-cases PASS = ≥13/16), first-probe checklist.
+  - **§5.B (new)** — Cowork-region C-case spec: 17 cases C00–C16
+    with detailed acceptance signals; C-namespace independent of
+    chat-region D-namespace to keep verdict semantics readable;
+    audit anchor rule (every PASS produces ≥1 `raw_captures` row +
+    ≥1 `messages` row + L3g-axis row where applicable).
+  - **§5.B.1 (new)** — Cowork applicability matrix:
+    P1 = 16 ✅ must-pass · P6 = 7 🟡 best-effort CLI mirror (count
+    toward P6 D-case bar, not cowork sub-gate) · P2/P7/P8 = 1 🟡
+    each best-effort · P3/P4/P5 = 0 (no cowork product surface).
+  - **§5.B.2 (new)** — 6 RECON-resolvable open questions
+    (Skills picker UIA shape · async step semantics · Dispatch
+    window class · skill list schema · session manifest field
+    schema · scheduled task lifecycle).
+  - **§6** — Test infrastructure layout extended from 3 trees → 6
+    trees (added `e2e_mcpb/` ✅ alpha.8, `e2e_l3g/` ✅ alpha.8,
+    `e2e_desktop_ui/` ✅ chat sub-runs 1–5).
+  - **§7** — Header updated P5.B.0–P5.B.4 → P5.B.0–P5.B.5;
+    cross-ref D-case (chat) + C-case (cowork) acceptance.
+  - **§7.5 (new)** — P5.B.5 cowork sub-phase phasing: builds on
+    alpha.8 three-axis scaffolding, adds 6 cowork helpers + 1
+    structural normaliser + `.mcpb` packaging + 16 C-case files;
+    pass-distribution target 14 PASS / 2 SKIP / 0 FAIL = 87.5%
+    (≥80% gate cleared by +1.5%); 7-item deliverables checklist;
+    unblocks P5.C dashboard Tool Tape renderer.
+  - **§8.2** — v1.1 ship checklist gains:
+    - P1 cowork-region D0 sub-gate (≥80% C-cases, 0 capture-pipeline FAILs)
+    - `local_persistence.py` v0 in normaliser-additions list
+    - `e2e_mcpb/` + `e2e_l3g/` + `e2e_desktop_ui/` in test-tree list
+    - **ADR-018** reference (P1 MSIX three-axis realisation —
+      direct upstream of cowork-region §4.1.B / §5.B / §7.5).
+
+- **`Docs/research/DESKTOP-CAPTURE-COGNITIVE-FRAMEWORK.md`** §7:
+  Capture-storage-render matrix updated — L3g and H1 CLI wrap
+  flipped to ✅ (alpha.8 shipped); archetype mapping reflects
+  cowork ↔ Tool Tape and code ↔ Run Trace; P1 and P2 rows updated
+  with current delivery status and 2026-05-10 empirical findings
+  (P2 split-channel WebSocket handoff blocking assistant-side L1
+  capture).
+
+- **`Docs/handoff/HANDOFF-IDE-DESKTOP-KICKOFF.md`** §10–§11:
+  Added P5.B.5 cowork-region sub-phase row to unlock matrix and
+  delivery table; sign-off criteria gains cowork-region D0 sub-gate;
+  test suite coverage references include `e2e_desktop_ui/` (chat
+  sub-runs 1–5 + cowork sweep coming in P5.B.5).
+
+- **`Docs/handoff/HANDOFF-P1-CLAUDE-DESKTOP-COWORK-KICKOFF-2026-05-10.md`** (new):
+  Dedicated cowork kickoff handoff. ~440 lines covering authority
+  chain, three-axis-plus-M overview, 60-min RECON walkthrough with
+  per-question dump-file mapping, C-case acceptance table with
+  axis-dependency + cost + target verdict, driver helper reuse +
+  6 new helpers spec, reproduction recipe, risks + open follow-ups
+  (RECON-dependent, normaliser, `.mcpb` install, D04/C04 KNOWN BUG),
+  7-item sign-off criteria, cross-references to ADR-018 + chat
+  sub-runs 1–5 prior-art handoffs.
+
+### What stays unchanged
+
+- All chat-region sub-runs 1–5 results (19 PASS / 1 SKIP / 1 KNOWN
+  BUG / 1 deferred over 22 D-cases) remain the canonical chat-region
+  closure.
+- 0 capture-pipeline FAILs hard rule carries forward into cowork-region
+  acceptance (FAIL = pipeline dropped an event that physically reached
+  network or disk; SKIP = product UI feature absent or RECON-deferred).
+- ADR-018 three-axis model unchanged; cowork-region adds M middleware
+  as fourth axis on top, no rewrite.
+- All existing test trees (`e2e_mcp/`, `e2e_mcpb/`, `e2e_l3g/`,
+  `e2e_desktop/`, `e2e_desktop_ui/`, `e2e_cli/`) unchanged.
+
+### Next sub-run
+
+P5.B.5 implementation: 60-min RECON pass → findings doc closes 6
+open questions → 6 (or 7) cowork helpers committed to
+`tests/e2e_desktop_ui/drivers/claude_desktop.py` → `local_persistence.py`
+v0 lands → `pce-mcp.mcpb` packaged + real-machine install verified →
+16 C-case files runnable via `python -m tests.e2e_desktop_ui.run_p1_cowork_sweep`
+→ ≥13/16 PASS / 0 FAIL → CHANGELOG `v1.1.0-alpha.X-cowork-p1`.
+
+---
+
 ## [Unreleased] - 2026-05-10 (later same day) — P1 D03/D05 + P2 N/L1 + P1 chat first-pass + P1 chat web-parity extension + SKIP-conversion sweep + composer-focus sweep
 
 Five live sub-runs the same day as `alpha.10-p1-empirical`. Each one

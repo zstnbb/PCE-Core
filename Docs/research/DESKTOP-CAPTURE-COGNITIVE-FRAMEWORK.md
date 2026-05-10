@@ -468,9 +468,9 @@ render archetype / 距离评估。
 | 类型 | 代表 | 捕获面 | UCS 层 | Normalizer | Render | 距离 |
 |---|---|---|---|---|---|---|
 | 1a Electron 聊天 (Squirrel/macOS) | **Claude Desktop** | M (首) + H | `pce_mcp` server ✅ + L3b ⬜ | anthropic.py ✅ | Chat Tube ✅ | 🟢 **1 周可上线** |
-| 1a Electron 聊天 (**MSIX**, ADR-018) | **Claude Desktop** | M (首) + Persist + N | `pce_mcp` ✅ + `pce_mcp_proxy` ✅ + **L3g** ⬜ + L1 ✅ + H1 CLI wrap ⬜ | anthropic.py ✅ + local_persistence ⬜ | Chat Tube + Run Trace + Tool Tape | 🟢 1-2 周 (M+L1 现成,L3g+H1 各 1 周) |
+| 1a Electron 聊天 (**MSIX**, ADR-018) | **Claude Desktop** | M (首) + Persist + N | `pce_mcp` ✅ + `pce_mcp_proxy` ✅ + **L3g** ✅ alpha.8 (`pce_persistence_watcher/`) + L1 ✅ + H1 CLI wrap ✅ alpha.8 (`pce_cli_wrapper/`) | anthropic.py ✅ + mcp_jsonrpc.py ✅ + local_persistence ⬜ (envelope-level emit shipped, structural normaliser gated by cowork D-case need) | **Chat Tube ✅** (chat-region sub-runs 2–5: D00–D22 19/22 PASS 86%) + **Run Trace ⬜** (cowork-region agent loop) + **Tool Tape ⬜** (cowork-region MCP tool calls + skills) | 🟢 chat-region：~94% T1 实测交付 (2026-05-10 sub-runs 1–5) · cowork-region：RECON + C-case sweep 启动中（sub-phase P5.B.5）· code-region：H1 CLI wrap 交付 |
 | 1a' pin 变种 (Squirrel) | **ChatGPT Desktop** | H (pin 推回 H) + N | L3b ⬜ + L1 ✅ | openai.py ✅ | Chat Tube ✅ | 🟡 2-3 周 |
-| 1a' pin 变种 (**MSIX**, ADR-018) | **ChatGPT Desktop** | N (首) + Persist | L1 ✅ + A2 keylog ⬜ + L3g ⬜ | openai.py ✅ + local_persistence ⬜ | Chat Tube ✅ | 🟡 2-3 周 (取决于 H2 pinning 实测) |
+| 1a' pin 变种 (**MSIX**, ADR-018) | **ChatGPT Desktop** | N (首) + Persist | L1 ✅ + A2 keylog ⬜ + L3g ✅ (同 P1包，需 ChatGPT-specific LocalCache layout discovery) | openai.py ✅ + local_persistence ⬜ | Chat Tube ✅ user-side / ⚠️ assistant-side WS-handoff BLOCKED (split-channel，见 MATRIX §4.2 dated note) | 🟡 P2 chat-region user-side ✅ / assistant-side 需 WebSocket 捕获互补 (候选 4 路径见 HANDOFF-P1-D03-D05-P2-EMPIRICAL) |
 | 2a IDE-class | **Cursor / Windsurf** | M + H | L3f ⬜ + L3b ⬜ | openai/anthropic ✅ + `interaction_kind` ⬜ | Code Session ⬜ | 🟡 3-4 周 |
 | 2c 私有协议 | Cursor 原生 | N (gRPC proto) | L1 ✅ + proto decoder ⬜ | openai 兼容 | Code Session ⬜ | 🟠 4-6 周 |
 | 3 插件 | **Cline / Continue** | M + N (直连) | L3f ⬜ + L1 ✅ | mcp_jsonrpc ⬜ + openai/anthropic ✅ | Tool Tape + Chat Tube | 🟢 2 周（走 M 面） |

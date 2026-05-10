@@ -515,11 +515,12 @@ sub-phase · (blank) = not addressed by this sub-phase
 |---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
 | **P5.B.0** 姿态 A | ⏳ | | ⏳ | ⏳ | | ⏳ | ⏳ | ⏳ |
 | **P5.B.1** L3f | ➕ | | ➕ | ➕ | | ➕ | ➕ | ➕ |
-| **P5.B.2** L3d Claude | ➕ | | | | | | | |
+| **P5.B.2** L3d Claude (chat-region) | ➕ | | | | | | | |
 | **P5.B.3** L3d IDE | | | ➕ | ➕ | | | | |
 | **P5.B.4-A** L1 Copilot | | | | | ⏳ | | | |
 | **P5.B.4-B** L3e gateway | | | | | | ➕ | ➕ | ➕ |
 | **P5.B.4-C** ChatGPT probe | | ⏳ (best-effort) | | | | | | |
+| **P5.B.5** P1 cowork-region | ➕ | | | | | | | |
 
 ### 10.2 What each cell delivers
 
@@ -532,6 +533,7 @@ sub-phase · (blank) = not addressed by this sub-phase
 | **P5.B.4-A** | Adds D01-D08 + D10-D12 for **P5** via L1 proxy. **D2 gate met for P5.** |
 | **P5.B.4-B** | Adds D01-D11 for **P7 + P8** (and any non-MCP fallback for P6). **D1 gate met for P7 + P8.** |
 | **P5.B.4-C** | Attempts D01-D07 + D10-D12 for **P2 ChatGPT Desktop** via L3b. If pinning blocks, partial D2 acceptance + P6 hand-off ADR. |
+| **P5.B.5** | Adds **C00–C16 cowork-region C-cases** for **P1 only** (Claude Desktop's Cowork tab — agent task launcher with `/`-triggered Skills + Live artifacts + Dispatch (Beta) + Scheduled tasks + sandboxed `/mnt/user-data/{uploads,outputs}` filesystem). Unlocks **Tool Tape** + **Run Trace** render archetypes. Three-axis acceptance: M plane via `pce-mcp.mcpb` install + `pce_mcp_proxy` wrap; L3g plane via `pce_persistence_watcher` against `local-agent-mode-sessions/`; UI plane via `tests/e2e_desktop_ui/` reusing the focus-verified driver from chat sub-run 5 (composer is shared between Chat and Cowork tabs). **P1 cowork-region D0 sub-gate met when ≥80% (13/16) of applicable C-cases pass.** Detailed C-case spec in `DESKTOP-PRODUCT-MATRIX.md` §5.B; per-axis acceptance + RECON walkthrough in `Docs/handoff/HANDOFF-P1-CLAUDE-DESKTOP-COWORK-KICKOFF-2026-05-10.md`. |
 
 ### 10.3 Critical dependencies
 
@@ -587,10 +589,18 @@ P5.B ships (i.e. tag `v1.1.0`) when:
 - [ ] **D1 gate** met: P4, P7, P8 each ≥70%.
 - [ ] **D2 gate** met (or formally deferred via ADR): P2 ≥50% OR
       P6 hand-off ADR landed; P5 ≥50% OR documented why not.
+- [ ] **P1 cowork-region sub-gate** met: P1 hits ≥80% (13/16) of
+      applicable C-cases per `DESKTOP-PRODUCT-MATRIX.md` §4.1.B +
+      §5.B + §7.5 P5.B.5. Tool Tape + Run Trace archetypes have
+      data shape landed (renderer can ship in P5.C without
+      blocking v1.1).
 - [ ] Install docs under `Docs/install/` cover **all 8 target
       products** end-to-end.
-- [ ] `tests/e2e_mcp/`, `tests/e2e_desktop/`, `tests/e2e_cli/` each
-      have ≥3 passing D-cases.
+- [ ] `tests/e2e_mcp/` (M-plane), `tests/e2e_desktop/` (cross-product
+      CDP-era cases), `tests/e2e_desktop_ui/` (UIA-driven P1 chat +
+      cowork sweeps; sub-runs 1–5 + P5.B.5), `tests/e2e_l3g/`
+      (persistence axis), `tests/e2e_mcpb/` (`.mcpb` artefact),
+      `tests/e2e_cli/` (CLI gateway) each have ≥3 passing cases.
 - [ ] Migration 0010 (`interaction_kind`) landed and idempotent
       (renumbered from the originally-proposed 0009 per ADR-016
       §3.6; 0009 belongs to `mcp-proxy-default` source row).
