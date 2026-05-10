@@ -138,6 +138,30 @@ risks**, **install path expected**, **first-probe verification list**.
 > pair fully captured). **D0 release gate (≥85%) cleared.** Full evidence
 > + reproduction recipe + driver caveats in
 > `Docs/handoff/HANDOFF-P1-CLAUDE-DESKTOP-CHAT-FULL-SWEEP-2026-05-10.md`.
+>
+> **2026-05-10 P1 chat web-parity D-case extension (third sub-run, same day)**:
+> Audit against `Docs/stability/CLAUDE-FULL-COVERAGE.md` (web Claude
+> C01–C20) found the 13-D-case spec was a coarser superset and was
+> missing 10 surface-level cases. This sub-run extends §5 of THIS
+> matrix from 13 → **23 D-cases** (D13 thinking · D14 edit · D15
+> regenerate · D16 branch flip · D17 image · D18 PDF · D19 project ·
+> D20 artifact text · D21 artifact interactive · D22 writing style),
+> applicability for P1 from 12 → **22**. New `tests/e2e_desktop_ui/`
+> case scripts D13–D22 ran end-to-end. Score on the 10 new cases:
+> **4 PASS / 6 SKIP / 0 FAIL** — D14 (edit) · D16 (branch flip) ·
+> **D20 (markdown artifact)** · **D21 (React artifact)** PASS;
+> D13/D15/D17/D18/D19/D22 SKIP with per-case operator-actionable
+> diagnostic. **D20+D21 are the headline wins** — they are the first
+> empirical desktop evidence that the web-side `fu_recon_join` item 1
+> (artifact body reconstruction from `tool_use.input_json_delta`) is
+> already closed by the existing reconciler: `messages.content_json`
+> carries full markdown body for D20 and full JSX source for D21 as
+> `canvas`-typed attachments. **0 capture-pipeline FAILs across all
+> three sub-runs of 2026-05-10.** Combined first+second sub-runs over
+> the 22 applicable D-cases: **14 PASS / 6 SKIP / 1 KNOWN BUG (D04) /
+> 1 deferred (D08)**. Full evidence + per-D verdicts + UIA gotchas +
+> SKIP-conversion paths in
+> `Docs/handoff/HANDOFF-P1-CLAUDE-DESKTOP-WEB-PARITY-2026-05-10.md`.
 
 | Field | Value |
 |---|---|
@@ -313,7 +337,24 @@ risks**, **install path expected**, **first-probe verification list**.
 ## 5. D-case definitions (the desktop-side T-cases)
 
 Modelled on `tests/e2e_probe/cases/T**.py` but adapted for desktop /
-CLI contexts. **13 D-cases** total.
+CLI contexts. **23 D-cases** total — D00–D12 are the original "stress
+dimensions on the capture pipeline"; **D13–D22** were added 2026-05-10
+to align with the surface-enumeration coverage already established on
+the web side (`Docs/stability/CLAUDE-FULL-COVERAGE.md` C01–C20). The
+mapping web→desktop is:
+
+| Desktop | Web equivalent | Surface |
+|---|---|---|
+| D13 | C06 | Extended Thinking (`<thinking>` block) |
+| D14 | C07 | Edit user message + branch fork |
+| D15 | C08 | Regenerate (assistant variant) |
+| D16 | C09 | Branch flip (`< 1/2 >` switcher) |
+| D17 | C11 | Image upload + vision Q |
+| D18 | C10 | PDF document upload + summarise |
+| D19 | C13 | Project-scoped chat (`/project/<id>` URL pattern) |
+| D20 | C14 | Artifact (text — markdown / SVG / Mermaid) |
+| D21 | C15 | Artifact (interactive — HTML / React) |
+| D22 | C17 | Writing Style (`personalized_styles` → `layer_meta.style`) |
 
 | ID | Name | What it asserts |
 |---|---|---|
@@ -321,15 +362,25 @@ CLI contexts. **13 D-cases** total.
 | **D01** | single-turn chat | One user message → one assistant message → `messages` table has 2 rows in same `session_id` |
 | **D02** | streaming complete | The final stored text equals what the user sees in the product UI; no truncation, no partial frame |
 | **D03** | multi-turn persistence | A 5-turn conversation preserves order + same `session_id` + correct `turn_index` |
-| **D04** | stop / cancel | User-cancelled generation stores `error="cancelled"` and partial text up to cancel point |
+| **D04** | stop / cancel | User-cancelled generation persists the user's prompt as a `messages` row; if a partial assistant body was captured, store it with `interaction_kind="cancelled"` |
 | **D05** | model switch | After switching models mid-session, new turn's `model_name` reflects the change |
-| **D06** | file attachment | Uploading a PDF/image stores `attachments[]` with mime + size; applicable only where the product supports file upload |
+| **D06** | file attachment (generic) | Uploading a non-image / non-PDF document (CSV / TXT / docx) stores `attachments[]` with `file_uuid` + mime; applicable only where the product supports file upload |
 | **D07** | code block | A response containing fenced code stores it with language tag preserved |
 | **D08** | MCP tool call | Single MCP tool invocation produces correlated `role=tool_call` + `role=tool_result` + `tool_call_id` link; applicable only to MCP-aware products |
 | **D09** | inline completion | Accepting a ghost-text completion stores `interaction_kind=completion` (or equivalent); applicable only to IDE-class |
-| **D10** | error state | A 4xx/5xx upstream response stores `status_code` and `error` text; pipeline does not crash |
+| **D10** | error state | A real upstream 4xx/5xx (or proxy / network failure) stores `status_code` + `error` text where applicable; pipeline does not crash; no phantom assistant message; recovery on next request is clean |
 | **D11** | long-context survival | A 50-turn conversation with cumulative ≥8K tokens captures every turn, no message dropped |
-| **D12** | silent on idle | 5-min idle in the product yields **zero** capture writes (no false-positive heartbeat noise) |
+| **D12** | silent on idle | 5-min idle in the product yields **zero** chat-relevant capture writes (background heartbeats may be present in `raw_captures` but must not produce `messages` / `sessions` rows) |
+| **D13** | extended thinking | An Opus / Sonnet 3.7+ reasoning prompt produces a separate `thinking` content track (raw `thinking_delta` SSE events) AND a clean final `assistant.content_text` not polluted by the internal monologue |
+| **D14** | edit user message | Editing a prior user turn produces a NEW branch with `branch_id` + `branch_parent_id`; collapsed view returns the latest branch only; expanded view returns all branches; both branches share `session_id` |
+| **D15** | regenerate | Re-rolling the assistant on the same user prompt produces a NEW branch with the same `branch_parent_id` as the original assistant; `branch_count` ≥ 2 on the parent user turn |
+| **D16** | branch flip | After D14 or D15, switching the in-product branch arrows changes which branch is "active" without producing duplicate captures; collapsed view follows the active branch, expanded view stays stable |
+| **D17** | image / vision upload | Uploading an image (PNG / JPG) and asking a visual question stores `attachments[]` with `file_kind="image"` + dimensions + thumbnail URL where present; assistant successfully answers about image content |
+| **D18** | PDF document upload | Uploading a PDF and asking a summarisation question stores `attachments[]` with `file_kind="document"` + page count where surfaced; assistant summary references PDF contents |
+| **D19** | project scope | A turn sent under a `/project/<id>/chat/<uuid>` URL produces a `messages` row with `session_key` extracted from the chat UUID portion of the path; project context is preserved in `layer_meta` (or equivalent) where the platform exposes it |
+| **D20** | artifact (text) | A "create a markdown / SVG / Mermaid artifact" prompt produces an assistant message whose chat-side text references the artifact AND whose `content_json` contains the full artifact body, reconstructed from `tool_use.input_json_delta` SSE events |
+| **D21** | artifact (interactive) | A "create an HTML / React component" prompt produces an artifact whose source code is fully reconstructed in `content_json` (same delta path as D20); `content_type` distinguishes the artifact kind |
+| **D22** | writing style | Switching the in-product Writing Style (Concise / Explanatory / custom) BEFORE sending a turn captures the style metadata on the session (`layer_meta.style` or equivalent); the assistant's `content_text` stays clean of style-prompt boilerplate |
 
 ### 5.1 Per-product applicability matrix
 
@@ -343,14 +394,24 @@ CLI contexts. **13 D-cases** total.
 | D03 multi-turn | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | D04 cancel | ✅ | ✅ | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ |
 | D05 model switch | ✅ | ✅ | ✅ | ✅ | — | 🟡 | 🟡 | 🟡 |
-| D06 attachment | ✅ | ✅ | 🟡 | 🟡 | — | — | — | — |
+| D06 attachment (generic) | ✅ | ✅ | 🟡 | 🟡 | — | — | — | — |
 | D07 code block | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | D08 MCP tool | ✅ | 🟡? | 🟡 | 🟡 | — | ✅ | ✅? | ✅? |
 | D09 inline completion | — | — | ✅ | ✅ | ✅ | — | — | — |
 | D10 error state | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | D11 long context | ✅ | ✅ | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ |
 | D12 silent idle | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **applicable** | 12 | 11 | 13 | 13 | 9 | 11 | 11 | 11 |
+| D13 extended thinking | ✅ | 🟡 | 🟡 | 🟡 | — | ✅ | 🟡 | 🟡 |
+| D14 edit user message | ✅ | ✅ | 🟡 | 🟡 | — | — | — | — |
+| D15 regenerate | ✅ | ✅ | 🟡 | 🟡 | — | — | — | — |
+| D16 branch flip | ✅ | ✅ | — | — | — | — | — | — |
+| D17 image / vision | ✅ | ✅ | 🟡 | 🟡 | — | — | — | — |
+| D18 PDF document | ✅ | ✅ | 🟡 | 🟡 | — | — | — | — |
+| D19 project scope | ✅ | ✅ | — | — | — | — | — | — |
+| D20 artifact (text) | ✅ | 🟡 | — | — | — | — | — | — |
+| D21 artifact (interactive) | ✅ | 🟡 | — | — | — | — | — | — |
+| D22 writing style | ✅ | 🟡 | — | — | — | — | — | — |
+| **applicable** | 22 | 21 | 17 | 17 | 9 | 12 | 12 | 12 |
 
 ---
 

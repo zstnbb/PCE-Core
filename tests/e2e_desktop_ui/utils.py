@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import ctypes
 import sqlite3
+import sys
 import time
 from pathlib import Path
 from typing import Optional
@@ -35,6 +36,26 @@ import win32con
 import win32gui
 import win32process
 from pywinauto.mouse import click as _mouse_click
+
+
+def configure_utf8_stdout() -> None:
+    """Force ``sys.stdout`` / ``sys.stderr`` to UTF-8 with replace-on-error.
+
+    Default Windows console codec on a Chinese-locale machine is GBK,
+    which fails on emojis, mathematical symbols, CJK glyphs in unusual
+    combinations, and various Unicode control characters that show up
+    routinely in captured assistant replies. This is a no-op on
+    machines that already have UTF-8 stdout.
+
+    Idempotent. Safe to call from every case ``main()``.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+        except (AttributeError, OSError, ValueError):
+            # Stream already detached or older Python; ignore — the
+            # case will at least show partial output.
+            pass
 
 
 # ---------- Foreground / focus ----------

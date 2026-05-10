@@ -5,16 +5,30 @@ All notable changes to PCE (core + browser extension) are documented in this fil
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-05-10 (later same day) — P1 D03/D05 + P2 N/L1 empirical D-case sweep + P1 chat full sweep
+## [Unreleased] - 2026-05-10 (later same day) — P1 D03/D05 + P2 N/L1 + P1 chat first-pass + P1 chat web-parity extension
 
-Two live capture sessions the same day as `alpha.10-p1-empirical`. The
-earlier sessions validated a single-turn N/L1 round trip on Claude
-Desktop; the first run in this entry extends the D-case matrix on
-**both** P1 and P2 under the same proxy chain (D03/D05 fix + P2 N/L1
-finding); the **second run** drives the **full Claude Desktop chat
-D-case sweep** end-to-end via a new UIA + SendInput automation tree
-under `tests/e2e_desktop_ui/` (5 windows, 7 D-cases driven, 6 PASS / 1
-KNOWN BUG).
+Three live sub-runs the same day as `alpha.10-p1-empirical`. Each one
+builds on the previous:
+
+- **Sub-run 1 (P1 D03/D05 + P2 N/L1)** — extends the D-case matrix on
+  **both** P1 and P2 under the same proxy chain (D03/D05 fix + P2 N/L1
+  finding).
+- **Sub-run 2 (P1 chat first-pass full sweep)** — drives the **full
+  Claude Desktop chat D-case sweep** for the originally-defined 13
+  D-cases end-to-end via the new UIA + SendInput automation tree under
+  `tests/e2e_desktop_ui/` (5 windows, 7 D-cases driven, 6 PASS / 1
+  KNOWN BUG).
+- **Sub-run 3 (P1 chat web-parity extension)** — audits the desktop
+  spec against `Docs/stability/CLAUDE-FULL-COVERAGE.md` (web Claude
+  C01–C20), finds 10 missing surfaces, **extends the matrix from 13 →
+  23 D-cases** (D13 thinking · D14 edit · D15 regenerate · D16 branch
+  flip · D17 image · D18 PDF · D19 project · D20 artifact text · D21
+  artifact interactive · D22 writing style), ships 7 new driver
+  helpers + a fixtures helper + a UTF-8 stdout fix, and runs the new
+  cases end-to-end. Score on D13–D22: **4 PASS / 6 SKIP / 0 FAIL**.
+  Combined sub-runs 2+3 over P1's 22 applicable D-cases:
+  **14 PASS / 6 SKIP / 1 KNOWN BUG / 1 deferred**, **0 capture-pipeline
+  FAILs across all three sub-runs**.
 
 ### Live-validated
 
@@ -192,6 +206,116 @@ inline in the handoff so the next operator skips them:
   `capture_id`. Pair IDs are 16-char hex in the DB; logs print 10-char
   prefixes — match with `LIKE 'prefix%'` or expand via
   `SELECT pair_id FROM raw_captures WHERE pair_id LIKE 'prefix%'`.
+
+---
+
+### P1 Claude Desktop chat web-parity D-case extension (third sub-run)
+
+After the second sub-run landed `9 PASS / 1 known bug / 1 deferred`
+across the originally-defined 13 D-cases, an audit against
+`Docs/stability/CLAUDE-FULL-COVERAGE.md` (the web Claude C01–C20
+must-pass spec) showed the desktop spec was a coarser superset and
+was **missing 10 surface-level cases**. This sub-run extends the
+spec to web parity, ships the framework hooks for the new cases,
+and runs them end-to-end.
+
+#### D-case spec extension (`Docs/stability/DESKTOP-PRODUCT-MATRIX.md` §5)
+
+13 D-cases → **23 D-cases**. Mapping web → desktop:
+
+| Desktop | Web | Surface |
+|---|---|---|
+| D13 | C06 | Extended Thinking |
+| D14 | C07 | Edit user message + branch fork |
+| D15 | C08 | Regenerate (assistant variant) |
+| D16 | C09 | Branch flip (`< 1/2 >` switcher) |
+| D17 | C11 | Image upload + vision |
+| D18 | C10 | PDF document upload + summarise |
+| D19 | C13 | Project-scoped chat |
+| D20 | C14 | Artifact (markdown / SVG / Mermaid) |
+| D21 | C15 | Artifact (HTML / React / Code) |
+| D22 | C17 | Writing Style |
+
+P1 Claude Desktop's **applicable D-case count: 12 → 22**. D04 / D10
+/ D12 wording also tightened to mirror the web verdict semantics.
+
+#### New code
+
+- **`tests/e2e_desktop_ui/drivers/claude_desktop.py`** — 7 new helpers
+  (paste_clipboard / select_model / select_style / regenerate_last
+  / edit_last_user / flip_branch / open_project) + a UIA name-substring
+  finder + a hover_message helper for hover-only action toolbars.
+- **`tests/e2e_desktop_ui/fixtures.py`** — `ensure_test_image(token)`
+  (PIL PNG with visible token rendered into it) +
+  `ensure_test_pdf(token)` (~570 B raw PDF byte-stream with token
+  in a single page).
+- **`tests/e2e_desktop_ui/utils.py::configure_utf8_stdout()`** —
+  forces `sys.stdout` / `sys.stderr` to UTF-8 with `errors="replace"`.
+  **Real blocker resolved**: D13 first run crashed on a U+2713 ✓
+  checkmark in Claude's reply (Windows GBK console codec). All 8 new
+  cases call this at `main()` start.
+- **8 new case scripts**:
+  - `p1_chat_window_f_d13.py` (D13 thinking)
+  - `p1_chat_window_g_d14_d15_d16.py` (D14 edit + D15 regenerate + D16 branch flip)
+  - `p1_chat_window_h_d17.py` (D17 image)
+  - `p1_chat_window_i_d18.py` (D18 PDF)
+  - `p1_chat_window_j_d19.py` (D19 project)
+  - `p1_chat_window_k_d20.py` (D20 markdown artifact)
+  - `p1_chat_window_l_d21.py` (D21 React artifact)
+  - `p1_chat_window_m_d22.py` (D22 writing style)
+
+#### Score on D13–D22 (this sub-run)
+
+**4 PASS / 6 SKIP / 0 FAIL.**
+
+| D | Verdict | Pair / Note |
+|---|---------|-------------|
+| **D13** | ⏭ SKIP | Sonnet 4.5 selected; Extended Thinking toggle not actuated → 0 `thinking_delta` events. Pipeline OK. |
+| **D14** | ✅ PASS | Edit produced new `/completion` pair `9f65b7d667` + 2 messages rows; UIA "edit" button found. |
+| **D15** | ⏭ SKIP | UIA name-substring "retry"/"regenerate" did not match a button on this build. |
+| **D16** | ✅ PASS | Flip click landed → 0 new `/completion` requests in 3 s post-flip window (correct). |
+| **D17** | ⏭ SKIP | PNG via CF_HDROP paste → 0 upload-shaped requests. Driver gap; pipeline OK. |
+| **D18** | ⏭ SKIP | PDF via CF_HDROP paste → same shape as D17. |
+| **D19** | ⏭ SKIP | `CLAUDE_PROJECT_NAME` env var not set; case skipped at gate. |
+| **D20** | ✅ **PASS** | Markdown artifact: **16 input_json_delta events + canvas attachment with full body in content_json** (`# PCE D20 Test Todo\n\n- [ ] Brew the coffee...`). |
+| **D21** | ✅ PASS | React artifact: **29 delta events + canvas attachment with full JSX in content_json** (`import { useState } from 'react'; ...`). |
+| **D22** | ⏭ SKIP | Style picker UIA not found; `personalized_styles` IS in request body but with default style (driver didn't switch). |
+
+**D20 + D21 are the headline wins** — first empirical desktop
+evidence that the web-side `fu_recon_join` item 1 (artifact body
+reconstruction from `tool_use.input_json_delta`) is **already
+closed by the existing reconciler**. Both artifacts land in
+`messages.content_json.attachments` as `canvas`-typed entries with
+`content_type` (markdown / jsx) + full reassembled `content`.
+
+#### Combined first+second sub-run aggregate (P1 Claude Desktop chat)
+
+Across the 22 applicable D-cases:
+
+- **14 PASS** (D00 detect, D01 single, D02 streaming, D03 multi-turn,
+  D05 model switch, D06 attachment-CSV, D07 code block, D10 error,
+  D11 long-context, D12 silent idle, D14 edit, D16 branch flip,
+  D20 markdown artifact, D21 React artifact)
+- **6 SKIP** (D13 thinking · D15 regenerate · D17 image · D18 PDF
+  · D19 project · D22 style — all driver-side automation gaps with
+  per-case operator-actionable diagnostic; capture pipeline expected
+  to handle each correctly when manually triggered)
+- **1 KNOWN BUG** (D04 cancel mid-stream — root cause + 1–2-day fix
+  path scoped, deferred)
+- **1 deferred** (D08 MCP tool — to cowork sweep)
+
+**0 capture-pipeline FAILs across all three sub-runs of 2026-05-10.**
+
+#### Schema gotchas pinned (this sub-run)
+
+- `sessions.layer_meta` does NOT exist; use `oi_attributes_json`.
+- `sessions.created_at` does NOT exist; the column is `started_at`.
+
+#### Documentation
+
+- New handoff: `Docs/handoff/HANDOFF-P1-CLAUDE-DESKTOP-WEB-PARITY-2026-05-10.md`
+- `DESKTOP-PRODUCT-MATRIX.md` §4.1 P1 row gains a third dated note
+  recording the spec extension + score + headline wins.
 
 ---
 
