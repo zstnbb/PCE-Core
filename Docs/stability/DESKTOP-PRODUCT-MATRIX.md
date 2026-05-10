@@ -122,6 +122,22 @@ risks**, **install path expected**, **first-probe verification list**.
 > live-stabilised this session (8 captures emitted on first scan, 0 emitted /
 > 8 deduped on second scan, watch loop ticking cleanly across 3 polls;
 > `8ea14b2 fix(l3g)` aligned `stats["session"]` key with `rec.kind`).
+>
+> **2026-05-10 P1 chat full D-case sweep** (post-Bug-1 fix): Same-day
+> follow-up — 5 automated windows under the new `tests/e2e_desktop_ui/`
+> framework (UIA + SendInput driver). Score: **9 PASS / 1 known bug /
+> 1 deferred** out of 12 applicable D-cases on Claude Desktop chat:
+> D00/D01/D02/D03/D05/D06/D07/D10/D11/D12 ✅ · D04 ❌ (request captured
+> but no message persisted — `pipeline.try_normalize_pair` requires both
+> request+response sides; cancel-mid-stream means response never arrives;
+> root cause documented + 1–2-day fix path scoped) · D08 ⏭ deferred to
+> cowork sweep. Empirical headlines: D11 50/50 turns + 100/100 messages
+> + 1 session + 14 378 cumulative tokens; D12 0 chat writes / 310 s idle;
+> D06 file_uuid + 4 tool_calls preserved in `content_json`; D10 fail-closed
+> (proxy kill mid-stream → no phantom message + clean restart + smoke
+> pair fully captured). **D0 release gate (≥85%) cleared.** Full evidence
+> + reproduction recipe + driver caveats in
+> `Docs/handoff/HANDOFF-P1-CLAUDE-DESKTOP-CHAT-FULL-SWEEP-2026-05-10.md`.
 
 | Field | Value |
 |---|---|

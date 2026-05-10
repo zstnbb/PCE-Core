@@ -5,12 +5,16 @@ All notable changes to PCE (core + browser extension) are documented in this fil
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-05-10 (later same day) — P1 D03/D05 + P2 N/L1 empirical D-case sweep
+## [Unreleased] - 2026-05-10 (later same day) — P1 D03/D05 + P2 N/L1 empirical D-case sweep + P1 chat full sweep
 
-Second live capture window the same day as `alpha.10-p1-empirical`. The
-earlier run validated a single-turn N/L1 round trip on Claude Desktop;
-this run extends the D-case matrix on **both** P1 and P2 under the
-same proxy chain.
+Two live capture sessions the same day as `alpha.10-p1-empirical`. The
+earlier sessions validated a single-turn N/L1 round trip on Claude
+Desktop; the first run in this entry extends the D-case matrix on
+**both** P1 and P2 under the same proxy chain (D03/D05 fix + P2 N/L1
+finding); the **second run** drives the **full Claude Desktop chat
+D-case sweep** end-to-end via a new UIA + SendInput automation tree
+under `tests/e2e_desktop_ui/` (5 windows, 7 D-cases driven, 6 PASS / 1
+KNOWN BUG).
 
 ### Live-validated
 
@@ -77,17 +81,117 @@ same proxy chain.
   root causes, fix details, D-case scoring, reproduction recipe,
   cross-references, open follow-ups for next operator).
 
-### D-case status after this run
+### D-case status after the first sub-run (P1 D03/D05 + P2 N/L1)
 
 | ID | Pre-run | Post-run | Note |
 |----|---------|----------|------|
 | P1 D01 | ✅ alpha.10 | ✅ | unchanged |
 | P1 D03 multi-turn | ❌ | ✅ FIXED | Bug 1 fix in this commit |
 | P1 D05 model switch | ⏭ | ✅ | empirically attested |
-| P1 D11 long-context | ⏭ | ⏭ | not exercised |
+| P1 D11 long-context | ⏭ | ⏭ | not exercised in this sub-run |
 | P1 D12 silent-on-idle | ⏭ | ⏭ | window contaminated; needs dedicated run |
 | P2 D01 user msg | ⏭ | ✅ | empirically attested |
 | P2 D02 assistant msg | (assumed ✅ via L1) | ❌ BLOCKED | architectural finding (Bug 2) |
+
+---
+
+### P1 Claude Desktop chat full D-case sweep (second sub-run)
+
+After Bug 1 was fixed in the first sub-run, a second pass automated
+the remaining applicable D-cases for Claude Desktop chat through a
+new UIA + SendInput driver. Five sequential windows, ~25 minutes
+total wall-clock. The new automation tree lives at
+`tests/e2e_desktop_ui/` with companion inspectors at the repo root.
+
+#### New code
+
+- **`tests/e2e_desktop_ui/__init__.py`** — package overview + boundary
+  vs `tests/e2e_desktop/`.
+- **`tests/e2e_desktop_ui/utils.py`** — `force_foreground` (Windows
+  `AttachThreadInput` trick), `click_at` (absolute screen coordinates
+  for Chromium child-window focus), `baseline_ts` (UTC seconds via
+  `time.time()` — fixes the local-vs-UTC offset bug that bit prior
+  runs that used PowerShell `Get-Date -UFormat %s`),
+  `count_completions`, `latest_completion_pair_id`,
+  `wait_completion_response`, `wait_for_new_completion`,
+  `copy_files_to_clipboard` (`CF_HDROP` for D06 attachment paste).
+- **`tests/e2e_desktop_ui/drivers/base.py`** — `DesktopDriver` ABC
+  with `focus`, `click_composer`, `send_message`, `wait_done`,
+  `cancel_current`, `new_chat`. Stable across product drivers.
+- **`tests/e2e_desktop_ui/drivers/claude_desktop.py`** — concrete
+  Claude Desktop driver. Empirically validated: UIA backend +
+  bottom-center mouse click before typing + `send_keys(vk_packet=True)`
+  for IME bypass + `{ESC}` for stop generation + `Ctrl+N` (after
+  composer click) for new chat.
+- **5 case scripts under `tests/e2e_desktop_ui/cases/`**:
+  - `p1_chat_window_a.py` — D03 + D07 + D04 in a 5-turn conversation
+  - `p1_chat_window_b_d11.py` — D11 long-context (50 turns, distinct prompts)
+  - `p1_chat_window_c_d12.py` — D12 idle (5 min + 10 s)
+  - `p1_chat_window_d_d06.py` — D06 attachment via clipboard paste
+  - `p1_chat_window_e_d10.py` — D10 mid-stream proxy kill + restart
+
+#### D-case results (this sub-run)
+
+| ID | Pre-run | Post-run | Evidence |
+|----|---------|----------|----------|
+| P1 D03 multi-turn | ✅ alpha.11 (regression) | ✅ | 5 turns / 1 session — Bug 1 fix held |
+| P1 D04 cancel mid-stream | ⏭ | ❌ KNOWN BUG | request captured, response missing, no `messages` row — see "Known limitations" below |
+| P1 D06 attachment | ⏭ | ✅ | CSV upload + completion: user `content_json.attachments=[{type:file, file_uuid:0778d897-…}]`, assistant `content_json.attachments=[4 tool_call view items]`, final answer "**item** and **value**" preserved |
+| P1 D07 code block | ⏭ | ✅ | turn-3 ` ```python ` fenced block survives in assistant `content_text` |
+| P1 D10 error mid-stream | ⏭ | ✅ | fail-closed: killed pair has request only and **0** phantom messages; restart produces clean smoke pair (status 200, body 6459 B, 2 messages) |
+| P1 D11 long-context | ⏭ | ✅ | **50/50 turns + 100/100 messages + 1 session + 14 378 cumulative tokens**, monotonic `turn_index` 0..99, 0 drops |
+| P1 D12 silent on idle | ⏭ | ✅ | over 310 s idle: completion req Δ=0, messages Δ=0, sessions Δ=0; `raw_captures` Δ=+8 (Electron-app heartbeats — `current_user_access`, `app_start`, `system_prompts`, `cowork_settings`) |
+
+**Aggregate score: 9 PASS / 1 known bug / 1 deferred** out of 12
+applicable D-cases on Claude Desktop chat (D08 deferred to upcoming
+cowork sweep). **D0 release gate (≥85%) cleared empirically.**
+
+#### Known limitations
+
+- **D04 cancel-mid-stream user message loss** —
+  `pce_core/normalizer/pipeline.py::try_normalize_pair` requires both
+  request AND response rows (`if len(rows) < 2: return None`). On
+  user-initiated cancel via `{ESC}`, mitmproxy's `response()` hook
+  never fires (client TCP closed before upstream finished), so no
+  response row is written, the pipeline gives up, and the user's
+  prompt — though sitting in `raw_captures` — never surfaces as a
+  `messages` row. D10 has the same shape (proxy killed mid-stream),
+  but for D10 the fail-closed semantics are the **correct** product
+  behaviour; for D04 the user-authored prompt should remain in
+  history. Fix path: 3 coordinated changes (new
+  `try_normalize_pair_request_only`, extend `anthropic.normalize_pair`
+  to handle `response_row=None`, add either a `client_disconnected`
+  hook OR a periodic orphan-request sweep). Estimated 1–2 person-days
+  incl. tests. Tracked under medium-priority follow-up.
+- **D08 MCP tool call** is intentionally NOT included in this chat
+  sweep — Claude Desktop's MCP traffic flows through `pce_mcp_proxy/`
+  (M-axis), not `pce_proxy/` (N-axis), so it belongs in the upcoming
+  cowork sweep with separate fixtures.
+
+#### Documentation
+
+- New handoff:
+  `Docs/handoff/HANDOFF-P1-CLAUDE-DESKTOP-CHAT-FULL-SWEEP-2026-05-10.md`
+  (6 sections, ~290 lines: framework, per-window evidence, known D04
+  bug + fix path, reproduction recipe, schema gotchas, follow-ups).
+- `Docs/stability/DESKTOP-PRODUCT-MATRIX.md` §4.1 P1 row gains a new
+  dated note recording the 9/1/1 score and the cleared D0 gate.
+
+#### Schema gotchas pinned for next operator
+
+These cost ~30 min of debug each in this session and are documented
+inline in the handoff so the next operator skips them:
+
+- `~/.pce/data/pce.db` is the canonical DB path
+  (`pce_core.db.DB_PATH`); some older inspector scripts hard-coded
+  `~/.pce/db.sqlite3` and produce "no such table" errors.
+- `messages` table has **no** `error` column; cancel/error state lives
+  in `interaction_kind` or `content_json` markers.
+- `raw_captures` column is `headers_redacted_json`, not `headers_json`.
+- `messages` join key to captures is `capture_pair_id`, not
+  `capture_id`. Pair IDs are 16-char hex in the DB; logs print 10-char
+  prefixes — match with `LIKE 'prefix%'` or expand via
+  `SELECT pair_id FROM raw_captures WHERE pair_id LIKE 'prefix%'`.
 
 ---
 

@@ -48,6 +48,16 @@ Thumbs.db
 /scripts/_diag_*.py
 /scripts/_dump_*.py
 
+# Desktop UI sweep ephemeral state (tests/e2e_desktop_ui/* per-window logs +
+# proxy runtime files + debug body dumps; the cases re-create these on every
+# run, so committing would just churn).
+/_window_*_log.txt
+/_baseline_ts.txt
+/_d06_dump/
+/_mitm.out
+/_mitm.err
+/_mitm.pid
+
 # Node / .mcpb bundles (ADR-016 §3.3 — pce_mcp/mcpb/)
 node_modules/
 *.mcpb
