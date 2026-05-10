@@ -132,12 +132,17 @@ class ChromiumStateObserver:
         self.include_bodies = bool(include_bodies)
         self._lock = threading.Lock()
         self._state = _load_state(state_path) if state_path else _DedupState()
+        # Per-kind counters mirror the AgentSessionRecord.kind values
+        # ("session" / "skills_catalogue" / "local_config") plus the
+        # non-AgentSessionRecord paths ("leveldb" / "indexeddb_summary").
+        # Keep keys SINGULAR-MATCHING-rec.kind so observe_agent_session's
+        # generic ``stats[rec.kind] += 1`` lands in the right counter.
         self.stats: dict[str, int] = {
             "records_seen": 0,
             "records_emitted": 0,
             "records_deduped": 0,
             "capture_failures": 0,
-            "sessions": 0,
+            "session": 0,
             "skills_catalogue": 0,
             "leveldb": 0,
             "local_config": 0,
