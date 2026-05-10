@@ -1,20 +1,30 @@
-# Cowork-region RECON findings — PARTIAL (Q0 closed pre-RECON)
+# Cowork-region RECON findings — PARTIAL (Q0 ✅, Q1/Q6 substantial, +Q7/Q8 new)
 
-> **Status**: **Q0 closed** empirically 2026-05-11 06:48 during the
-> P5.B.5.4 `.mcpb` smoke-test (see Q0 § below). The remaining
-> Q1–Q6 are still gated on a 60-min RECON.
+> **Status**: **Q0 fully closed** as **Outcome B** (read-only registry;
+> L3f-Cowork via official channel out of reach) by the 2026-05-11
+> 06:55 Cowork MCP namespace probe — evidence at
+> `tests/manual/cowork_mcp_namespace_2026-05-11-0655.md`. Probe also
+> substantially closes **Q1** (Skills picker is an inline interactive
+> widget rendered descendantly, not a separate Win32 popup) and
+> partially closes **Q6** (scheduled tasks carry "session tracking"
+> at create-time → lifecycle leans eager) and reveals **two new
+> architectural questions** Q7 (Live Artifacts mechanics) and Q8
+> (file-share UX). Net effect: original 60-min RECON scope can
+> shrink to ~30 min, focused on Q2 / Q3 / Q5 + N-axis empirical
+> verification of Q6's eager-vs-lazy lean.
 >
 > **Cross-references** from `Docs/stability/DESKTOP-PRODUCT-MATRIX.md`
 > §5.B.2 / §7.5 and `Docs/handoff/HANDOFF-P1-CLAUDE-DESKTOP-COWORK-
 > KICKOFF-2026-05-10.md` §4 resolve here.
 >
 > **Authority**: this is the real findings doc once filled in. All
-> 7 questions (Q0 + Q1–Q6) below MUST carry empirical evidence before
+> 9 questions (Q0–Q8) below MUST carry empirical evidence before
 > P5.B.5 implementation may proceed (per the gating rule in
 > `HANDOFF-P1-CLAUDE-DESKTOP-COWORK-KICKOFF-2026-05-10.md` §4.3).
-> Q0 is the only architectural blocker because it forces a reframing
-> of C16 (originally "Cowork sees PCE tools") AND opens a new
-> question about L3f-Cowork capture strategy.
+> Q0 forces a reframing of C16 (originally "Cowork sees PCE tools")
+> AND files L3f-Cowork as `KNOWN-PHASE6-DEFERRED` per Outcome B.
+> Q7 and Q8 are NEW acceptance items not in the original kickoff and
+> require driver helpers beyond the original 6.
 
 ---
 
@@ -113,21 +123,23 @@
 
 ---
 
-## The 7 questions to close (Q0 + Q1–Q6, mirror of MATRIX §5.B.2)
+## The 9 questions to close (Q0–Q8, expanded from original Q1–Q6)
 
 | # | Question | Status | Affects | Closing evidence |
 |---|---|---|---|---|
-| **Q0** | Does Cowork load user-installed `.mcpb` extensions? Is there a registration API into Cowork's MCP namespace? | **PARTIAL** (isolation confirmed; registration API TBD) | C16 acceptance; L3f-Cowork strategy | Cowork's own Thought-process tool-list reveal 2026-05-11 06:48 (see Q0 §) + pending `mcp__mcp-registry__` probe |
-| **Q1** | Skills picker UIA shape (descendant vs separate top-level Win32 popup) | TBD | `pick_skill()` (C08) | `_uia_dump_open-skills.txt` + `mcp__skills__` enumeration from Q0 probe |
+| **Q0** | Cowork MCP isolation model; registration API? | **✅ CLOSED (Outcome B)**: read-only registry, no register verb | C16 reframe; L3f-Cowork → `KNOWN-PHASE6-DEFERRED` | `tests/manual/cowork_mcp_namespace_2026-05-11-0655.md` |
+| **Q1** | Skills picker UIA shape | **80% CLOSED**: it's an inline interactive widget in chat (NOT separate popup) per `mcp__skills__list_skills` description; descendant scope confirmed in spirit, UIA dump remaining for `aid`/`name` of the widget rows | `pick_skill()` (C08) | `mcp__skills__` description + `_uia_dump_open-skills.txt` (smaller deliverable now — just need row identifiers) |
 | **Q2** | Async step semantics (single SSE / SSE-per-step / long-poll) | TBD | `wait_for_cowork_step()` (C02, C03) | `events.jsonl` timing analysis on `mark task-multistep` window |
-| **Q3** | Dispatch (Beta) window class (in-app pane vs separate popup) | TBD | `open_dispatch()` (C10) | `_uia_dump_open-dispatch.txt` |
-| **Q4** | `/skills/list-skills` schema (4927 B body shape) | TBD | `pick_skill(name)` matching field (C08) | DB row body for the largest matching event id + Q0 probe cross-check |
+| **Q3** | Dispatch (Beta) window class (in-app pane vs separate popup) | **TBD** — NOT in MCP namespace (no `mcp__dispatch__`), so likely UI-only abstraction over Task* built-ins or `mcp__cowork__` orchestration | `open_dispatch()` (C10) | `_uia_dump_open-dispatch.txt` |
+| **Q4** | `/skills/list-skills` HTTP schema | **DEPRIORITIZED**: probe shows the picker rides `mcp__skills__list_skills` (stdio MCP, internal) NOT `/skills/list-skills` HTTP. The 4927 B HTTP endpoint may be unrelated to Cowork picker (could be Chat-surface skill enumeration). Verify by N-axis observation during RECON | `pick_skill(name)` field matching (C08) | DB row body when/if `/skills/list-skills` is hit during cowork `mark skill-picker-open` |
 | **Q5** | `local-agent-mode-sessions/<uuid>/manifest.json` field schema | TBD | `local_persistence.py` v0 (C14) | `manifests/<uuid>.json` |
-| **Q6** | Scheduled task lifecycle (eager vs lazy `conversations/<uuid>` creation) | TBD | C11 SKIP-vs-PASS decision | `events.jsonl` + `manifests/` cross-ref + `mcp__scheduled-tasks__` enumeration from Q0 probe |
+| **Q6** | Scheduled task lifecycle (eager vs lazy `conversations/<uuid>` creation) | **50% CLOSED**: probe shows `create_scheduled_task` output explicitly mentions "storage location and session tracking" — strongly suggests **eager** (session/conversation row created at scheduling time, not fire time). Need N-axis confirmation | C11 SKIP-vs-PASS decision | `events.jsonl` around `mark scheduled-create` + L3g `local-agent-mode-sessions/` directory diff |
+| **Q7** *(NEW)* | Live Artifacts mechanics: are they MCP-driven, persistent across sessions, where stored? | **PARTIAL**: probe shows `mcp__cowork__create_artifact(id, html_path, mcp_tools?)` and `list_artifacts() → {id, name, path, createdAt, updatedAt}`; artifacts ARE persistent across sessions and stored at `path` (location TBD — likely under `LocalCache\Roaming\Claude\cowork-artifacts\` or similar). Distinct from `mcp__visualize__show_widget` which is ephemeral inline SVG/HTML | `view_live_artifacts()` (C04 supporting) + future PCE artifact normaliser | RECON `mark live-artifacts-open` + filesystem snapshot of `LocalCache\Roaming\Claude\` before/after artifact creation |
+| **Q8** *(NEW)* | File-share UX: how does `request_cowork_directory(path?)` surface a native folder picker, and does the picker block in a separate top-level window? | TBD | C09 (`cowork_file_upload`) driver — needs to handle the folder picker if it's a separate Win32 dialog | UIA dump after triggering `request_cowork_directory` (RECON: ask Cowork "please request access to my Downloads folder") |
 
 ---
 
-## Q0 — Cowork's MCP isolation model (CLOSED with pending sub-question)
+## Q0 — Cowork's MCP isolation model (✅ FULLY CLOSED — Outcome B)
 
 ### Empirical finding (2026-05-11 06:48)
 
@@ -218,54 +230,127 @@ Anthropic-internal, NOT user-installable):
   `KNOWN-PHASE6-DEFERRED` and rely on N + L3g axes for Cowork
   coverage in v1.1.
 
-### Pending sub-question (the only TBD in Q0)
+### Probe outcome (2026-05-11 06:55) — Outcome B confirmed
 
-**Does `mcp__mcp-registry__` expose any verb that allows a local user
-to register a custom MCP server into Cowork's runtime?** Closing
-evidence will be the Q0 probe output saved at
-`tests/manual/cowork_mcp_namespace_<ts>.md`. Three possible
-outcomes:
+The `mcp__mcp-registry__` probe (full transcript at
+`tests/manual/cowork_mcp_namespace_2026-05-11-0655.md`) returned:
 
-- **A — Registration API exists**: e.g. a tool like
-  `mcp__mcp-registry__add_server(name, command, args)`. **Action**:
-  ship a `.mcpb`-style register call from PCE Core during install,
-  inject the pce-mcp Node proxy into Cowork at runtime. L3f-Cowork
-  becomes possible via official channel.
-- **B — Read-only registry**: e.g. `mcp__mcp-registry__list_servers`
-  but no add/remove verbs. **Action**: L3f-Cowork stays OPEN; rely
-  on N + L3g axes. Document as KNOWN-LIMIT and consider OS-hook
-  approach in Phase 6 (filing a deferral with explicit risk note).
-- **C — Registry doesn't exist by that name in Cowork's actual
-  toolset**: the namespace prefix may have been Cowork's hallucinated
-  guess. **Action**: re-probe with broader question ("enumerate all
-  MCP namespaces you have access to and any registration verbs").
+```
+mcp__mcp-registry__:
+  - search_mcp_registry(keywords)       — read-only, lists existing
+  - list_connectors(keywords?)          — read-only, installed list
+  - suggest_connectors(uuids, keywords) — surface suggestions
 
-### Driver implication (immediate)
+Verdict: "No, the mcp__mcp-registry__ namespace does not expose
+any 'register' / 'install' / 'add_server' verb for attaching custom
+MCP servers to Cowork at runtime."
+```
+
+This matches **Outcome B** in the decision tree:
+
+- **L3f-Cowork via official mechanism is OUT OF REACH** for v1.1.
+- PCE Core relies on **N (mitmdump) + L3g (filesystem manifest tail)
+  axes** for Cowork capture coverage.
+- L3f-Cowork is filed as `KNOWN-PHASE6-DEFERRED` with documented
+  risk: the stdio MCP frames between Cowork host process and its
+  `mcp__cowork__` / `mcp__skills__` / etc. internal servers are NOT
+  captured. Mitigation in Phase 6: OS-level IPC hook (Windows ETW
+  / macOS DTrace) — explicit non-goal for v1.1.
+
+### Bonus intel from the probe (informs Q1 / Q6 / Q7 / Q8)
+
+The probe response is far richer than the registration sub-question.
+It enumerated 9 namespaces with full input/output schemas. Key
+extractions:
+
+1. **`mcp__skills__list_skills`** output = *"Interactive widget
+   showing installed skills with 'Try it' buttons"*. This is the
+   Skills picker. Because it's described as an "interactive widget"
+   rendered in chat — not a Win32 popup — **Q1 leans heavily
+   toward descendant-of-Cowork-main-window**, validating reuse of
+   `_find_uia_by_name_substr` for `pick_skill()`.
+
+2. **`mcp__scheduled-tasks__create_scheduled_task`** output =
+   *"Scheduled task created with storage location and **session
+   tracking**"*. The "session tracking" phrase is the smoking gun
+   for **Q6 eager lifecycle** — a conversation/session row is
+   created at scheduling time. RECON N-axis observation will
+   confirm by watching `/chat_conversations/` POST at
+   `mark scheduled-create`.
+
+3. **`mcp__cowork__create_artifact(id, html_path, mcp_tools?)`** —
+   Live Artifacts have an explicit MCP creation verb. Persist
+   across sessions. `mcp_tools` arg implies an artifact can declare
+   which MCP tools it depends on (probably enabled when artifact
+   opened). NEW question Q7 below.
+
+4. **`mcp__cowork__request_cowork_directory(path?)`** with *"optional
+   native folder picker"* — reveals the file-share UX path.
+   NEW question Q8 below.
+
+### Impact on MATRIX §5.B.2 acceptance (locked in)
+
+- **C16 reframed** — `pce-mcp.mcpb` installs without error, registers
+  all 6 tools in Settings → Extensions, and successfully invokes
+  `pce_stats` from the Chat surface returning a real response.
+  Cowork surface is **KNOWN-NOT-SUPPORTED** for user-MCP
+  extensions in this build (Outcome B confirmed empirically).
+- **L3f-Cowork** — filed as `KNOWN-PHASE6-DEFERRED` with mitigation
+  notes in this section.
+- **C04 (Live Artifacts visible)** — newly informed by Q7. Driver
+  helper `view_live_artifacts()` can verify by N-axis (HTTP), L3g
+  (filesystem manifest) AND optionally by querying
+  `mcp__cowork__list_artifacts` from a non-Cowork surface (TBD if
+  Chat can read Cowork's artifact manifest).
+
+### Driver implication (locked in)
 
 No cowork helper in `tests/e2e_desktop_ui/drivers/claude_desktop.py`
 needs to invoke PCE tools from inside Cowork. The driver only drives
 UI elements — Cowork's own internal `mcp__skills__` orchestration
 handles tool listing in the Skills picker. PCE's role inside Cowork
 is purely passive (N+L3g observation), not active (tool invocation).
-P5.B.5.2 helpers therefore remain in scope as originally specified.
+P5.B.5.2 helpers therefore remain in scope as originally specified,
+plus 1-2 incremental helpers for Q7 (artifact list visibility) and
+Q8 (folder-picker handling) if RECON confirms they require driver
+work.
 
 ### Evidence references
 
-- This very chat log (PCE alpha.8, 2026-05-11 06:41–06:48 UTC+08:00).
-- Memory `76de9e16-be1d-4609-860a-14c79d66b5de` in the Cascade memory
-  store.
-- `tests/manual/cowork_mcp_namespace_<ts>.md` (TODO: created by Q0
-  probe step above).
+- Chat-surface success: PCE alpha.8 chat log (2026-05-11 06:41
+  UTC+08:00) — `pce_stats` returned 13,782 captures.
+- Cowork-surface failure + tool-list reveal: Cowork chat log
+  (2026-05-11 06:48 UTC+08:00) — *"I don't have access to a tool
+  called 'pce_stats'"*.
+- Q0 namespace probe: `tests/manual/cowork_mcp_namespace_2026-05-11-
+  0655.md` (full verbatim transcript with 9 namespace enumerations).
+- Memory `76de9e16-be1d-4609-860a-14c79d66b5de`.
 
 ---
 
-## Q1 — Skills picker UIA shape
+## Q1 — Skills picker UIA shape (80% closed by Q0 probe)
 
-**Empirical answer**: TBD.
+**Empirical answer (partial)**: per `mcp__skills__list_skills`
+output description — *"Interactive widget showing installed skills
+with 'Try it' buttons"* — the picker is a **chat-inline interactive
+widget**, NOT a separate top-level Win32 popup. It renders
+descendantly inside the Cowork main chat surface.
 
-**Driver implication**: TBD.
+**Remaining 20%**: the exact UIA `control_type` / `aid` / `name`
+shape of each skill row in the rendered widget — needed so
+`pick_skill(name)` can match-and-click programmatically. Closed by
+`_uia_dump_open-skills.txt` after RECON Step 3.
 
-**Evidence**: TBD (`_uia_dump_open-skills.txt`).
+**Driver implication (locked)**: `pick_skill()` reuses the standard
+`_find_uia_by_name_substr` (descendant-of-main-window scope) like
+the chat-region attach/style/model pickers from sub-runs 1–3. It
+does **NOT** need the cross-window `_find_uia_by_name_substr_all`
+mode added in sub-run 4 for the model picker (which lived in a
+separate top-level window). This saves implementation complexity.
+
+**Evidence**: `tests/manual/cowork_mcp_namespace_2026-05-11-0655.md`
+§ `mcp__skills__` (closes the popup-vs-widget axis); pending
+`_uia_dump_open-skills.txt` (closes the per-row UIA shape).
 
 ---
 
@@ -283,19 +368,52 @@ P5.B.5.2 helpers therefore remain in scope as originally specified.
 
 **Empirical answer**: TBD.
 
-**Driver implication**: TBD.
+**New constraint from Q0 probe**: Dispatch is **not** a dedicated MCP
+namespace (no `mcp__dispatch__` was enumerated). It's therefore most
+likely **either** (a) a UI-only abstraction over the built-in `Task*`
+tools (`TaskCreate` / `TaskList` etc.) and `mcp__cowork__` orchestration,
+rendering as an in-app sidebar pane, **or** (b) a UI label for the
+same underlying mechanism that powers the regular Cowork tab. Less
+likely it's a top-level Win32 popup; almost certainly it's a
+descendant pane.
+
+**Driver implication**: lean toward `open_dispatch()` as a sidebar
+button click + main-window content-change wait. Confirm via UIA
+dump.
 
 **Evidence**: TBD (`_uia_dump_open-dispatch.txt`).
 
 ---
 
-## Q4 — `/skills/list-skills` schema
+## Q4 — `/skills/list-skills` HTTP schema (DEPRIORITIZED by Q0 probe)
 
-**Empirical answer**: TBD.
+**New framing**: the Q0 probe shows the Cowork Skills picker rides
+`mcp__skills__list_skills` (stdio MCP, internal Anthropic) NOT the
+`/skills/list-skills` HTTP endpoint observed in ADR-018. The HTTP
+endpoint may be:
 
-**Driver implication for `pick_skill(name)`**: TBD.
+- Used by the **Chat surface** for slash-menu skill enumeration
+  (different code path).
+- Used by the **Settings → Extensions** UI for listing installed
+  MCP extensions (which DOES include PCE's `.mcpb` per Q0 evidence).
+- Used at app-startup for global skill cache warm-up.
 
-**Evidence**: TBD (DB row body for the largest matching event id).
+**Empirical answer**: TBD — confirm by observing whether
+`/skills/list-skills` is hit during a `mark skill-picker-open` event
+in Cowork (RECON N-axis). If NOT hit during cowork picker usage,
+then the HTTP endpoint is Chat-only and `pick_skill(name)` does not
+need to know its schema. If IT IS hit, then keep the original Q4
+investigation plan (DB body inspection of the 4927 B response).
+
+**Driver implication for `pick_skill(name)`**: if the picker rides
+`mcp__skills__list_skills`, then `name` matching is against whatever
+field `list_skills` returns in its widget rows (visible to UIA as
+the row's `name` property). The `skill_names` input param to
+`list_skills` suggests skill names are first-class strings; PCE
+driver can match those literally.
+
+**Evidence**: TBD — `events.jsonl` filter on `path: '/skills/list-
+skills'` during the `mark skill-picker-open` window in RECON.
 
 ---
 
@@ -309,23 +427,139 @@ P5.B.5.2 helpers therefore remain in scope as originally specified.
 
 ---
 
-## Q6 — Scheduled task lifecycle
+## Q6 — Scheduled task lifecycle (50% closed by Q0 probe)
 
-**Empirical answer**: TBD.
+**Empirical lean**: probe shows `mcp__scheduled-tasks__create_
+scheduled_task` output explicitly states *"Scheduled task created
+with storage location and **session tracking**"*. The phrase
+"session tracking" + the fact that the create verb returns a
+*"storage location"* in the same response strongly suggests **eager
+lifecycle**: the session/conversation row IS created at scheduling
+time (not at fire-time). This matches Anthropic's general pattern
+of eager resource creation with deferred execution.
 
-**C11 acceptance implication**: TBD.
+**Remaining 50% — N-axis confirmation**: during RECON, the
+`mark scheduled-create` marker must coincide with a `POST
+/chat_conversations/<uuid>` capture in `events.jsonl`. If it does:
+**confirmed eager**. If only a `/cowork_settings`-class metadata POST
+fires: **lazy**, lifecycle resource creation deferred to fire-time.
 
-**Evidence**: TBD (`events.jsonl` + `manifests/` around `mark scheduled-create`).
+**C11 acceptance implication**: 
+- If confirmed eager: C11 should PASS in-sweep (immediate row
+  visible via N-axis + L3g manifest, no waiting for scheduled fire).
+- If lazy: C11 SKIP is acceptable per MATRIX §5.B (can't observe
+  fire-time within sweep budget unless `>24h` test rig is built).
+
+**Evidence**: pending RECON `events.jsonl` cross-referenced with
+`mark scheduled-create` timestamp + L3g manifest snapshot diff
+around that moment (the recon script's `dump-agent-session` REPL
+command captures the manifest immediately after the marker).
+
+---
+
+## Q7 *(NEW)* — Live Artifacts mechanics
+
+**Why this is new**: the Q0 probe revealed that Cowork's Live
+Artifacts feature has dedicated MCP plumbing (`mcp__cowork__create_
+artifact` / `update_artifact` / `list_artifacts`) and is distinct from
+the ephemeral `mcp__visualize__show_widget` (which renders SVG/HTML
+inline in chat without persistence). This was not in the original
+6-question kickoff scope and surfaced organically from the probe.
+
+**Empirical answer (partial from Q0 probe)**:
+
+- Live Artifacts are **persistent across sessions** (vs. visualize
+  widgets which are inline only).
+- Each artifact has `{id, name, path, createdAt, updatedAt}` per
+  `list_artifacts` output.
+- Each artifact's `mcp_tools` field implies an artifact can declare
+  which MCP tool servers it depends on (re-enabled when artifact is
+  reopened).
+- Storage path: TBD — most likely under `LocalCache\Roaming\Claude\
+  cowork-artifacts\<id>\` or a sibling of `local-agent-mode-sessions\`.
+  Closed by L3g snapshot diff before/after a `create_artifact` call
+  during RECON.
+
+**Remaining**:
+- Exact filesystem storage path (RECON-closeable via filesystem diff).
+- Whether artifacts surface to `pce_persistence_watcher` as a known
+  install-rooted directory (probably needs adding a new "artifacts"
+  root to `pce_persistence_watcher/discovery.py`).
+- Whether `mcp__cowork__list_artifacts` is callable from non-Cowork
+  surfaces (e.g. would Chat let PCE query it?).
+
+**Driver implication**: `view_live_artifacts()` driver helper (C04
+supporting) can verify presence by:
+1. UIA-clicking the "Live Artifacts" sidebar entry, then
+2. Reading the resulting pane's artifact list, OR
+3. Tailing the (yet-to-be-discovered) filesystem path for a recent
+   artifact directory mtime.
+
+**Evidence**: `tests/manual/cowork_mcp_namespace_2026-05-11-0655.md`
+§ `mcp__cowork__` (closes the MCP-side mechanics); pending L3g
+filesystem diff during `mark live-artifacts-open` in RECON (closes
+the storage-path question).
+
+---
+
+## Q8 *(NEW)* — File-share UX (`request_cowork_directory`)
+
+**Why this is new**: Q0 probe revealed `mcp__cowork__request_cowork_
+directory(path?)` with *"optional native folder picker"* in the
+output. This is the entry point for Cowork to gain filesystem access
+— critical for C09 (`cowork_file_upload`) driver work.
+
+**Empirical answer**: TBD — closed by:
+- RECON: ask Cowork *"please request access to my Downloads folder"*
+  while running `dump_uia` in a separate terminal. The picker
+  appearance + its window class will reveal whether it's a separate
+  top-level Win32 dialog or an in-app pane.
+- Possible outcomes:
+  - **Native FolderBrowserDialog** (likely): a standard Windows
+    Shell folder picker pops up. Driver `cowork_file_upload(path)`
+    needs to handle this dialog (UIA-set the path field + click OK,
+    or use Win32 shell APIs to dismiss preemptively).
+  - **Custom in-app picker**: a Claude-Desktop-styled pane within
+    the Cowork window. Driver can locate by name-substr like the
+    other pickers.
+
+**Driver implication**: `cowork_file_upload(path)` (C09 driver helper)
+becomes significantly more complex if the picker is a separate Win32
+dialog (needs a second UIA driver scope). If in-app, reuses standard
+`_find_uia_by_name_substr`.
+
+**Evidence**: TBD — RECON `mark file-share-open` + concurrent
+`python -m tests.e2e_desktop_ui.scripts.dump_uia open-cowork`
+(or a new dump_uia mode `open-folder-picker` if needed).
 
 ---
 
 ## Sign-off
 
-Once all 6 questions above carry concrete empirical answers + driver
-implications + evidence references, this doc is the closure artefact
-for `MATRIX §5.B.2` and unblocks P5.B.5 implementation
-(P5.B.5.2 helpers → P5.B.5.3 normaliser → P5.B.5.4 `.mcpb` →
-P5.B.5.5 C-case sweep).
+Once all 9 questions above (Q0–Q8) carry concrete empirical answers +
+driver implications + evidence references, this doc is the closure
+artefact for `MATRIX §5.B.2` and unblocks P5.B.5 implementation
+(P5.B.5.2 helpers → P5.B.5.3 normaliser → P5.B.5.5 C-case sweep).
+**P5.B.5.4 (`.mcpb` pack) is already complete** — see commit
+`73a83a1` and the `pce-mcp-0.1.0.mcpb` artifact.
 
-**This placeholder file MUST NOT be deleted before being filled** —
-the cross-references in MATRIX and the kickoff handoff resolve here.
+**Status snapshot as of 2026-05-11 06:55**:
+- Q0 ✅ fully closed (Outcome B, L3f-Cowork → `KNOWN-PHASE6-DEFERRED`)
+- Q1 ☑️ 80% closed (descendant inline widget; UIA dump for row shape)
+- Q2 ⬜ TBD (RECON multi-step task timing)
+- Q3 ☑️ reframed (likely descendant pane, no MCP namespace evidence)
+- Q4 ☑️ deprioritized (Cowork picker doesn't use this HTTP endpoint)
+- Q5 ⬜ TBD (RECON `dump-agent-session`)
+- Q6 ☑️ 50% closed (lean eager from probe; RECON N-axis confirms)
+- Q7 ☑️ NEW, 30% closed (MCP mechanics from probe; L3g diff pending)
+- Q8 ⬜ NEW, TBD (RECON folder-picker dump)
+
+**Net RECON scope after Q0 probe**: shrunk from 60 min → ~30 min
+because Q1/Q4/Q6 each lost substantial UIA / HTTP traversal work.
+The focused RECON checklist now centers on Q2 (multi-step async),
+Q3 (Dispatch UIA), Q5 (manifest schema dump), Q6 (N-axis eager
+confirmation), Q7 (artifact storage path), Q8 (folder-picker class).
+
+**This file MUST NOT be deleted before all 9 Q§ carry concrete
+answers** — the cross-references in MATRIX and the kickoff handoff
+resolve here.
