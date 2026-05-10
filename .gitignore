@@ -53,3 +53,8 @@ node_modules/
 *.mcpb
 /pce_mcp/mcpb/pack-output/
 /.git-commit-msg.txt
+
+# Phase 4.0 manual recon artifacts — contain real Claude Desktop
+# conversation content; never commit (only the .py / .md tooling
+# itself is tracked).
+/tests/manual/recon_*/

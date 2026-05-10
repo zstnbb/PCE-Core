@@ -69,16 +69,28 @@ PCE 由三层构成,每一层独立演进、独立产品化:
 
 **原则**:朝终极架构爬,爬到哪里稳定了就打包发布那一块切片。永不为了"产品化"阉割架构。
 
+> **2026-05-10 ADR-018 修订**:基于 MSIX 实测脱险 (6 次实验确认 CDP
+> launcher 在 Windows MSIX 渠道全堵) + 5 红线筛选 (屏幕/封号/维护/手动/
+> 违规),P6/P7 内容重排:Frida + L0 Kernel **移到 Pro 渠道**;L4b
+> Accessibility **提前到 P6**;新增 **L3g · Local Persistence Watcher**
+> 在 P5.B 内交付。详 `@Docs/docs/engineering/adr/ADR-018-msix-store-app-capture-strategy.md`。
+
 ```
 Release Track ·──┐
                  │
   P5.A  ──────→ ├── v1.0 "Subscription Capture"  = L1 + L3a 扩展全面
                 │
-  P5.B  ──────→ ├── v1.1 "IDE & Electron"        = v1.0 + L3b/L3c preload/扩展
+  P5.B  ──────→ ├── v1.1 "IDE & Desktop & MCP"   = v1.0 + L3f (MCP) + L3g (持久化)
+                │                                  + H1 (CLI wrap) + A2 (SSLKEYLOGFILE)
+                │                                  + L4a (剪贴板)
+                │                                  〔L3b preload/L3d CDP: Squirrel/macOS only〕
                 │
-  P6    ──────→ ├── v1.2 "Pinning-Proof"         = v1.1 + L2 Frida
+  P6    ──────→ ├── v1.2 "Coverage Polish"       = v1.1 + L4b Accessibility (UIA T2 兜底)
+                │                                  + B1 NODE_OPTIONS preload (Fuses 允许时)
+                │                                  + L3c VS Code 扩展
                 │
-  P7    ──────→ ├── v1.3 "Force Capture"         = v1.2 + L0 Kernel + L4b AX
+  P7    ──────→ ├── v1.3 (Pro)                   = v1.2 + L0 Kernel (Pro 渠道)
+                │                                  〔L2 Frida: Pro 渠道 + 用户显式 risk consent〕
                 │
   P8    ──────→ └── v2.0 "Full Supervisor"       = v1.3 + 全自动调度/降级
 ```
@@ -315,6 +327,13 @@ class KernelRedirector(Protocol):
 ---
 
 ### 3.3 L2 · Process-Level TLS Unwrap(Frida SSL Hook)
+
+> **2026-05-10 ADR-018 §3.7 修订**:本层经 5 红线评估同时触 R2 (封号/AV
+> 误报)、R3 (高维护)、R5 (Anthropic ToS reverse engineer 灰区) 三条,
+> **从 v1.x 主线移除,仅在 Pro 渠道 + 用户显式 risk consent 时启用**。
+> 主仓库 `pce_agent_frida/` 不实施;本节设计文档作为 Pro 渠道参考保留。
+> Pinning 问题由 ADR-018 §3.5 的 A1 (system proxy) + A2 (SSLKEYLOGFILE)
+> + L3g (持久化兜底) 组合解决。
 
 **使命**:绕过应用级证书 pinning — 在应用进程内部,在 TLS 库加密**前**、解密**后**读明文。
 

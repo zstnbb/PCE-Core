@@ -14,6 +14,18 @@
 >   STEP 3/4 顺序 — 本文件给出新一轮 P5.B 攻击顺序（见 §7）。
 >
 > **Audience**: Cascade（与本文件作者）、后续实施 agent、项目所有者。
+>
+> **2026-05-10 ADR-018 修订导航**:
+> - 本文件 §7 表中 P1 Claude Desktop 行 "M (首) + H | `pce_mcp` server ✅ + L3b ⬜"
+>   在 **Windows MSIX 渠道**下重定为 "M (首) + Persist + N | `pce_mcp` ✅
+>   + `pce_mcp_proxy` ✅ + L3g ⬜ (新增) + L1 ✅"。Squirrel + macOS 渠道
+>   仍按本文件原文 + ADR-016 走。
+> - 新增 UCS 子层 **L3g · Local Persistence Watcher** — 解析应用自己写
+>   到用户可读路径的持久化数据 (LevelDB / IndexedDB / 应用专有 JSON)。
+>   定义见 ADR-018 §3.4。
+> - L2 Frida、L0 Kernel 移到 Pro 渠道 (ADR-018 §3.7)。L4b Accessibility
+>   提前到 P6 v1.2 ("Coverage Polish")。
+> - 详见 `@Docs/docs/engineering/adr/ADR-018-msix-store-app-capture-strategy.md`。
 
 ---
 
@@ -455,8 +467,10 @@ render archetype / 距离评估。
 
 | 类型 | 代表 | 捕获面 | UCS 层 | Normalizer | Render | 距离 |
 |---|---|---|---|---|---|---|
-| 1a Electron 聊天 | **Claude Desktop** | M (首) + H | `pce_mcp` server ✅ + L3b ⬜ | anthropic.py ✅ | Chat Tube ✅ | 🟢 **1 周可上线** |
-| 1a' pin 变种 | **ChatGPT Desktop** | H (pin 推回 H) + N | L3b ⬜ + L1 ✅ | openai.py ✅ | Chat Tube ✅ | 🟡 2-3 周 |
+| 1a Electron 聊天 (Squirrel/macOS) | **Claude Desktop** | M (首) + H | `pce_mcp` server ✅ + L3b ⬜ | anthropic.py ✅ | Chat Tube ✅ | 🟢 **1 周可上线** |
+| 1a Electron 聊天 (**MSIX**, ADR-018) | **Claude Desktop** | M (首) + Persist + N | `pce_mcp` ✅ + `pce_mcp_proxy` ✅ + **L3g** ⬜ + L1 ✅ + H1 CLI wrap ⬜ | anthropic.py ✅ + local_persistence ⬜ | Chat Tube + Run Trace + Tool Tape | 🟢 1-2 周 (M+L1 现成,L3g+H1 各 1 周) |
+| 1a' pin 变种 (Squirrel) | **ChatGPT Desktop** | H (pin 推回 H) + N | L3b ⬜ + L1 ✅ | openai.py ✅ | Chat Tube ✅ | 🟡 2-3 周 |
+| 1a' pin 变种 (**MSIX**, ADR-018) | **ChatGPT Desktop** | N (首) + Persist | L1 ✅ + A2 keylog ⬜ + L3g ⬜ | openai.py ✅ + local_persistence ⬜ | Chat Tube ✅ | 🟡 2-3 周 (取决于 H2 pinning 实测) |
 | 2a IDE-class | **Cursor / Windsurf** | M + H | L3f ⬜ + L3b ⬜ | openai/anthropic ✅ + `interaction_kind` ⬜ | Code Session ⬜ | 🟡 3-4 周 |
 | 2c 私有协议 | Cursor 原生 | N (gRPC proto) | L1 ✅ + proto decoder ⬜ | openai 兼容 | Code Session ⬜ | 🟠 4-6 周 |
 | 3 插件 | **Cline / Continue** | M + N (直连) | L3f ⬜ + L1 ✅ | mcp_jsonrpc ⬜ + openai/anthropic ✅ | Tool Tape + Chat Tube | 🟢 2 周（走 M 面） |
