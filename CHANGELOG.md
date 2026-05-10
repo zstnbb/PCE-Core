@@ -5,7 +5,93 @@ All notable changes to PCE (core + browser extension) are documented in this fil
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-05-10 — P1 Claude Desktop N/L1 chat-region empirical end-to-end validation + L3g stats key fix
+## [Unreleased] - 2026-05-10 (later same day) — P1 D03/D05 + P2 N/L1 empirical D-case sweep
+
+Second live capture window the same day as `alpha.10-p1-empirical`. The
+earlier run validated a single-turn N/L1 round trip on Claude Desktop;
+this run extends the D-case matrix on **both** P1 and P2 under the
+same proxy chain.
+
+### Live-validated
+
+- **P1 D05 model switch** ✅ — Mid-conversation switch from
+  `claude-haiku-4-5-20251001` to `claude-sonnet-4-6` reflected per turn
+  in `messages.model_name`. The post-switch turn correctly carries the
+  new model.
+- **P2 D01 user message capture** ✅ (partial) — 3/3 ChatGPT Desktop user
+  prompts reached the `messages` table via `/backend-api/f/conversation`
+  POST request body parsing. `provider=chatgpt.com`,
+  `tool_family=api-chatgpt.com`, `model_name` populated correctly
+  (`auto`, `gpt-5-5-thinking`).
+- **0 pipeline_errors** across 4180 captures + 17 normalized messages.
+  Pipeline degrades gracefully when the assistant side is missing
+  (Bug 2 below).
+
+### Bug found + fixed (P1 D03 multi-turn)
+
+- **`pce_core/normalizer/anthropic.py`** — `session_key` derivation now
+  falls back to extracting the conversation UUID from the path
+  (`/api/organizations/<ORG>/chat_conversations/<UUID>/completion`) when
+  the request body has no `conversation_id` / `session_id` keys.
+
+  Empirical bug: 5 sequential POSTs to the same Claude Desktop chat
+  conversation produced 5 disjoint `sessions` rows with `session_key=NULL`
+  because the desktop client's request body keys are
+  `['prompt', 'timezone', 'personalized_styles', 'locale', 'model',
+  'tools', 'turn_message_uuids', 'attachments', 'files', 'sync_sources',
+  'rendering_mode', 'create_conversation_params']` — the conversation
+  UUID is in the path, not the body. With the fallback, all turns
+  collapse into 1 session row keyed by the conversation UUID.
+
+  Fix: 1 module-level `re.compile`, 4 lines of fallback logic. Regression
+  test in `tests/test_normalizer.py::_test_anthropic_normalizer` covers
+  positive (claude.ai desktop) and negative (`/v1/messages` public API
+  must NOT match) cases. test_normalizer.py 22/22 PASS.
+
+### Bug found, NOT a normalizer issue — major P2 architectural finding
+
+- **ChatGPT Desktop split-channel architecture** ⚠️ — The new
+  `/backend-api/f/conversation` POST endpoint returns ONLY a 567-byte
+  SSE handoff envelope (`stream_handoff` + `subscribe_ws_topic`). The
+  actual assistant text streams over a **separate WebSocket** that the
+  current `pce_proxy/addon.py` HTTP-oriented capture path does not see.
+  Empirical confirmation: searched all 4065 captured chatgpt.com response
+  bodies for "Paris" / "capital of france" / "你好" / "香港" / "首都" —
+  zero matches, despite all 3 user messages reaching `messages` and the
+  assistant text being visible in the Desktop UI.
+
+  This invalidates the implicit "L1 reaches both user and assistant
+  text" assumption inherited from web ChatGPT. **N/L1 P2 chat-region
+  capture is BLOCKED user-side-only** until WebSocket capture is added
+  to the proxy. Detailed analysis + 4 candidate unblock paths in the
+  handoff doc.
+
+  `Docs/stability/DESKTOP-PRODUCT-MATRIX.md` §4.2 P2 row updated with a
+  new dated note recording this finding.
+
+### Documentation
+
+- New handoff:
+  `Docs/handoff/HANDOFF-P1-D03-D05-P2-EMPIRICAL-2026-05-10.md` (8
+  sections, ~330 lines: scope, run conditions, empirical numbers, bug
+  root causes, fix details, D-case scoring, reproduction recipe,
+  cross-references, open follow-ups for next operator).
+
+### D-case status after this run
+
+| ID | Pre-run | Post-run | Note |
+|----|---------|----------|------|
+| P1 D01 | ✅ alpha.10 | ✅ | unchanged |
+| P1 D03 multi-turn | ❌ | ✅ FIXED | Bug 1 fix in this commit |
+| P1 D05 model switch | ⏭ | ✅ | empirically attested |
+| P1 D11 long-context | ⏭ | ⏭ | not exercised |
+| P1 D12 silent-on-idle | ⏭ | ⏭ | window contaminated; needs dedicated run |
+| P2 D01 user msg | ⏭ | ✅ | empirically attested |
+| P2 D02 assistant msg | (assumed ✅ via L1) | ❌ BLOCKED | architectural finding (Bug 2) |
+
+---
+
+## [1.1.0-alpha.10-p1-empirical] - 2026-05-10 — P1 Claude Desktop N/L1 chat-region empirical end-to-end validation + L3g stats key fix
 
 Follow-up evidence pass after `v1.1.0-alpha.9-empirical-followup`. The
 alpha.9 release notes asserted "~94% T1 three-region coverage / P1 D0
@@ -70,26 +156,25 @@ new dated note pointing at this evidence.
   future kinds get added correctly. Smoke 212/212 GREEN post-fix
   (`8ea14b2`).
 
-### Not yet validated (reopens for next session)
+### Not yet validated at this checkpoint (some addressed in [Unreleased] above)
 
+- ~~D03 multi-turn~~ — addressed in [Unreleased] (Bug 1 fix)
 - D04 cancel mid-stream
-- D05 model switch mid-session
+- ~~D05 model switch~~ — addressed in [Unreleased] (✅ empirical)
 - D06 file attachment
 - D11 long-context (50-turn)
 - D12 silent-on-idle
 - N/L1 sustained-throughput stress
 - L3g + N/L1 cross-axis reconciliation (same conversation UUID
   visible both via mitmproxy and via L3g IndexedDB scan after restart)
-- P2 ChatGPT Desktop equivalent end-to-end run (not done in this session)
+- ~~P2 ChatGPT Desktop equivalent end-to-end run~~ — addressed in
+  [Unreleased] (Bug 2 architectural finding)
 
-### Why no new alpha tag (yet)
+### Released as
 
-This entry is `[Unreleased]` deliberately: the L3g stats fix is the
-only code change (1 line + 4-line comment), and the rest is empirical
-evidence + docs. Operator decides whether to spin `alpha.10` or fold
-this into the next material code commit. The git tag
-`v1.1.0-alpha.9-empirical-followup` remains the most recent shipped
-checkpoint.
+`v1.1.0-alpha.10-p1-empirical` — annotated tag pushed to
+`origin/master` (HEAD `079f9f7`). Tag message embeds the full
+empirical numbers + scope statement.
 
 ---
 

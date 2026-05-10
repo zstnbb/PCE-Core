@@ -163,11 +163,39 @@ risks**, **install path expected**, **first-probe verification list**.
 > Chat-region primary for P2 too**; A2 SSLKEYLOGFILE drops from
 > "only N-plane realtime route" to "redundant insurance". P2 D2 tier
 > may upgrade to D1 once L3g LocalCache layout is verified.
+>
+> **2026-05-10 N/L1 chat-region empirical revision** ⚠️ : First end-to-end
+> sweep against ChatGPT Desktop v1.2026.119.0 surfaced a **split-channel
+> architecture** that invalidates the implicit "L1 reaches both user and
+> assistant text" assumption inherited from web ChatGPT. The new
+> `/backend-api/f/conversation` POST returns ONLY a 567-byte SSE
+> handoff envelope:
+>
+> ```
+> event: delta_encoding\ndata: "v1"
+> data: {"type":"resume_conversation_token","token":"[REDACTED_JWT]",...}
+> data: {"type":"stream_handoff","conversation_id":"...","turn_exchange_id":"...",
+>        "options":[
+>          {"type":"resume_sse_endpoint","topic_id":"conversation-turn-..."},
+>          {"type":"subscribe_ws_topic","topic_id":"conversation-turn-..."}]}
+> data: [DONE]
+> ```
+>
+> The assistant text streams over a **separate WebSocket** that mitmproxy
+> doesn't see in the current capture path (no `conversation-turn-*`,
+> `resume`, `wss`, or `websocket` paths captured across 4065 chatgpt.com
+> rows in a 3-message window). Empirical confirmation: searched all
+> response bodies for "Paris", "capital of france", "你好", "香港",
+> "首都" — zero matches in any captured row, despite all 3 user
+> messages reaching the `messages` table. **N/L1 chat-region for P2 is
+> therefore BLOCKED on user-side only** until WebSocket capture is added.
+> See `Docs/handoff/HANDOFF-P1-D03-D05-P2-EMPIRICAL-2026-05-10.md` §4
+> for full evidence + 4 candidate unblock paths.
 
 | Field | Value |
 |---|---|
 | OS | Windows (MSIX) + macOS |
-| Primary plane / layer | **N / L1** (system proxy + CA, `pce_proxy/`) — primary route; **H2-P2 ✅ PASS confirmed 2026-05-10** (361 clean hits, 0 TLS errors, app-layer cookies negotiated) |
+| Primary plane / layer | **N / L1** (system proxy + CA, `pce_proxy/`) — primary route; **H2-P2 ✅ PASS confirmed 2026-05-10** (361 clean hits, 0 TLS errors, app-layer cookies negotiated). ⚠️ **2026-05-10 chat-region empirical revision**: user-side ✅ captured (3/3 prompts via `/backend-api/f/conversation` POST), assistant-side ❌ BLOCKED (split-channel HTTP→WSS handoff, see new dated note above) |
 | Persistence axis | **L3g local persistence watcher** ✅ pkg alpha.8 — same parser stack as P1, ChatGPT-specific `LocalCache` layout discovery wired but layout itself TBD on first install probe |
 | MCP axis | **M / L3f** (only when user has configured ChatGPT Desktop MCP servers — ChatGPT MCP support is partial / 2026-evolving) |
 | Chat-region anti-pin | **A2 SSLKEYLOGFILE** patch — primary fallback if H2-on-P2 = pinned |
