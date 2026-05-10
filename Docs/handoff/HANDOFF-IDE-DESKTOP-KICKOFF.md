@@ -33,9 +33,15 @@ P5.A Subscription Capture (v1.0)                   → ✅ browser slice sealed
     + back-end CaptureEvent v2 + normalizer             + back-end carries forward
 
 P5.B IDE & Desktop & MCP (v1.1)                    → 🟢 ACTIVE (this doc)
-    MCP middleware (L3f) + CDP launcher (L3d)
-    + CLI gateway (L3e)
-    [L3b Electron preload deferred per ADR-016]
+    MCP middleware (L3f) ✅ alpha.1+2
+    + CDP launcher (L3d)  ✅ alpha.6  (Squirrel + macOS only;
+                                     MSIX channel rerouted by ADR-018)
+    + CLI gateway (L3e)   ⏸  (legacy plan; L3h supersedes for AI agents)
+    + L3g persistence     ✅ alpha.8  (NEW; ADR-018 axis 2)
+    + L3h CLI wrap        ✅ alpha.8  (NEW; ADR-018 axis 3, supersedes L3e
+                                     for the agentic CLI sub-class)
+    [L3b Electron preload deferred per ADR-016 + permanently dead
+     per ADR-018 H4 Electron Fuses lock]
 
 P6 Pinning-Proof (v1.2)                            → ⏸ future
     L2 Frida + surviving pinned clients
@@ -65,8 +71,11 @@ Do not skip; ~2 hours one-time investment. Priorities per file:
 
 4. `Docs/docs/engineering/UNIVERSAL-CAPTURE-STACK-DESIGN.md` — the UCS
    bible (1340 lines). P5.B introduces **L3f** as a new axis inside
-   the UCS model; a follow-up ADR (see §7) will amend UCS DESIGN v0.3
-   accordingly.
+   the UCS model (per ADR-015) and **L3g** as a further new axis for
+   local persistence observation (per ADR-018 §3.4). UCS DESIGN v0.3
+   already amended for both. **L3h** is the package-level realisation
+   of the H1 path (ADR-018 axis 3) but does not need its own UCS
+   sub-layer — it sits inside the existing H plane.
 5. `Docs/docs/decisions/2026-04-18-ucs-and-release-strategy.md` — the
    A+A release strategy (small-step releases, Open Core). P5.B
    preserves it but **reorders the P5.B scope**: L3f leads, L3b
@@ -91,6 +100,12 @@ Do not skip; ~2 hours one-time investment. Priorities per file:
    `CaptureIn.source_type` already enumerates `mcp | ide_plugin |
    local_model`. P5.B adds `desktop_electron` / `mcp_proxy` /
    `cli_gateway` / `native_ax` as additional enum values.
+   **alpha.8 amendments**: `local-persistence` (L3g, source row
+   registered by migration 0011) and `cli-wrapper` (L3h, source row
+   registered by migration 0012) are now also enumerable. See
+   `pce_core/db.py::SOURCE_L3G_LOCAL_PERSISTENCE` +
+   `SOURCE_L3H_CLI_WRAPPER` and the matching CaptureSource literal
+   extensions in `pce_core/capture_event.py`.
 
 ---
 
@@ -100,12 +115,18 @@ From framework §8, the P5.B attack order is **capture-plane-first**,
 not product-first:
 
 ```
-Plane M (MCP)       → 9 products in one surface   → P5.B.0 + P5.B.1
+Plane M (MCP)       → 9 products in one surface   → P5.B.0 + P5.B.1 ✅
 Plane H (process)   → 4-5 Electron products       → P5.B.2 + P5.B.3
-                    (via L3d CDP launcher — ADR-016)
+                    (via L3d CDP launcher — ADR-016 for Squirrel
+                    + macOS; **MSIX channel rerouted to L3g + L3h
+                    + L1 three-axis per ADR-018 — alpha.8 ✅**)
 Plane N (local)     → 5-8 CLI/local products      → P5.B.4
-Plane N (pinned)    → ChatGPT Desktop             → P6 (or earlier
-                    if CDP launcher works on it — see ADR-016 §3.8)
+Plane H (CLI agent) → Claude Code class           → H1 / L3h alpha.8 ✅
+                    (NEW: PATH-priority shim; ADR-018 axis 3)
+Plane N (pinned)    → ChatGPT Desktop             → **A1 / L1 viable**
+                    (ADR-018 H2 PASS for Anthropic; OpenAI same
+                    likely but H2-on-P2 pending). Frida-via-P6
+                    only if H2-on-P2 fails.
 Plane U (AX/UIA)    → Raycast / native clients    → P6/P7 (out of P5.B)
 ```
 
@@ -356,10 +377,15 @@ Listing these so future agents don't drift:
   in the P5.B scope in `2026-04-18-ucs-and-release-strategy.md`;
   **reordered to P5.C** (see ADR-012 in §7). For Copilot in P5.B,
   we use L1 proxy on `*.githubcopilot.com`, not the extension API.
-- **Frida / SSL-pinning bypass for ChatGPT Desktop** — if P5.B.4-C
-  preload attempt fails on pinned endpoints, P2 ChatGPT Desktop
-  formally hands off to P6 with an ADR. **Do not** start Frida work
-  inside P5.B; the D2 gate accommodates partial coverage.
+- **Frida / SSL-pinning bypass for ChatGPT Desktop** — originally
+  conditioned on "if P5.B.4-C preload attempt fails on pinned
+  endpoints". **alpha.8 update**: ADR-018 H4 LOCKED kills the preload
+  approach entirely (B1 NODE_OPTIONS path is permanently dead on MSIX
+  Electron). Replacement contingency: **P2 H2 probe is the new gate**
+  — if Anthropic-style no-pin holds, A1 mitmproxy + A2 SSLKEYLOGFILE
+  cover ChatGPT Desktop without Frida; if PASS-pin, P2 hands off to
+  P6 with an ADR. **Do not** start Frida work inside P5.B; the D2
+  gate still accommodates partial coverage.
 - **Native Mac/Windows clients** (Raycast, BoltAI, MacGPT etc.) —
   Type 5 in framework taxonomy → L3d / L4b → P6/P7. Closed by
   `Docs/stability/DESKTOP-PRODUCT-MATRIX.md` §10.1 + ADR-014.
@@ -416,6 +442,20 @@ Before/during P5.B.0, these ADRs should be authored (1 page each):
   templated patch generators. Honours ADR-011 G9 stance — `propose_patch`
   returns diff data only; physical patch application stays on the
   agent side. Drafted 2026-05-09; implementation in Phase 4.D.1–6.
+- **ADR-018** — Closed-source Store-distributed Electron AI app
+  capture strategy. Consolidates the 8-face × 23-path threat model
+  + 5 red lines + 13 retained / 10 excluded path filter, introduces
+  the new UCS sub-layer **L3g · Local Persistence Watcher**
+  (`pce_persistence_watcher/`), defines the three-axis MSIX
+  realisation (M plane / L3g persistence / H1 CLI wrap = L3h),
+  parameterises three coverage scenarios on three falsifiable
+  hypotheses (H2 cert pin / H3 SSLKEYLOGFILE / H4 Electron Fuses),
+  and revises the v1.x roadmap with P6 renamed "Coverage Polish"
+  + Frida + Kernel pushed to Pro-only. **✅ landed 2026-05-10 in
+  v1.1.0-alpha.8-adr018**; Phase 1 (recon + H2/H3/H4 probes) +
+  Phase 3 (L3g) + Phase 4 (L3h) all delivered with 168/168 hermetic
+  tests GREEN; H2 ✅ PASS, H3 ✅ PASS, H4 ❌ LOCKED on Claude Desktop
+  v1.6608.2.0; ~94% T1 three-region coverage measured.
 
 ---
 

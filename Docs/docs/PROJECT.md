@@ -2,8 +2,8 @@
 
 - Project: PCE (working title)
 - Status: Active
-- Current Phase: **P5.B IDE & Desktop & MCP Capture (v1.1)** — 浏览器扩展子系统 2026-05-08 硬冻结；S2/S3 正式延后到 v1.2+；下一阶段以「捕获面优先」策略推进 MCP middleware (L3f) → Electron preload (L3b) → CLI gateway (L3e)
-- Updated: 2026-05-08
+- Current Phase: **P5.B IDE & Desktop & MCP Capture (v1.1)** — 浏览器扩展子系统 2026-05-08 硬冻结；S2/S3 正式延后到 v1.2+；MCP middleware (L3f) ✅ alpha.1+2 落地；L3d CDP launcher ✅ alpha.6 (Squirrel + macOS 限定，MSIX 通道由 ADR-018 重路为三主轴模型)；**ADR-018 锁定闭源 Store Electron AI 应用捕获策略 + L3g 持久化 + L3h CLI wrap 两包 ✅ alpha.8 交付（120 hermetic 测试全绿，H2 PASS / H3 PASS / H4 LOCKED 实测～94% T1 三区覆盖）**。
+- Updated: 2026-05-10
 
 ## 1. 项目定义
 
@@ -196,7 +196,7 @@ PCE 的长期演化路径定义为：
 | 阶段 | 版本 | 切片内容 | 工时估 |
 |---|---|---|---|
 | **P5.A** ✅ | v1.0 Subscription Capture | L1 收尾 + L3a 扩展 F2 站点 + CaptureEvent v2 + 首跑向导 + Pinning 诊断 | 3–4 周 — **浏览器扩展子系统 2026-05-08 硬冻结**（freeze handoff 已落地） |
-| **P5.B** 🟢 | v1.1 IDE & Desktop & MCP | **L3f MCP middleware 先行** + **L3d CDP launcher** (Claude Desktop / Cursor / Windsurf, ADR-016 取代 L3b preload) + L3e CLI gateway + `.mcpb` Desktop Extensions 官方一键安装。L3c VS Code 扩展**重排到 P5.C**（见 ADR-012）。L3b Electron preload 在 v1.1 不实施（见 ADR-016）。 | 4–6 周 |
+| **P5.B** 🟢 | v1.1 IDE & Desktop & MCP | **L3f MCP middleware 先行** ✅ + **L3d CDP launcher** ✅ (Cursor / Windsurf / Squirrel + macOS Claude Desktop；MSIX Claude Desktop 由 ADR-018 重路) + L3e CLI gateway (交给 L3h) + `.mcpb` Desktop Extensions 官方一键安装 ✅。**«新增» L3g 持久化观察 + L3h CLI wrap ✅ alpha.8（ADR-018 三主轴 axes 2 + 3）**。L3c VS Code 扩展**重排到 P5.C**（见 ADR-012）。L3b Electron preload 在 v1.1 不实施（ADR-016 延后，ADR-018 H4 LOCKED 锁死）。 | 4–6 周 |
 | P5.C | v1.1.1 IDE plugin | L3c VS Code Extension API + Copilot research（原 P5.B 余项） | 3–4 周 |
 | P6 | v1.2 Pinning-Proof | L2 Frida SSL hook（解锁 ChatGPT Desktop 等 pinned 客户端）+ S2/S3 站点重启可选 | 6–8 周 |
 | P7 | v1.3 Force Capture + Fallback | L0 Kernel + L4b AX + L4c OCR + JetBrains | 8–10 周 |
@@ -204,7 +204,7 @@ PCE 的长期演化路径定义为：
 
 开源与商业边界（ADR-010）：
 
-- **OSS `github.com/zstnbb/PCE-Core`**：L1 + L3a + L3d + L3e + L3f + L4a + L4c + CaptureEvent 契约 + Ingest Gateway + 归一化 / 存储 / 仪表板基础版
+- **OSS `github.com/zstnbb/PCE-Core`**：L1 + L3a + L3d + L3e + L3f + **L3g** («新» 本地持久化观察，ADR-018) + **L3h** («新» CLI wrap，ADR-018) + L4a + L4c + CaptureEvent 契约 + Ingest Gateway + 归一化 / 存储 / 仪表板基础版
 - **Pro `github.com/zstnbb/pce-pro`**：L0 + L2 + L3b + L4b + Capture Supervisor + IDE 扩展高级版 + 仪表板高级版
 - 依赖方向约束：Pro 可 import OSS，OSS 永不 import Pro（CI 硬拦截）
 
@@ -264,6 +264,7 @@ ADR：
 - `ADR-015` ✅ (**P5.B.1 2026-05-09 落地**) UCS 增设 L3f MCP middleware 层
 - `ADR-016` ✅ (**P5.B.2 kickoff 2026-05-09 落地**) P5.B.2 实施转向：否决 L3b Electron preload + ASAR repack，改 L3d CDP launcher + `.mcpb` Desktop Extensions 打包；migration 0009→0010 重编号
 - `ADR-017` 📝 (**Proposed 2026-05-09，实施 Phase 4.D.1–6**) 跨 lane 测试编排与 Agent 可调用契约：新建 `pce_test_conductor/`（OSS）统一 browser lane (`pce_probe/`) 与 desktop lane (`tests/e2e_desktop/`)，暴露 8 个 MCP tool + 9 值 FailureKind 本体 + JSON Schema canary + 3 个补丁模板；honour ADR-011 G9 "agent 侧实现，插件不投资"——补丁仅作为 diff data 返回，物理 apply 由调用方 agent 落地
+- `ADR-018` ✅ (**v1.1.0-alpha.8-adr018 2026-05-10 落地**) 闭源 Store 分发 Electron AI 应用捕获策略：固化 8 面 × 23 路径威胁模型 + 5 红线 + 13 保留/10 永久排除路径过滤；增设 UCS 子层 **L3g · Local Persistence Watcher**（`pce_persistence_watcher/`）；锁定 MSIX 三主轴实施模型（M / L3g / H1 = L3h）；以 H2 (证书 pin) / H3 (SSLKEYLOGFILE) / H4 (Electron Fuses) 三可伪假设参数化三覆盖场景；**实测场景 H2✅ + H3✅ + H4❌，三区覆盖 ≈94% T1，P1 D0 ≥85% 门已过**；P6 重命名为“Coverage Polish” + Frida + Kernel 推为 Pro 专有。120 hermetic 测试全绿（L3g 43 + L3h 77）
 
 任务单：
 - `tasks/TASK-001-proxy-poc.md` — 已完成 (Foundation)
@@ -292,7 +293,7 @@ Handoff：
 5. `handoff/HANDOFF-IDE-DESKTOP-KICKOFF.md` ⭐ — 当前 active，P5.B.0 → .4 子阶段执行单 + 产品×子阶段 unlock 矩阵
 6. `docs/decisions/2026-04-18-ucs-and-release-strategy.md` — UCS 采纳 + Open Core（注：P5.B scope 已被 ADR-012 重排）
 7. `docs/engineering/UNIVERSAL-CAPTURE-STACK-DESIGN.md` — UCS 蓝图（v0.3 已含 ADR-015 增设的 L3f）
-8. `docs/engineering/adr/ADR-009`（UCS 决策）+ `ADR-010`（Open Core 边界）+ ADR-012/013/014/015（P5.B.0–P5.B.1 期间全部落地 ✅）
+8. `docs/engineering/adr/ADR-009`（UCS 决策）+ `ADR-010`（Open Core 边界）+ ADR-012/013/014/015/016/018（P5.B.0–P5.B.2 + alpha.8 期间全部落地 ✅）+ `ADR-017`（Proposed）
 9. `stability/SITE-TIER-MATRIX.md` §10 — 浏览器站点 tier 现状（2026-05-08 修订；只读）
 
 还需要深入某个领域再补读对应 ADR 与早期决议。

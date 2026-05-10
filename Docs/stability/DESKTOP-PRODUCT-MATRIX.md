@@ -95,21 +95,30 @@ risks**, **install path expected**, **first-probe verification list**.
 > experiments (`tests/manual/method_{a..f}*`); reorganised around
 > the three-axis model (M / L3g persistence / H1 CLI wrap) per
 > ADR-018 §3.5. Squirrel + macOS channels: ADR-016 path remains.
+>
+> **2026-05-10 v1.1.0-alpha.8-adr018 ship update**: L3g `pce_persistence_watcher/`
+> + L3h `pce_cli_wrapper/` packages **delivered** (43+77 = 120 hermetic tests
+> GREEN). H2/H3/H4 empirical findings on Claude Desktop v1.6608.2.0:
+> **H2 ✅ PASS** (172 clean anthropic.com hits, 0 TLS errors via mitmproxy CA);
+> **H3 ✅ PASS** (10 TLS 1.3 sessions × 5 labels in user-env-var SSLKEYLOGFILE);
+> **H4 ❌ LOCKED** (`EnableNodeOptionsEnvironmentVariable` Disabled — B1 NODE_OPTIONS
+> preload permanently dead). » Real-world coverage scenario: ~94% T1 three-region,
+> between optimistic and neutral, P1 D0 ≥85% gate cleared. See ADR-018 §6.
 
 | Field | Value |
 |---|---|
 | OS | Windows (MSIX + Squirrel) + macOS |
 | Primary plane / layer | **M / L3f** (transparent MCP middleware via `pce_mcp_proxy`) + **M / `pce_mcp` posture A** (agent-cooperative ledger via `.mcpb`) |
-| Persistence axis | **L3g local persistence watcher** ⬜ new — `LocalCache\Roaming\Claude\` LevelDB + IndexedDB + `local-agent-mode-sessions\` + `vm_bundles\` (covers Cowork + Chat + Code persisted state) — see ADR-018 §3.4 |
-| Chat-region real-time | **N / L1** (system proxy + CA, `pce_proxy/`) — primary route; **A2 SSLKEYLOGFILE** patch (P5.B Phase 5, 3 days) — anti-pin fallback |
-| Code-region | **H1 CLI wrap** (`pce_cli_wrapper/`) ⬜ wraps `claude-code\<ver>\claude.exe` |
+| Persistence axis | **L3g local persistence watcher** ✅ alpha.8 — `LocalCache\Roaming\Claude\` LevelDB + IndexedDB + `local-agent-mode-sessions\` + `vm_bundles\` (covers Cowork + Chat + Code persisted state) — see ADR-018 §3.4 |
+| Chat-region real-time | **N / L1** (system proxy + CA, `pce_proxy/`) — primary route, **H2 ✅ PASS** confirms viability (172 clean hits, 0 TLS errors); **A2 SSLKEYLOGFILE** patch (Phase 5, 3 days) — redundant insurance, **H3 ✅ PASS** confirms viability |
+| Code-region | **H1 CLI wrap** (`pce_cli_wrapper/`) ✅ alpha.8 — wraps `claude-code\<ver>\claude.exe`; PATH-priority shim with `.cmd`+`.ps1` on Windows, POSIX bare script elsewhere |
 | Squirrel-only secondary | H / L3d (CDP launcher — ADR-016) — applies to Squirrel + macOS only |
 | Normalizer | `pce_core/normalizer/anthropic.py` ✅ + `mcp_jsonrpc.py` ⬜ + `local_persistence.py` ⬜ new |
 | `source_type` | `mcp_proxy` (M-B) + `pce_mcp` (M-A) + `local-persistence` (L3g) + `cli-wrapper` (H1) + `proxy` (L1) + `desktop_electron` (Squirrel-only L3d) |
 | Archetype | Chat Tube ✅ + Tool Tape ⬜ (MCP) + Run Trace ⬜ (CLI) |
-| Risks | 🟡 H2 (Anthropic api.anthropic.com cert pinning) — verdict by Phase 1 method-G run; 🟡 H3 (Chromium SSLKEYLOGFILE write) — verdict same; 🟡 H4 (Electron Fuses on NODE_OPTIONS) — verdict same; 🟡 C4/C5 (`local-agent-mode-sessions/`, `vm_bundles/`) format reverse — Phase 3 first-probe |
+| Risks | � H2 PASS (Anthropic does NOT pin api.anthropic.com / claude.ai on MSIX channel; alpha.8 verdict 2026-05-10); � H3 PASS (Chromium SSLKEYLOGFILE writes via user-level env var; alpha.8 verdict); � H4 LOCKED (Electron Fuses disable NODE_OPTIONS env-var path — B1 / `--inspect` / asar mod permanently dead; alpha.8 verdict); 🟡 C4/C5 (`local-agent-mode-sessions/`, `vm_bundles/`) internal field schema reverse — L3g v0 captures envelope-level, v1 will structurally parse |
 | Install assets | `Docs/install/PCE_MCP_PROXY_INSTALL.md` (M-B) + `pce_mcp/mcpb/README.md` (M-A) + `Docs/install/PCE_CLAUDE_DESKTOP_INSTALL.md` (multi-axis, post-ADR-018 rewrite pending) |
-| First-probe checklist | **a)** read `claude_desktop_config.json` location per OS · **b)** verify `pce-mcp-proxy --upstream <fs>` round-trips a tools/list call · **c)** **run `tests/manual/method_g_capture_feasibility.ps1`** to lock H2/H3/H4 and select scenario per ADR-018 §3.6 · **d)** verify `pce_proxy` captures `api.anthropic.com` after CA install (only if H2 = no-pin) · **e)** dump `LocalCache\Roaming\Claude\local-agent-mode-sessions\` first entry for C4 schema work |
+| First-probe checklist | **a)** read `claude_desktop_config.json` location per OS · **b)** verify `pce-mcp-proxy --upstream <fs>` round-trips a tools/list call · **c)** ~~run method-G~~ **H2/H3/H4 already locked 2026-05-10; see ADR-018 §6 + alpha.8 release notes** · **d)** verify `pce_proxy` captures `api.anthropic.com` after CA install (H2 PASS confirms this works) · **e)** dump `LocalCache\Roaming\Claude\local-agent-mode-sessions\` first entry for C4 v1 schema work |
 
 ### 4.2 P2 — ChatGPT Desktop
 
@@ -118,19 +127,28 @@ risks**, **install path expected**, **first-probe verification list**.
 > bucket via CDP" is **rescinded** for the MSIX channel — CDP cmdline
 > injection blocked the same way as P1. Pin behaviour for OpenAI's
 > chat endpoint may differ from Anthropic's; H2 to be re-run on P2.
+>
+> **alpha.8 inheritance**: L3g + L3h packages **delivered** for P1 also
+> apply to P2 (same Chromium LevelDB/IndexedDB readers; only `LocalCache`
+> sub-path layout differs — needs ChatGPT-specific discovery). H4 LOCKED
+> verdict from P1 expected to apply to P2 (same Electron Fuses fuse
+> set on MSIX-packaged Electron apps), to be re-confirmed via P2 H4
+> probe. **P2 H2 remains the largest open question** — if PASS,
+> ChatGPT Desktop also gets A1 mitmproxy as the Chat-region primary;
+> if FAIL, A2 SSLKEYLOGFILE becomes the only N-plane realtime route.
 
 | Field | Value |
 |---|---|
 | OS | Windows (MSIX) + macOS |
 | Primary plane / layer | **N / L1** (system proxy + CA, `pce_proxy/`) — primary route; verdict tied to P2 H2 result (community-reported pinning as of 2025; needs first-probe re-confirm) |
-| Persistence axis | **L3g local persistence watcher** ⬜ — same parser stack as P1, different `LocalCache` layout (Phase 3 first-probe) |
+| Persistence axis | **L3g local persistence watcher** ✅ pkg alpha.8 — same parser stack as P1, ChatGPT-specific `LocalCache` layout discovery wired but layout itself TBD on first install probe |
 | MCP axis | **M / L3f** (only when user has configured ChatGPT Desktop MCP servers — ChatGPT MCP support is partial / 2026-evolving) |
 | Chat-region anti-pin | **A2 SSLKEYLOGFILE** patch — primary fallback if H2-on-P2 = pinned |
 | Squirrel-only secondary | H / L3d (CDP launcher) — applies to non-MSIX channels only |
 | Normalizer | `pce_core/normalizer/openai.py` ✅ + `local_persistence.py` ⬜ new |
 | `source_type` | `local-persistence` (L3g) + `proxy` (L1) + `mcp_proxy` (M when applicable) + `desktop_electron` (Squirrel-only L3d) |
 | Archetype | Chat Tube ✅ |
-| Risks | 🟡 SSL pinning likely on `chatgpt.com` / `api.openai.com` (higher prior than P1); 🟡 ChatGPT MCP support roadmap uncertain → M axis may be empty; 🟡 same H4 NODE_OPTIONS verdict applies |
+| Risks | 🟡 SSL pinning likely on `chatgpt.com` / `api.openai.com` (higher prior than P1); P2 H2 probe **not yet run** — next on the matrix; 🟡 ChatGPT MCP support roadmap uncertain → M axis may be empty; � H4 LOCKED verdict from P1 expected to apply to P2 (same Electron Fuses fuse set on MSIX-packaged Electron) — NODE_OPTIONS / `--inspect` / asar-mod paths unavailable |
 | Install assets | `Docs/install/PCE_CHATGPT_DESKTOP_INSTALL.md` (post-ADR-018 rewrite pending) |
 | First-probe checklist | **a)** **run method-G on P2** to lock H2/H3 (H4 pin/fuses/keylog verdicts) · **b)** mitmproxy attempt to map pinning failure surface; if pinned, A2 SSLKEYLOGFILE is the only N-plane realtime route · **c)** `LocalCache` first-entry dump for L3g parser work · **d)** check `/v1/chat/completions`-style endpoints for fallback normalizer compatibility |
 
