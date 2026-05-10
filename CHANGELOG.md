@@ -5,9 +5,9 @@ All notable changes to PCE (core + browser extension) are documented in this fil
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-05-10 (later same day) — P1 D03/D05 + P2 N/L1 + P1 chat first-pass + P1 chat web-parity extension + SKIP-conversion sweep
+## [Unreleased] - 2026-05-10 (later same day) — P1 D03/D05 + P2 N/L1 + P1 chat first-pass + P1 chat web-parity extension + SKIP-conversion sweep + composer-focus sweep
 
-Four live sub-runs the same day as `alpha.10-p1-empirical`. Each one
+Five live sub-runs the same day as `alpha.10-p1-empirical`. Each one
 builds on the previous:
 
 - **Sub-run 1 (P1 D03/D05 + P2 N/L1)** — extends the D-case matrix on
@@ -43,6 +43,25 @@ builds on the previous:
   **17 PASS / 3 SKIP / 1 KNOWN BUG / 1 deferred** (pass rate 77%,
   pass+skip 91%), **0 capture-pipeline FAILs across all four
   sub-runs**.
+- **Sub-run 5 (P1 chat composer-focus sweep)** — driven by user
+  diagnosis that `new_chat()` re-flows the composer to a centred
+  position and the legacy fixed `bottom-120` `click_composer()` was
+  silently clicking blank space, dropping focus, and making
+  subsequent `Ctrl+V` paste a no-op (the killer for D17/D18). Driver
+  rewrite ships UIA-based composer discovery, system-wide UIA
+  focus verification (`IUIAutomation.GetFocusedElement` →
+  `CurrentControlType ∈ {Edit, Document, Custom}` + width ≥ 200),
+  retrying `click_composer` up to 3x, and a public
+  `ensure_composer_focus()` helper that `paste_clipboard`,
+  `new_chat`, and any caller can use to guarantee focus before
+  Ctrl+V or send_keys. **Converts D17 + D18 SKIP → PASS**:
+  D17 image (vision recognises `PCE-D17-5039` token, 4 upload-shaped
+  requests, `file_uuid` round-trips into `messages.content_json`),
+  D18 PDF (`PCE-D18-4471` summarised, 4 upload-shaped requests,
+  `file_uuid` persisted). Combined sub-runs 2+3+4+5 over the 22
+  applicable D-cases: **19 PASS / 1 SKIP / 1 KNOWN BUG / 1 deferred**
+  (pass rate 86%, pass+skip 91%), **0 capture-pipeline FAILs across
+  all five sub-runs**.
 
 ### Live-validated
 
@@ -421,6 +440,134 @@ capture-pipeline FAILs across all four sub-runs of 2026-05-10.**
 
 - New handoff: `Docs/handoff/HANDOFF-P1-CLAUDE-DESKTOP-SKIP-CONVERSION-2026-05-10.md`
 - `DESKTOP-PRODUCT-MATRIX.md` §4.1 P1 row gains a fourth dated note.
+
+---
+
+### P1 Claude Desktop chat composer-focus sweep (fifth sub-run)
+
+Driven by user diagnosis. After sub-run 4 landed `17 PASS / 3 SKIP`,
+the three remaining SKIPs (D15 regenerate, D17 image, D18 PDF) were
+attributed to "Chromium popup opacity to UIA + Win32 keyboard".
+The user pointed out the actual root cause for D17/D18:
+
+> 你点回 new chat 的时候 输入框会居中 你没有考虑到这个事情
+> 导致后面的点击失去聚焦没有办法上传了 你在上传前点出去了。
+> 你能不能让你的自动化程序随时监测是否聚焦防止这种事情发生？
+
+In other words: `new_chat()` reflows the composer to a centered
+position (not bottom-anchored), but the driver was still clicking
+the legacy `(cx, bottom-120)` coordinate — that landed in blank
+space, lost composer focus, and turned the subsequent `Ctrl+V`
+clipboard paste into a silent no-op. **The PNG/PDF was never
+actually being pasted into the composer**, so Claude Desktop's
+file-upload handler never ran, and `attachments[]` / `files[]` in
+the `/completion` request body stayed empty.
+
+This is exactly the kind of failure mode the previous diagnostic
+workstream was wallpapering over with "Chromium popup opacity":
+there was no Chromium popup involved at all — just a missed click
+in the main window.
+
+#### Driver rewrite
+
+New helpers in `tests/e2e_desktop_ui/drivers/claude_desktop.py`:
+
+- **`_find_composer_uia()`** — walks UIA descendants, scores
+  `Edit`/`Document`/`Custom` elements by name-hint match (English +
+  Chinese: `"reply to claude"`, `"how can i help"`, `"发送消息"`, ...),
+  control type, width, and Y position to pick the real composer
+  rect.
+- **`_composer_click_point()`** rewritten — UIA-discovered rect
+  centre first; legacy `bottom-120` only as fallback when UIA
+  discovery fails.
+- **`_is_composer_focused()`** — uses `IUIAutomation.GetFocusedElement()`
+  (via `pywinauto.uia_defines.IUIA().iuia`) to ask the system who
+  has Win32 focus, then checks `CurrentControlType ∈ {50004 Edit,
+  50030 Document, 50025 Custom}` + bounding-rect width ≥ 200 +
+  height ≥ 24. Returns `True` only if the focused element
+  *actually looks like the composer*.
+- **`click_composer()`** retries up to 3x, re-foregrounds and
+  re-discovers the composer rect on each attempt, and logs a
+  warning if focus verification fails on all 3.
+- **`ensure_composer_focus(max_attempts=4)`** (NEW public helper)
+  for callers that absolutely need verified focus before paste /
+  send_keys; returns `True`/`False` so callers can branch.
+- **`paste_clipboard()`** now calls `ensure_composer_focus()`
+  before pressing Ctrl+V (logs a warning, but still presses,
+  if focus could not be verified — the warning is the diagnostic
+  for any future paste-no-op regression).
+- **`new_chat()`** now waits up to 5 s for the composer Edit
+  element to be UIA-discoverable after Ctrl+N (post-reflow), then
+  explicitly re-focuses the new composer position.
+
+Cases updated to use the new path:
+
+- `tests/e2e_desktop_ui/cases/p1_chat_window_h_d17.py` — switches
+  from manual `focus()`+`click_composer()`+`Ctrl+V` to
+  `driver.paste_clipboard(settle=6.0)`; calls `ensure_composer_focus()`
+  again before typing the prompt (CF_HDROP attachment chip can
+  shift Win32 focus to itself).
+- `tests/e2e_desktop_ui/cases/p1_chat_window_i_d18.py` — same
+  upgrade.
+- D17/D18 verdicts broadened to align with D06's PASS criterion
+  (file uploaded + ≥1 attachment persisted + assistant replied) —
+  `file_kind="image"` / `file_kind="document"` tagging is a
+  downstream normaliser feature (the `/completion` request body
+  uses generic `type="file"` for ALL attachment kinds, including
+  CSV in D06) and is tracked as a P2 normaliser follow-up rather
+  than a D17/D18 capture-pipeline acceptance bar.
+
+#### Score on the 3 sub-run-4 SKIPs (this sub-run)
+
+**2 SKIP → PASS conversions; 1 still SKIP with a documented next step.**
+
+| D | Sub-run 4 | Sub-run 5 | Note |
+|---|-----------|-----------|------|
+| **D17** | ⏭ SKIP | ✅ **PASS** | PNG via CF_HDROP + Ctrl+V now actually lands in the composer. **4 upload-shaped paths** since baseline (`/files/<uuid>/preview`, `/conversations/<id>` x2 + thumbnail), `/completion` body has real `file_uuid` reference, `messages.content_json` user-msg `attachments=[{type:'file', file_uuid:...}]`, **assistant recognises vision token `PCE-D17-5039`** (asst content 506 chars, includes `<thinking>` reasoning about the image). `file_kind="image"` not surfaced — same shape as D06 CSV PASS, deferred to normaliser P2. |
+| **D18** | ⏭ SKIP | ✅ **PASS** | PDF via CF_HDROP + Ctrl+V. Same shape as D17: **4 upload-shaped paths** (`/files/<uuid>/thumb` + `/conversations/<id>` x2), `file_uuid` in body, `attachments=[{type:'file', ...}]`, **assistant summarises with token `PCE-D18-4471`**. |
+| D15 | ⏭ SKIP | ⏭ SKIP | Unchanged — Retry button still needs `automation_id`-based pinning, not addressable by composer-focus fix. Tracked for next operator-in-loop UIA dump session. |
+
+#### Combined first+second+third+fourth+fifth sub-run aggregate
+
+Across the 22 applicable P1 Claude Desktop chat D-cases:
+
+- **19 PASS** (was 17): D00, D01, D02, D03, D05, D06, D07, D10, D11,
+  D12, D13, D14, D16, **D17**, **D18**, D19 (PARTIAL), D20, D21, D22
+- **1 SKIP** (was 3): D15 regenerate
+- **1 KNOWN BUG** (D04 cancel)
+- **1 deferred** (D08 MCP tool)
+
+**Pass rate: 86%** (19/22) — up from 77% in sub-run 4. **Pass+SKIP
+rate: 91%** (20/22) — same headline number as sub-run 4 (the floor
+was already at 91%). **0 capture-pipeline FAILs across all five
+sub-runs of 2026-05-10.**
+
+#### Driver gotchas pinned (this sub-run)
+
+- **The composer's Y position is layout-dependent**, not a
+  build-version constant: chat with content puts it near
+  `bottom-120`; fresh `new_chat` puts it centred (Y ≈ 600 on a
+  1700-tall window); long history scrolls it back to the bottom
+  band but with a different Y. Any coordinate-based composer
+  click must use a UIA-discovered rect, not a fixed offset.
+- **Win32 focus and visible UI focus diverge silently** in
+  Chromium-rendered Electron apps. The renderer can paint a
+  cursor in the composer while the actual `GetFocusedElement()`
+  reports a different element (e.g., a sibling `Document`
+  representing the empty chat scroll area). `IUIAutomation`
+  is the authoritative source of truth for "will this Ctrl+V
+  go to the composer?".
+- **CF_HDROP paste of a PNG works on Claude Desktop** when
+  composer focus is real — earlier sub-runs' "Chromium image-
+  handler intercepts CF_HDROP for image MIME" theory was wrong;
+  the paste was simply going nowhere because the click-target
+  was wrong. Prefer the simplest theory: a missed click.
+
+#### Documentation
+
+- `DESKTOP-PRODUCT-MATRIX.md` §4.1 P1 row gains a fifth dated note
+  recording the focus-verification fix + per-D verdict
+  conversions + new aggregate.
 
 ---
 

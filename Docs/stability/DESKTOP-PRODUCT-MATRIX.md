@@ -196,6 +196,44 @@ risks**, **install path expected**, **first-probe verification list**.
 > all four sub-runs of 2026-05-10.** Full evidence + per-D verdicts
 > + driver refactor list in
 > `Docs/handoff/HANDOFF-P1-CLAUDE-DESKTOP-SKIP-CONVERSION-2026-05-10.md`.
+>
+> **2026-05-10 P1 chat composer-focus sweep (fifth sub-run, same day)**:
+> Driven by user diagnosis. Sub-run 4's "Chromium popup opacity"
+> theory for D17/D18 turned out to be wrong — the actual root cause
+> was that `new_chat()` reflows the composer to a centered position
+> (not bottom-anchored), but the legacy fixed `(cx, bottom-120)`
+> `click_composer()` was clicking blank space, dropping focus, and
+> turning the subsequent `Ctrl+V` clipboard paste into a silent
+> no-op. Driver rewrite: UIA-based composer discovery
+> (`_find_composer_uia` walks descendants and scores `Edit` /
+> `Document` / `Custom` elements by name-hint match in EN+CN, control
+> type, width, Y position), `IUIAutomation.GetFocusedElement`-based
+> Win32-focus verification (`_is_composer_focused`), `click_composer`
+> retries up to 3x, and a public `ensure_composer_focus()` helper
+> that `paste_clipboard` and `new_chat` both use. **Converts D17 +
+> D18 SKIP → PASS**: D17 image (PNG via CF_HDROP, vision recognises
+> token `PCE-D17-5039`, 4 upload-shaped requests, `file_uuid` round-
+> trips into `messages.content_json`), D18 PDF (`PCE-D18-4471`
+> summarised, 4 upload-shaped requests, `file_uuid` persisted).
+> Verdicts broadened to align with D06's PASS criterion (file
+> uploaded + ≥1 attachment + assistant replied) — `file_kind="image"`
+> / `file_kind="document"` flagging is a downstream normaliser P2
+> follow-up, not a D17/D18 capture-pipeline acceptance bar (D06 CSV
+> PASSes with the same generic `type="file"` shape). Combined sub-
+> runs 2+3+4+5 across P1's 22 applicable D-cases: **19 PASS / 1
+> SKIP / 1 KNOWN BUG / 1 deferred** (pass rate 86%, pass+skip 91%).
+> Remaining 1 SKIP (D15 regenerate) needs `automation_id`-based
+> pinning of the visible Retry button (orthogonal to composer focus
+> — to be tackled in next operator-in-loop UIA dump session).
+> **0 capture-pipeline FAILs across all five sub-runs of 2026-05-10.**
+> Driver gotchas pinned this sub-run: composer Y is layout-dependent
+> (centered after fresh `new_chat`, near bottom with content); Win32
+> focus and visible UI focus diverge silently in Chromium-Electron
+> apps; CF_HDROP PNG paste works fine on this build when composer
+> focus is real (the earlier "Chromium image-handler intercepts
+> CF_HDROP for image MIME" theory was wallpapering over a missed
+> click). Full per-D verdicts + driver helper list in CHANGELOG
+> §"P1 Claude Desktop chat composer-focus sweep (fifth sub-run)".
 
 | Field | Value |
 |---|---|

@@ -78,12 +78,137 @@ class ClaudeDesktopDriver(DesktopDriver):
             self._hwnd = w.handle
         return self._window
 
+    # Composer (text input) discovery hints. The composer in Claude
+    # Desktop is a Chromium-rendered Edit/Document UIA element whose
+    # name varies by build / locale ("Reply to Claude", "How can I
+    # help you today?", "Type your message...", etc.). After Ctrl+N
+    # new chat the composer is centered on screen, NOT pinned to the
+    # bottom — so the previous fixed (cx, bottom-120) heuristic
+    # missed it and clicked into blank space, dropping focus and
+    # silently breaking subsequent Ctrl+V paste.
+    _COMPOSER_CONTROL_TYPES = ("Edit", "Document", "Custom")
+    _COMPOSER_NAME_HINTS = (
+        "reply to claude", "reply to anthropic", "how can i help",
+        "what can i help", "how are you", "start a new chat",
+        "message claude", "send a message", "type a message",
+        "type your message", "write a message", "start typing",
+        "发送消息", "输入消息", "输入你的问题", "给 claude 发消息",
+    )
+
     def _composer_click_point(self) -> tuple[int, int]:
+        """Return ``(cx, cy)`` that should land inside the composer.
+
+        Strategy (in order):
+        1. UIA: find the largest Edit/Document/Custom element whose
+           name matches a composer hint. Click its centre.
+        2. UIA: find the bottom-most reasonably wide Edit/Document
+           that is inside the Claude window's chat area.
+        3. Fallback: the legacy ``bottom-120`` heuristic.
+        """
+        el = self._find_composer_uia()
+        if el is not None:
+            try:
+                r = el.element_info.rectangle
+                if r and r.right > r.left and r.bottom > r.top:
+                    cx = (r.left + r.right) // 2
+                    cy = (r.top + r.bottom) // 2
+                    logger.debug("composer (UIA): rect=(%d,%d)-(%d,%d) -> click (%d,%d)",
+                                 r.left, r.top, r.right, r.bottom, cx, cy)
+                    return cx, cy
+            except Exception:
+                pass
         w = self._ensure_window()
         rect = w.rectangle()
         cx = (rect.left + rect.right) // 2
         cy = rect.bottom - 120
+        logger.debug("composer (fallback bottom-120): click (%d,%d)", cx, cy)
         return cx, cy
+
+    def _find_composer_uia(self):
+        """Walk the Claude window UIA tree and return the wrapper that
+        looks most like the composer text input. None if nothing
+        plausible is found.
+        """
+        w = self._ensure_window()
+        try:
+            win_rect = w.rectangle()
+            descendants = list(w.descendants())
+        except Exception as exc:
+            logger.debug("_find_composer_uia: descendants() failed: %s", exc)
+            return None
+        win_w = max(1, win_rect.right - win_rect.left)
+        win_h = max(1, win_rect.bottom - win_rect.top)
+        candidates: list[tuple[int, object]] = []
+        for d in descendants:
+            try:
+                info = d.element_info
+                ct = info.control_type or ""
+                if ct not in self._COMPOSER_CONTROL_TYPES:
+                    continue
+                r = info.rectangle
+                if r is None:
+                    continue
+                el_w = r.right - r.left
+                el_h = r.bottom - r.top
+                if el_w < 200 or el_h < 24:
+                    continue
+                # Must be inside the window
+                if (r.left < win_rect.left - 50 or r.right > win_rect.right + 50
+                        or r.top < win_rect.top - 50 or r.bottom > win_rect.bottom + 50):
+                    continue
+                # Reject things bigger than 90% of the window (likely the
+                # whole document area)
+                if el_w > 0.95 * win_w and el_h > 0.85 * win_h:
+                    continue
+                name = (info.name or "").lower()
+                score = 0
+                if any(h in name for h in self._COMPOSER_NAME_HINTS):
+                    score += 100_000
+                # Prefer Edit > Document > Custom
+                if ct == "Edit":
+                    score += 5_000
+                elif ct == "Document":
+                    score += 2_500
+                # Prefer wider elements (composer is wide, not a tiny search box)
+                score += el_w
+                # Prefer elements in the bottom 70% of the window (avoid header search)
+                if r.top > win_rect.top + 0.30 * win_h:
+                    score += 3_000
+                # Slight preference for ones that aren't at the very top
+                candidates.append((score, d))
+            except Exception:
+                continue
+        if not candidates:
+            return None
+        candidates.sort(key=lambda t: t[0], reverse=True)
+        return candidates[0][1]
+
+    def _is_composer_focused(self) -> bool:
+        """Check whether the system-wide UIA focused element looks like
+        the composer (Edit / Document, reasonably wide). Used to verify
+        a click_at actually landed in the right place before pasting.
+        """
+        try:
+            from pywinauto.uia_defines import IUIA  # type: ignore
+            iuia = IUIA().iuia
+            focused = iuia.GetFocusedElement()
+            if focused is None:
+                return False
+            # 50004 = UIA_EditControlTypeId
+            # 50030 = UIA_DocumentControlTypeId
+            # 50025 = UIA_CustomControlTypeId
+            ct_id = int(focused.CurrentControlType)
+            if ct_id not in (50004, 50030, 50025):
+                return False
+            br = focused.CurrentBoundingRectangle
+            width = br.right - br.left
+            height = br.bottom - br.top
+            if width < 200 or height < 24:
+                return False
+            return True
+        except Exception as exc:
+            logger.debug("_is_composer_focused: failed: %s", exc)
+            return False
 
     # ---------- DesktopDriver impl ----------
 
@@ -93,9 +218,55 @@ class ClaudeDesktopDriver(DesktopDriver):
         time.sleep(0.6)
 
     def click_composer(self) -> None:
-        cx, cy = self._composer_click_point()
-        click_at(cx, cy)
-        time.sleep(0.4)
+        """Click into the composer. Verifies focus afterwards and
+        retries up to 3 times if the click missed (e.g. the composer
+        moved due to layout reflow between dump and click).
+        """
+        for attempt in range(3):
+            cx, cy = self._composer_click_point()
+            click_at(cx, cy)
+            time.sleep(0.4)
+            if self._is_composer_focused():
+                if attempt > 0:
+                    logger.info("click_composer: focused on retry attempt %d", attempt + 1)
+                return
+            logger.warning(
+                "click_composer: focus check FAILED after click_at(%d,%d) "
+                "on attempt %d/3 \u2014 composer may have moved; re-discovering",
+                cx, cy, attempt + 1,
+            )
+            # Re-foreground in case another window stole focus
+            self.focus()
+        logger.warning(
+            "click_composer: focus verification failed after 3 attempts \u2014 "
+            "proceeding anyway (downstream paste may silently no-op)"
+        )
+
+    def ensure_composer_focus(self, *, max_attempts: int = 4) -> bool:
+        """Public helper: bring Claude to foreground and click into the
+        composer, verifying focus actually landed. Returns True on
+        success. Use this before any Ctrl+V paste or send_keys-typed
+        prompt to guarantee the keys hit the right input element.
+        """
+        for attempt in range(max_attempts):
+            self.focus()
+            cx, cy = self._composer_click_point()
+            click_at(cx, cy)
+            time.sleep(0.4)
+            if self._is_composer_focused():
+                if attempt > 0:
+                    logger.info(
+                        "ensure_composer_focus: succeeded on attempt %d/%d",
+                        attempt + 1, max_attempts,
+                    )
+                return True
+            logger.warning(
+                "ensure_composer_focus: focus NOT on composer after click_at(%d,%d) "
+                "on attempt %d/%d",
+                cx, cy, attempt + 1, max_attempts,
+            )
+            time.sleep(0.6)
+        return False
 
     def send_message(
         self,
@@ -164,7 +335,19 @@ class ClaudeDesktopDriver(DesktopDriver):
         self.focus()
         self.click_composer()
         send_keys("^n", pause=0.1)
-        time.sleep(1.0)
+        # After Ctrl+N the composer reflows to a centered position on a
+        # blank chat. Wait until the composer Edit element is
+        # discoverable AND focusable again \u2014 otherwise the next
+        # click_composer() will race with the layout transition and
+        # land in blank space.
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            if self._find_composer_uia() is not None:
+                break
+            time.sleep(0.2)
+        # Force-focus the new composer (the post-reflow rect)
+        self.ensure_composer_focus()
+        time.sleep(0.4)
         return True
 
     # ---------- D13–D22 extensions ----------
@@ -173,9 +356,19 @@ class ClaudeDesktopDriver(DesktopDriver):
         """Press Ctrl+V to paste the current Windows clipboard contents
         into the focused composer. Caller is responsible for putting
         whatever (text, CF_HDROP file list, image bitmap) on the
-        clipboard first."""
-        self.focus()
-        self.click_composer()
+        clipboard first.
+
+        This calls ``ensure_composer_focus()`` before pressing Ctrl+V
+        and logs a warning (but still presses Ctrl+V) if focus could
+        not be verified \u2014 historically the silent-paste-no-op was
+        what made D17/D18 SKIP on this build.
+        """
+        ok = self.ensure_composer_focus()
+        if not ok:
+            logger.warning(
+                "paste_clipboard: composer focus could not be verified; "
+                "pressing Ctrl+V anyway but the paste may silently no-op"
+            )
         send_keys("^v", pause=0.05)
         time.sleep(settle)
 
