@@ -202,13 +202,21 @@ targets revised upward).
 - Browser-extension capture path unchanged (cowork is a desktop-only
   surface).
 
-### P5.B.5.5c — live-mode sweep result (13 PASS / 4 SKIP / 0 FAIL)
+### P5.B.5.5c — live-mode sweep result (12 PASS / 5 SKIP / 0 FAIL — corrected)
 
 Three live-mode iterations against the developer's real Claude Desktop
-MSIX install. Final run `tests/e2e_desktop_ui/reports/p1_cowork/20260511-145124_mode-live/`
-(gitignored) — **13 PASS / 4 SKIP / 0 FAIL**, the PASS target (≥13)
-and the FAIL target (=0) are met; the SKIP target (≤3) is exceeded
-by 1 because all 4 SKIPs are documented out-of-scope:
+MSIX install. Initial verdict from run
+`tests/e2e_desktop_ui/reports/p1_cowork/20260511-145124_mode-live/`
+(gitignored) was **13 PASS / 4 SKIP / 0 FAIL**; a post-run audit
+prompted by a user-observed Claude sandbox toast revealed that the
+C05 PASS was a **false positive** under a loose substring-matching
+predicate. With the strict-attachments predicate the corrected
+verdict is **12 PASS / 5 SKIP / 0 FAIL** (the C05 re-run is in
+`tests/e2e_desktop_ui/reports/p1_cowork/20260511-174129_mode-live/`).
+The PASS target (≥13) is missed by 1 and the SKIP target (≤3) is
+exceeded by 2; **the load-bearing 0-FAIL bar is met** — no
+capture-pipeline regression, and all 5 SKIPs are documented
+out-of-scope (see § *Audit & correction* below):
 
 | Case | Verdict | Evidence summary |
 |------|---------|------------------|
@@ -217,7 +225,7 @@ by 1 because all 4 SKIPs are documented out-of-scope:
 | C02  | PASS | session `0a790186` — 3 messages, multi-paragraph reply |
 | C03  | PASS | session `f4fdac2c` — 3 messages, multi-step reasoning |
 | C04  | SKIP | inherits D04 cancel-mid-stream known bug (chat-region) |
-| C05  | PASS | cowork message references `_c05_test.txt` post-paste |
+| C05  | SKIP | clipboard CF_HDROP paste fails Claude MSIX sandbox on both `F:\` and `%TEMP%` paths — driver gap, see audit below |
 | C06  | PASS | session `8cacfd49` — 5 messages incl. tool calls |
 | C07  | PASS | 17 cowork messages with `mcp__*` tool calls |
 | C08  | PASS | slash-picker invoked `skill-creator`; 4/6 new msgs mention 'skill' |
@@ -230,11 +238,14 @@ by 1 because all 4 SKIPs are documented out-of-scope:
 | C15  | PASS | 60 s idle: 3 total events, 0 transcript content events (silent) |
 | C16  | SKIP | `.mcpb` packs but `pce_*` MCP tool call not yet invoked in Chat |
 
-The C04 / C11 / C12 / C16 SKIPs are tracked in `Docs/research/2026-05-11-cowork-recon-findings.md`
-§A5; none indicate a capture-pipeline regression. Acceptance is met
-on the PASS bar (13 ≥ 13) and the **0-FAIL bar** (the load-bearing
-quality gate); the SKIP ceiling miss-by-1 is explainable and not
-fixable inside this sub-run.
+The C04 / C05 / C11 / C12 / C16 SKIPs are tracked in
+`Docs/research/2026-05-11-cowork-recon-findings.md` §A5 (+ the new
+C05 driver-gap addendum); none indicate a capture-pipeline
+regression. The **0-FAIL bar** (the load-bearing quality gate) is
+met. PASS and SKIP ceilings are missed, but only because of UI /
+clipboard / sandbox gaps in the driver layer (clipboard paste) and
+out-of-scope cases (C04 inherits chat-region bug, C11 needs
+>24 h soak, C12 needs a project, C16 needs `.mcpb` invocation).
 
 #### Bugs found & fixed during the three live iterations
 
@@ -252,11 +263,15 @@ fixable inside this sub-run.
   loop (`_wait_for_new_cowork_messages`) that re-queries the DB up
   to `watcher_timeout` seconds for a new `messages` row in the
   cowork tool family.
-- **C05 sandbox rejection** — Writing the paste test file under the
-  workspace `run_dir` on `F:\` triggered Claude's MSIX sandbox to
-  reject the file ("Could not get file paths" toast). Fix: write the
-  fixture to `os.environ["TEMP"]` (a `C:\` path the MSIX sandbox
-  trusts).
+- **C05 sandbox rejection — ATTEMPTED fix, did NOT actually work** —
+  Writing the paste test file under the workspace `run_dir` on `F:\`
+  triggered Claude's MSIX sandbox to reject the file ("Could not
+  get file paths" toast). Initial attempted fix: write the fixture
+  to `os.environ["TEMP"]` (`C:\`). However the audit (see below)
+  proved the toast still fires for `%TEMP%` paths too — the real
+  issue is not the drive letter but that the **clipboard CF_HDROP
+  paste path is not the official upload channel** in Claude
+  Desktop MSIX. C05 is downgraded to documented SKIP.
 - **Slash-picker UI changed** — RECON-time slash picker was a
   Directory dialog with Skill / Tool tabs; live UI is a flat
   `MenuItem` list under a popup. Fix: `pick_skill` rewritten to walk
@@ -272,8 +287,49 @@ fixable inside this sub-run.
 - `tests/e2e_desktop_ui/drivers/claude_desktop.py` — `+ensure_cowork_chat`,
   rewritten `pick_skill` (MenuItem shape), `send_message(wait_request=False)`.
 - `tests/e2e_desktop_ui/run_p1_cowork_sweep.py` — active-poll for
-  watcher ingestion, ensure_cowork_chat wiring, C05 `%TEMP%` fix,
-  C08 `skill-creator` exercise, refined per-case verdicts.
+  watcher ingestion, ensure_cowork_chat wiring, C08 `skill-creator`
+  exercise, refined per-case verdicts; **C05 predicate tightened**
+  (post-audit) to require a real `attachments[]` entry with
+  `type ∈ {file,image,image_url,document}` instead of substring-
+  matching the filename in `content_text` / `content_json`.
+
+#### Audit & correction (C05 false-positive)
+
+After the 20260511-145124 run committed as 9dd6d42 and tagged
+`v1.1.0-alpha.11-cowork-p1`, the developer reported that the
+`"Could not get file paths for: 1778481301243__c05_test.txt"` toast
+still appeared during the sweep — **despite** the `%TEMP%`
+relocation. A DB autopsy of cowork messages in the C05 time window
+(`ts ∈ [1778481150, 1778481400]`) revealed:
+
+- 6 user-role messages, 15 assistant-role messages in the window.
+- **All user messages: `attachments[] length: 0`** (no real file).
+- Assistant `<thinking>` at `ts=1778481316.6` explicitly says
+  "However, I don't see any file attached to this message."
+- Assistant final reply at `ts=1778481316.8`: "I don't see an
+  attached CSV file in your message. Could you please upload the
+  CSV file you'd like me to describe?"
+
+The loose PASS predicate had matched on substring
+`"_c05_test.txt" in content_text` — true because pyautogui's paste
+silently degraded to a keystroke fall-back that typed the filename
+as plain text, and Claude's `<thinking>` block additionally mirrored
+the filename it saw on the rejected upload toast.
+
+The predicate was tightened (see file diff in this commit); a
+focused re-run `--cases C05 --mode live`
+(`20260511-174129_mode-live/case_C05.json`) reproduces the strict
+SKIP verdict with `target_file="_c05_test.txt"`,
+`follow_up_text_present=True`, `messages_inspected=2`.
+
+**Root cause hypothesis** (not yet confirmed): the official upload
+channel in Cowork composer is the `+` button or drag-drop, both of
+which engage Anthropic's signed Wiggle (`/wiggle/upload-file`)
+pipeline; raw clipboard CF_HDROP paste bypasses Wiggle and the
+MSIX sandbox refuses to expose the host file paths to the renderer
+for either `F:\` workspace paths or `%TEMP%` (`C:\`) paths. A real
+fix needs a driver helper that drives the `+` button or a synthetic
+drop event — tracked as a v1.1 polish task, not a P5.B.5 blocker.
 
 ### Next sub-run
 

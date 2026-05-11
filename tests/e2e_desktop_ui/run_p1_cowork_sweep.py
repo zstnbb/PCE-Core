@@ -740,50 +740,88 @@ def case_C05_file_input(ctx: CaseContext) -> dict:
             break
         time.sleep(poll_interval)
 
-    # Did the paste actually attach a file? Look for non-empty
-    # attachments array OR the file name in content_text/json.
+    # Strict predicate (post-2026-05-11 audit): a real PASS requires
+    # at least one user-role message whose parsed content_json has
+    # attachments[] containing an object with type in
+    # {"file","image","image_url","document"}. Substring matching on
+    # filename or '"attachments": [{' is REJECTED — it false-positives
+    # when (a) the filename appears as plaintext because the paste
+    # silently degraded to keystrokes, or (b) Claude's error toast
+    # text is mirrored into the transcript line and contains the
+    # filename. We learned this the hard way: the 20260511-145124 run
+    # initially reported PASS while Claude's <thinking> block said
+    # "I don't see any file attached to this message" — see autopsy
+    # in CHANGELOG §P5.B.5.5c.
     file_name = test_file.name
-    has_real_attachment = False
+    real_attachment_evidence: dict | None = None
     saw_followup_text = False
     for r in rows:
-        cj = r["content_json"] or ""
+        if r["role"] != "user":
+            continue
+        cj_raw = r["content_json"] or ""
         ct = r["content_text"] or ""
-        if file_name in cj or file_name in ct:
-            has_real_attachment = True
-            break
-        # match attachment array with at least one element
-        if '"attachments": [{' in cj or '"attachments": [\n' in cj:
-            has_real_attachment = True
-            break
         if "Briefly describe the columns" in ct:
             saw_followup_text = True
+        if not cj_raw:
+            continue
+        try:
+            cj = json.loads(cj_raw)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+        atts = cj.get("attachments") if isinstance(cj, dict) else None
+        if not (isinstance(atts, list) and atts):
+            continue
+        for a in atts:
+            if not isinstance(a, dict):
+                continue
+            at_type = (a.get("type") or "").lower()
+            if at_type in ("file", "image", "image_url", "document"):
+                real_attachment_evidence = {
+                    "msg_id": r["id"][:12],
+                    "attachment_type": at_type,
+                    "attachment_name": a.get("name") or a.get("title") or "",
+                }
+                break
+        if real_attachment_evidence:
+            break
 
-    if has_real_attachment:
+    if real_attachment_evidence is not None:
         return _verdict(
             "C05", "pass",
-            reason=(f"cowork message references attachment '{file_name}' "
-                    f"or non-empty attachments[] post-paste"),
-            evidence={"wait": wait_result, "messages_inspected": len(rows)},
+            reason=(f"cowork user message has real attachments[] entry "
+                    f"(type={real_attachment_evidence['attachment_type']}) post-paste"),
+            evidence={
+                "wait": wait_result,
+                "messages_inspected": len(rows),
+                "real_attachment": real_attachment_evidence,
+                "target_file": file_name,
+            },
         )
     if saw_followup_text:
-        # Text part landed but attachment didn't — known driver gap.
+        # Text part landed but attachment didn't — clipboard CF_HDROP
+        # paste does NOT reliably attach files in Claude Desktop MSIX
+        # Cowork composer. Documented driver gap.
         return _verdict(
             "C05", "skip",
             reason=("clipboard CF_HDROP paste lands prompt text but does NOT "
-                    "produce attachment in Cowork composer on this build "
-                    "(verified: user message has attachments=[]; file name "
-                    "absent from DB). Driver gap — needs '+' attach-button "
-                    "or drag-drop to exercise; tracked as known limitation."),
+                    "produce real attachment (attachments[] empty across all "
+                    "user messages in window). Root cause: Claude MSIX "
+                    "sandbox emits 'Could not get file paths for: <ts>__<name>' "
+                    "toast for both F:\\ run_dir AND %TEMP% C:\\ paths; "
+                    "the official upload path is the composer's '+' button "
+                    "or drag-drop, not clipboard CF_HDROP. Known driver gap, "
+                    "tracked in CHANGELOG §P5.B.5.5c amendment."),
             evidence={
                 "wait": wait_result,
                 "messages_inspected": len(rows),
                 "follow_up_text_present": True,
+                "target_file": file_name,
             },
         )
     return _verdict(
         "C05", "fail",
         reason="no user-role cowork message found post-paste (paste path may have stalled)",
-        evidence={"wait": wait_result, "messages_inspected": len(rows)},
+        evidence={"wait": wait_result, "messages_inspected": len(rows), "target_file": file_name},
     )
 
 
