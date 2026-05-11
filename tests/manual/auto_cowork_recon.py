@@ -9,47 +9,71 @@ pce_core daemon up) and run::
 
     python -m tests.manual.auto_cowork_recon
 
-After ~12 minutes wall clock, the script writes
+After ~17-19 minutes wall clock, the script writes
 ``tests/manual/recon_cowork_auto_<ts>/`` containing the same artefact
 shape as the REPL recon (events.jsonl, markers.jsonl, manifests/,
 summary.json, findings_skeleton.md) plus per-step UIA dumps and a
 ``step_results.json`` summarising what each step empirically observed.
 
-The 9 sequential steps and the open question each closes:
+The 14 sequential steps map to the open architectural questions
+(Q1-Q8) AND the operational C-cases (C00-C16) per
+``Docs/stability/DESKTOP-PRODUCT-MATRIX.md`` §5.B:
 
-* ``baseline``         — full UIA dump of current surface (top-level shape).
-* ``q5_manifest``      — copy the latest local-agent-mode-sessions
-                         manifest as a baseline before any new task fires
-                         (closes Q5 schema).
-* ``open_cowork``      — heuristic click on a Cowork / Agents sidebar
-                         entry (records whether the surface is even
-                         reachable by name and what the post-click UIA
-                         looks like).
-* ``q1_skill_picker``  — focus composer, send a ``/`` keystroke, dump
-                         the resulting popup / inline widget (closes
-                         Q1 — descendant vs cross-window).
-* ``q2_multistep``     — send a multi-step task prompt; count the number
-                         of ``/completion`` request pairs that fire
-                         within 4 min; record their relative timing.
-                         Single-stream vs SSE-per-step vs long-poll
-                         signature falls straight out of the delta
-                         count + body_format mix (closes Q2).
-* ``q7_artifact``      — send a Live Artifact prompt (SVG bar chart),
-                         dump UIA + L3g manifest after completion to
-                         answer where artifact bytes live (closes Q7).
-* ``q6_scheduled``     — send a scheduled-task prompt; dump UIA + L3g
-                         manifest. Empirically distinguishes the eager
-                         vs lazy lifecycle by whether a conversation
-                         row appears at create time (closes Q6 eager
-                         lean, pre-scheduled-time).
-* ``q8_folder_picker`` — send a folder-access prompt; watch for a new
-                         top-level window to appear and dump its
-                         descendants. The window class_name distinguishes
-                         native Win32 picker (``#32770``) from in-app
-                         Chromium dialog (closes Q8).
-* ``q3_dispatch``      — heuristic click on a Dispatch (Beta) sidebar
-                         entry; dump post-click UIA. Distinguishes
-                         in-app pane vs top-level popup (closes Q3).
+* ``baseline``           — full UIA dump of current surface (top-level shape).
+* ``q5_manifest``        — copy the latest local-agent-mode-sessions
+                           manifest as a baseline before any new task fires
+                           (closes Q5 schema; baselines C14).
+* ``open_cowork``        — heuristic click on a Cowork / Agents sidebar
+                           entry (records whether the surface is even
+                           reachable by name; closes C00 reachability).
+* ``c13_customize``      — heuristic click on Customize / Settings / Preferences
+                           sidebar entry; dump panel UIA. (closes C13).
+* ``q1_skill_picker``    — focus composer, send a ``/`` keystroke, dump
+                           the resulting popup / inline widget (closes
+                           Q1 — descendant vs cross-window; C08).
+* ``q2_multistep``       — send a multi-step task prompt; count the number
+                           of ``/completion`` request pairs that fire
+                           within 60 s drain window. Single-stream vs
+                           SSE-per-step vs long-poll signature falls
+                           straight out of the delta count + body_format
+                           mix (closes Q2; C01 + C02 + C05).
+* ``c3_cancel``          — send a long-prompt task, ESC ~4 s into stream,
+                           inspect /completion response body shape
+                           (closes C03).
+* ``c4_file_input``      — CF_HDROP a small .txt to clipboard, paste into
+                           composer, send 'describe this file' prompt,
+                           snapshot manifest for attachment field
+                           (closes C04).
+* ``q7_artifact``        — send a Live Artifact prompt (SVG bar chart),
+                           dump UIA + L3g manifest after completion to
+                           answer where artifact bytes live (closes Q7; C06).
+* ``q6_scheduled``       — send a scheduled-task prompt; dump UIA + L3g
+                           manifest. Empirically distinguishes the eager
+                           vs lazy lifecycle by whether a conversation
+                           row appears at create time (closes Q6 eager
+                           lean; C11 creation + C07 MCP call observation).
+* ``q8_folder_picker``   — send a folder-access prompt; watch for a new
+                           top-level window to appear and dump its
+                           descendants. The window class_name distinguishes
+                           native Win32 picker (``#32770``) from in-app
+                           Chromium dialog (closes Q8; C09).
+* ``q3_dispatch``        — heuristic click on a Dispatch (Beta) sidebar
+                           entry; dump post-click UIA. Distinguishes
+                           in-app pane vs top-level popup (closes Q3; C10 UIA).
+* ``c12_project_cowork`` — if ``CLAUDE_PROJECT_NAME`` env var is set,
+                           ``open_project()`` + try Cowork inside it;
+                           dump UIA. Otherwise SKIP with a hint
+                           (closes C12, env-var-gated).
+* ``c15_idle``           — 60 s passive observation window: count N-axis
+                           events grouped by URL pattern + snap manifest
+                           at end. Surfaces any heartbeat / settings
+                           poll / referral check fired during idle
+                           (closes C15).
+
+C-cases definitively out-of-scope for RECON: C14 (gated on
+``local_persistence.py`` normaliser; landed in P5.B.5.3) and C16
+(L3f-Cowork MCP register; deferred to Phase 6 per Q0 Outcome B).
+Everything else (C00–C13, C15) gets per-step empirical evidence.
 
 Each step is wrapped in try/except so a single failure does not abort
 the run. Failures land in ``step_results.json`` with their traceback,
@@ -65,6 +89,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 import threading
 import time
@@ -94,9 +119,11 @@ from tests.e2e_desktop_ui.drivers.claude_desktop import ClaudeDesktopDriver  # n
 from tests.e2e_desktop_ui.utils import (  # noqa: E402
     baseline_ts,
     configure_utf8_stdout,
+    copy_files_to_clipboard,
     count_completions,
     latest_completion_pair_id,
     wait_completion_response,
+    wait_for_new_completion,
 )
 
 
@@ -734,6 +761,298 @@ def step_q3_dispatch(ctx: StepCtx) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# C-case-only steps (extend the architectural-Q coverage to operational
+# C-case observation coverage). These mirror the post-Q2 / post-Q3 chunks
+# of the original RECON checklist (handoff §4).
+# ---------------------------------------------------------------------------
+
+
+def step_c13_customize(ctx: StepCtx) -> dict:
+    _mark(ctx, "c13-customize-start")
+    clicked, info = _try_click_uia(
+        ctx, ["Customize", "Settings", "Preferences"],
+        control_types=[
+            "Button", "ListItem", "TabItem", "Custom", "TreeItem",
+            "Hyperlink", "Text", "MenuItem",
+        ],
+        timeout=2.5,
+    )
+    if clicked:
+        time.sleep(2.0)
+        _dump_uia(
+            ctx, "c13-customize",
+            keywords=[
+                "customize", "setting", "preference", "theme", "model",
+                "personal", "memory", "default", "appearance", "profile",
+            ],
+        )
+        # Dismiss so subsequent steps land on the main surface
+        _send_keys("{ESC}", pause=0.1)
+        time.sleep(0.5)
+    _mark(ctx, "c13-customize-end", extra={"clicked": clicked, **(info or {})})
+    return {"clicked": clicked, **(info or {})}
+
+
+def step_c3_cancel(ctx: StepCtx) -> dict:
+    """Send a long-prompt task, ESC mid-stream, classify response body
+    shape. Closes C03.
+    """
+    _mark(ctx, "c3-cancel-start")
+    base_ts = baseline_ts()
+    n0 = count_completions(base_ts - 1.0)
+    pid: Optional[str] = None
+    try:
+        pid = ctx.driver.send_message(
+            "Please write me a detailed 500-word essay covering the full "
+            "history of the abacus, from ancient Sumerian counting boards "
+            "through medieval Chinese suanpan to modern Japanese soroban "
+            "competitions. Include specific dates, names, and regional "
+            "variants. Take your time and be thorough.",
+            wait_done=False,
+            wait_timeout=10.0,
+        )
+    except Exception as exc:
+        _mark(ctx, "c3-error", extra={"err": str(exc), "stage": "send"})
+        return {"error": str(exc), "stage": "send"}
+
+    # Let response stream for ~4 s, then send the cancel keystroke
+    time.sleep(4.0)
+    cancel_ok = False
+    cancel_err: Optional[str] = None
+    try:
+        cancel_ok = ctx.driver.cancel_current()
+    except Exception as exc:
+        cancel_err = str(exc)
+        _note(ctx, f"c3 cancel raised: {exc}")
+    time.sleep(2.5)
+
+    # Capture response shape (status + body_len + body_format)
+    response = wait_completion_response(pid, timeout=30.0) if pid else None
+    delta = count_completions(base_ts - 1.0) - n0
+    snap = _snap_manifest(ctx, "c3-cancel")
+
+    # Interpretation
+    if not cancel_ok:
+        interp = "cancel-helper-returned-false"
+    elif response is None:
+        interp = "no-response-row-after-cancel"
+    elif response.get("body_len", 0) == 0:
+        interp = "empty-body-after-cancel"
+    elif (response.get("status_code") or 0) >= 500:
+        interp = f"server-error-{response.get('status_code')}"
+    else:
+        interp = "partial-body-then-stop"
+
+    _mark(
+        ctx, "c3-cancel-end",
+        extra={
+            "pair_id": pid, "cancel_ok": cancel_ok, "cancel_err": cancel_err,
+            "response": response, "n_completions_delta": delta,
+            "manifest": snap, "interpretation": interp,
+        },
+    )
+    return {
+        "pair_id": pid, "cancel_ok": cancel_ok, "cancel_err": cancel_err,
+        "response_shape": response, "n_completions_delta": delta,
+        "manifest": snap, "interpretation": interp,
+    }
+
+
+def step_c4_file_input(ctx: StepCtx) -> dict:
+    """Paste a small CF_HDROP file into the Cowork composer and ask
+    Claude to describe it. Closes C04.
+    """
+    _mark(ctx, "c4-file-input-start")
+    tmp_file = ctx.out_dir / "_c4_test_input.txt"
+    try:
+        tmp_file.write_text(
+            "PCE cowork RECON test file.\n"
+            "Line 2: contains a marker token AUTORECON-C4-TOKEN-42.\n"
+            "Line 3: 3 + 4 = 7.\n",
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        _mark(ctx, "c4-error", extra={"err": str(exc), "stage": "tmpfile"})
+        return {"error": str(exc), "stage": "tmpfile"}
+
+    try:
+        copy_files_to_clipboard(str(tmp_file))
+    except Exception as exc:
+        _mark(ctx, "c4-error", extra={"err": str(exc), "stage": "clipboard"})
+        return {"error": str(exc), "stage": "clipboard"}
+
+    base_ts = baseline_ts()
+    n0 = count_completions(base_ts - 1.0)
+    try:
+        ctx.driver.focus()
+        ctx.driver.click_composer()
+        ctx.driver.paste_clipboard(settle=2.0)
+    except Exception as exc:
+        _mark(ctx, "c4-error", extra={"err": str(exc), "stage": "paste"})
+        return {"error": str(exc), "stage": "paste"}
+
+    # Type the prompt directly (we cannot use send_message because it
+    # re-clicks composer which would dislodge the just-pasted attachment
+    # on some Electron builds).
+    try:
+        from pywinauto.keyboard import send_keys  # type: ignore
+        send_keys(
+            "Please describe the contents of the attached file briefly, "
+            "and tell me which marker tokens you see.",
+            with_spaces=True, vk_packet=True, pause=0.02,
+        )
+        time.sleep(0.3)
+        send_keys("{ENTER}", pause=0.05)
+    except Exception as exc:
+        _mark(ctx, "c4-error", extra={"err": str(exc), "stage": "type"})
+        return {"error": str(exc), "stage": "type"}
+
+    pid = wait_for_new_completion(base_ts, timeout=20.0)
+    if pid:
+        wait_completion_response(pid, timeout=120.0)
+    time.sleep(5.0)
+
+    n_uia = _dump_uia(
+        ctx, "c4-end",
+        keywords=[
+            "attach", "file", "upload", ".txt", "autorecon",
+            "marker", "token",
+        ],
+    )
+    snap = _snap_manifest(ctx, "c4-file-input")
+    delta = count_completions(base_ts - 1.0) - n0
+
+    _mark(
+        ctx, "c4-file-input-end",
+        extra={
+            "pair_id": pid, "n_completions_delta": delta,
+            "manifest": snap, "file": str(tmp_file),
+            "uia_keyed_rows": n_uia,
+        },
+    )
+    return {
+        "pair_id": pid, "n_completions_delta": delta,
+        "manifest": snap, "file": str(tmp_file),
+        "uia_keyed_rows": n_uia,
+    }
+
+
+def step_c12_project_cowork(ctx: StepCtx) -> dict:
+    """If ``CLAUDE_PROJECT_NAME`` is set, open that project then try
+    Cowork inside it. Otherwise SKIP with a hint. Closes C12.
+    """
+    _mark(ctx, "c12-project-start")
+    project_name = os.environ.get("CLAUDE_PROJECT_NAME", "").strip()
+    if not project_name:
+        _mark(
+            ctx, "c12-skipped",
+            extra={"reason": "CLAUDE_PROJECT_NAME env var not set"},
+        )
+        return {
+            "skipped": True,
+            "reason": "CLAUDE_PROJECT_NAME env var not set",
+            "hint": (
+                "Set $env:CLAUDE_PROJECT_NAME='<name substring>' and "
+                "re-run with --steps c12_project_cowork to cover this."
+            ),
+        }
+    try:
+        opened = ctx.driver.open_project(project_name)
+    except Exception as exc:
+        _mark(ctx, "c12-error",
+              extra={"err": str(exc), "stage": "open_project"})
+        return {"error": str(exc), "stage": "open_project",
+                "project": project_name}
+    if not opened:
+        _mark(
+            ctx, "c12-skipped",
+            extra={"reason": f"open_project({project_name!r}) returned False"},
+        )
+        return {
+            "skipped": True,
+            "reason": f"project not found by name substring: {project_name!r}",
+            "project": project_name,
+        }
+    time.sleep(2.5)
+
+    # Try clicking Cowork inside the project
+    clicked, info = _try_click_uia(
+        ctx, ["Cowork", "Agents", "Agent Mode"],
+        control_types=[
+            "Button", "ListItem", "TabItem", "Custom", "TreeItem",
+            "Hyperlink", "Text",
+        ],
+        timeout=2.5,
+    )
+    if clicked:
+        time.sleep(2.0)
+    n_rows = _dump_uia(
+        ctx, "c12-project-cowork",
+        keywords=[
+            "project", "cowork", "agent", "knowledge", "files",
+            "instructions", "chat",
+        ],
+    )
+    _mark(
+        ctx, "c12-project-end",
+        extra={
+            "project": project_name, "project_opened": opened,
+            "cowork_clicked": clicked, **(info or {}),
+        },
+    )
+    return {
+        "project": project_name,
+        "project_opened": opened,
+        "cowork_clicked": clicked,
+        "uia_rows": n_rows,
+    }
+
+
+def step_c15_idle(ctx: StepCtx, *, duration_s: Optional[float] = None) -> dict:
+    """Passive 60 s (default) observation window for idle heartbeat /
+    poll traffic. Closes C15.
+    """
+    if duration_s is None:
+        try:
+            duration_s = float(os.environ.get("PCE_RECON_IDLE_S", "60") or "60")
+        except ValueError:
+            duration_s = 60.0
+    _mark(ctx, "c15-idle-start", extra={"duration_s": duration_s})
+    start = time.time()
+    n0 = ctx.stats.db_events
+    patterns_before = dict(ctx.stats.db_events_by_pattern)
+    while time.time() - start < duration_s:
+        time.sleep(2.0)
+    elapsed_real = time.time() - start
+    n1 = ctx.stats.db_events
+    patterns_after = dict(ctx.stats.db_events_by_pattern)
+    delta_by_pattern = {
+        k: patterns_after.get(k, 0) - patterns_before.get(k, 0)
+        for k in set(list(patterns_before) + list(patterns_after))
+    }
+    delta_by_pattern = {k: v for k, v in delta_by_pattern.items() if v > 0}
+    snap = _snap_manifest(ctx, "c15-idle")
+    _mark(
+        ctx, "c15-idle-end",
+        extra={
+            "duration_s": round(elapsed_real, 1),
+            "events_during_idle": n1 - n0,
+            "delta_by_pattern": delta_by_pattern,
+            "manifest": snap,
+        },
+    )
+    return {
+        "duration_s": round(elapsed_real, 1),
+        "events_during_idle": n1 - n0,
+        "delta_by_pattern": delta_by_pattern,
+        "manifest": snap,
+        "interpretation": (
+            "idle-traffic-present" if (n1 - n0) > 0 else "idle-silent"
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
 
@@ -742,12 +1061,17 @@ STEPS: list[tuple[str, Any]] = [
     ("baseline", step_baseline),
     ("q5_manifest", step_q5_manifest),
     ("open_cowork", step_open_cowork),
+    ("c13_customize", step_c13_customize),
     ("q1_skill_picker", step_q1_skill_picker),
     ("q2_multistep", step_q2_multistep),
+    ("c3_cancel", step_c3_cancel),
+    ("c4_file_input", step_c4_file_input),
     ("q7_artifact", step_q7_artifact),
     ("q6_scheduled", step_q6_scheduled),
     ("q8_folder_picker", step_q8_folder_picker),
     ("q3_dispatch", step_q3_dispatch),
+    ("c12_project_cowork", step_c12_project_cowork),
+    ("c15_idle", step_c15_idle),
 ]
 
 
