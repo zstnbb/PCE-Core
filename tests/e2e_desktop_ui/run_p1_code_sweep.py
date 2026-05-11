@@ -67,6 +67,17 @@ for _stream in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
+# When invoked as a script (``python tests\e2e_desktop_ui\run_p1_code_sweep.py``)
+# Python only puts the script's parent directory on ``sys.path`` —
+# ``tests/e2e_desktop_ui/``. The lazy live-mode imports below want
+# ``tests.e2e_desktop_ui.drivers.claude_desktop`` and friends, which
+# requires the project root to be on the path. Insert it eagerly so
+# both ``python -m tests.e2e_desktop_ui.run_p1_code_sweep`` (uses cwd)
+# AND ``python <path>`` (which doesn't) work identically.
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
 # ---------------------------------------------------------------------------
 # Heavy imports (driver / utils) are lazy inside live-mode helpers so
 # static-mode runs work on a box without pywinauto.
