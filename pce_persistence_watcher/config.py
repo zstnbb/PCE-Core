@@ -54,8 +54,11 @@ class WatcherConfig:
     apps: list[str] = field(default_factory=list)
 
     # Optional filter: restrict scanning to a single source category
-    # (one of: "agent_sessions", "skills", "leveldb", "config"). Useful
-    # for debugging a single parser without the noise of the rest.
+    # (one of: "agent_sessions", "skills", "leveldb", "config",
+    # "transcripts", "code_tab"). Useful for debugging a single parser
+    # without the noise of the rest. P5.B.5.3 added "transcripts"
+    # (cowork + code-tab JSONL lines); P5.B.7 added "code_tab"
+    # (code-tab-only: JSONL + pointer).
     only: Optional[str] = None
 
     # When True, show detailed per-source tracing on stderr.
@@ -81,7 +84,16 @@ class WatcherConfig:
 
 
 _MODES = ("scan", "watch", "discover")
-_SOURCE_CATEGORIES = ("agent_sessions", "skills", "leveldb", "config")
+_SOURCE_CATEGORIES = (
+    "agent_sessions",
+    "skills",
+    "leveldb",
+    "config",
+    # P5.B.5.3 (2026-05-11): cowork + code-tab JSONL transcript lines.
+    "transcripts",
+    # P5.B.7 (2026-05-11): code-tab only (JSONL + pointer).
+    "code_tab",
+)
 
 
 def _build_parser() -> argparse.ArgumentParser:

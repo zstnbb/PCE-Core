@@ -525,6 +525,45 @@ def _find_code_tab_transcript_jsonl_files(
                 yield child
 
 
+def _detect_file_entrypoint(jsonl_path: Path) -> Optional[str]:
+    """Pre-scan a JSONL file for any line carrying an ``entrypoint`` field.
+
+    The Claude agent only stamps ``entrypoint`` on the very first user
+    message of a session (empirically: 12 out of 4707 lines on a
+    real install). Subsequent assistant / tool / queue-operation /
+    attachment / progress lines all inherit the session's entrypoint
+    implicitly but do not re-emit the field.
+
+    For PCE's discriminator-driven ``tool_family`` selection
+    (``claude-desktop-code`` vs ``cowork-local-agent``) to work on
+    *every* line of a Code-tab session — not just the first — we
+    hoist the entrypoint to a file-level fact at the walker boundary
+    and inject it into every yielded line's ``body_json`` (without
+    overwriting an existing field).
+
+    Returns the first non-empty string entrypoint observed, or
+    ``None`` if no line in the file declared one.
+    """
+    try:
+        with jsonl_path.open("r", encoding="utf-8", errors="replace") as fh:
+            for raw_line in fh:
+                line = raw_line.rstrip("\r\n").strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(obj, dict):
+                    continue
+                ep = obj.get("entrypoint")
+                if isinstance(ep, str) and ep:
+                    return ep
+    except OSError:
+        return None
+    return None
+
+
 def iter_code_tab_transcript_records(
     claude_projects_root: Path,
 ) -> Iterator[AgentSessionRecord]:
@@ -545,6 +584,14 @@ def iter_code_tab_transcript_records(
       (which equals ``cliSessionId``) when the line lacks a
       ``sessionId`` field, instead of the cowork ``local_<uuid>``
       ancestor directory.
+    - **File-level entrypoint hoist** (P5.B.7 fix, 2026-05-11): the
+      JSONL ``entrypoint`` field appears only on the first user line
+      of a session, so we pre-scan once per file and inject the
+      detected entrypoint into every yielded line's ``body_json``.
+      This makes the normaliser's per-line discriminator behave as
+      a sticky session-level tag, which is what
+      ``upgrade_session_metadata`` requires (it refuses to overwrite
+      an already-set ``tool_family``).
     """
     for jsonl_path in _find_code_tab_transcript_jsonl_files(claude_projects_root):
         stat = _stat_safe(jsonl_path)
@@ -559,6 +606,11 @@ def iter_code_tab_transcript_records(
         stem = jsonl_path.stem
         if _looks_like_uuid(stem):
             path_session_id = stem
+
+        # Resolve the file's entrypoint once. For Code-tab sessions
+        # this returns ``"claude-desktop"``; for legacy CLI sessions
+        # it typically returns ``"cli"`` or ``None``.
+        file_entrypoint = _detect_file_entrypoint(jsonl_path)
 
         try:
             with jsonl_path.open("r", encoding="utf-8", errors="replace") as fh:
@@ -580,6 +632,14 @@ def iter_code_tab_transcript_records(
                             jsonl_path, line_index, type(body).__name__,
                         )
                         continue
+
+                    # Hoist file-level entrypoint into every line that
+                    # didn't carry it natively. Never overwrite an
+                    # existing entrypoint field — that would mask a
+                    # genuine per-line discriminator if one ever
+                    # appears in a future schema rev.
+                    if file_entrypoint and not body.get("entrypoint"):
+                        body["entrypoint"] = file_entrypoint
 
                     line_session_id = (
                         body.get("sessionId")
