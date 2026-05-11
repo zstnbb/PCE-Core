@@ -241,11 +241,11 @@ risks**, **install path expected**, **first-probe verification list**.
 | Primary plane / layer | **M / L3f** (transparent MCP middleware via `pce_mcp_proxy`) + **M / `pce_mcp` posture A** (agent-cooperative ledger via `.mcpb`) |
 | Persistence axis | **L3g local persistence watcher** ✅ alpha.8 — `LocalCache\Roaming\Claude\` LevelDB + IndexedDB + `local-agent-mode-sessions\` + `vm_bundles\` (covers Cowork + Chat + Code persisted state) — see ADR-018 §3.4 |
 | Chat-region real-time | **N / L1** (system proxy + CA, `pce_proxy/`) — primary route, **H2 ✅ PASS** confirms viability (172 clean hits, 0 TLS errors); **A2 SSLKEYLOGFILE** patch (Phase 5, 3 days) — redundant insurance, **H3 ✅ PASS** confirms viability |
-| Code-region | **H1 CLI wrap** (`pce_cli_wrapper/`) ✅ alpha.8 — wraps `claude-code\<ver>\claude.exe`; PATH-priority shim with `.cmd`+`.ps1` on Windows, POSIX bare script elsewhere |
+| Code-region (inline) | **L1 (`pce_proxy/`)** for shell endpoints (`/v1/sessions/watch` SSE handshake, `/dust/generate_title_and_branch`, `/code/repos`, `/v1/environment_providers/...` heartbeat) + **L3g (`pce_persistence_watcher/`)** for JSONL transcript at `~/.claude/projects/<encoded-cwd>/<cliSessionId>.jsonl` (`entrypoint:"claude-desktop"`-discriminated) + **M (`pce_mcp_proxy/` + `pce_mcp` `.mcpb`)** for user-installed MCP tool calls. **H1 PATH shim NOT applicable** (Desktop spawns embedded `claude-code\<ver>\claude.exe` via absolute path, see `pce_cli_wrapper/discovery.py` notes). Standalone Claude Code CLI = P6 §4.6 (deferred). Full RECON in `Docs/research/2026-05-11-code-tab-recon-findings.md` |
 | Squirrel-only secondary | H / L3d (CDP launcher — ADR-016) — applies to Squirrel + macOS only |
-| Normalizer | `pce_core/normalizer/anthropic.py` ✅ + `mcp_jsonrpc.py` ✅ (P5.B.1, alpha.1) + `local_persistence.py` ⬜ (§M.normaliser — `pce_persistence_watcher/` package shipped alpha.8 emits envelope-level rows; structural normaliser to be added when ≥1 cowork D-case forces the join, see §4.1.B C-case spec) |
-| `source_type` | `mcp_proxy` (M-B) + `pce_mcp` (M-A) + `local-persistence` (L3g) + `cli-wrapper` (H1) + `proxy` (L1) + `desktop_electron` (Squirrel-only L3d) |
-| Archetype | Chat Tube ✅ (chat-region, sub-runs 2–5 D00–D22 19/22 PASS 86%) + Tool Tape ⬜ (cowork-region MCP tool calls + skills) + Run Trace ⬜ (cowork-region agent loop multi-step + code-region CLI sessions) |
+| Normalizer | `pce_core/normalizer/anthropic.py` ✅ + `mcp_jsonrpc.py` ✅ (P5.B.1, alpha.1) + `local_persistence.py` ✅ (P5.B.5, cowork JSONL transcript ingestion; same parser handles Code-tab JSONL with `entrypoint`-keyed `tool_family` discriminator — see §4.1.C) |
+| `source_type` | `mcp_proxy` (M-B) + `pce_mcp` (M-A) + `local-persistence` (L3g — covers cowork via `local-agent-mode-sessions/` AND Code-tab inline via `~/.claude/projects/<encoded-cwd>/*.jsonl` + `claude-code-sessions/<user>/<org>/local_<sess>.json` pointer) + `cli-wrapper` (H1, P6 standalone only) + `proxy` (L1) + `desktop_electron` (Squirrel-only L3d) |
+| Archetype | Chat Tube ✅ (chat-region, sub-runs 2–5 D00–D22 19/22 PASS 86%) + Tool Tape ⬜ (cowork-region MCP tool calls + skills) + **Run Trace ⬜ (code-region inline — host-native `claude-code/<ver>/claude.exe` spawned by Desktop, JSONL transcripts in `~/.claude/projects/`; cowork agent loop multi-step is also Run Trace shape but cloud-sandboxed; P6 standalone CLI §4.6 deferred)** |
 | Risks | � H2 PASS (Anthropic does NOT pin api.anthropic.com / claude.ai on MSIX channel; alpha.8 verdict 2026-05-10); � H3 PASS (Chromium SSLKEYLOGFILE writes via user-level env var; alpha.8 verdict); � H4 LOCKED (Electron Fuses disable NODE_OPTIONS env-var path — B1 / `--inspect` / asar mod permanently dead; alpha.8 verdict); 🟡 C4/C5 (`local-agent-mode-sessions/`, `vm_bundles/`) internal field schema reverse — L3g v0 captures envelope-level, v1 will structurally parse |
 | Install assets | `Docs/install/PCE_MCP_PROXY_INSTALL.md` (M-B) + `pce_mcp/mcpb/README.md` (M-A) + `Docs/install/PCE_CLAUDE_DESKTOP_INSTALL.md` (multi-axis, post-ADR-018 rewrite pending) |
 | First-probe checklist | **a)** read `claude_desktop_config.json` location per OS · **b)** verify `pce-mcp-proxy --upstream <fs>` round-trips a tools/list call · **c)** ~~run method-G~~ **H2/H3/H4 already locked 2026-05-10; see ADR-018 §6 + alpha.8 release notes** · **d)** verify `pce_proxy` captures `api.anthropic.com` after CA install (H2 PASS confirms this works) · **e)** dump `LocalCache\Roaming\Claude\local-agent-mode-sessions\` first entry for C4 v1 schema work |
@@ -262,7 +262,7 @@ Claude Desktop 的 **Cowork tab** 是一个**异步 agent task launcher**，跟 
 
 - **Chat-region**: 同步对话 — 用户发问，模型回复，一发即回。`/completion` POST + SSE。
 - **Cowork-region**: 异步任务 — 用户提交 task，agent 在云端 sandbox 跑多步（写代码、读文件、调 skill、产 artifact），最终把 artifact 推回。**Anthropic 内部代号 `wiggle`**（出现在 endpoint: `wiggle/upload-file`、`include_wiggle_skills=true`），亦称 **`epitaxy`**（出现在 `claude_desktop_config.json` preferences key: `epitaxyPrefs.starred-cowork-spaces`）。
-- **Code-region**: Claude Code CLI 的 agent loop — 由 H1 / L3h CLI wrap 覆盖。
+- **Code-region (inline)**: Claude Desktop 内嵌的 `claude-code\<ver>\claude.exe` 作为 Windows-native 子进程在本机运行，在用户真实文件系统上操作 (不是 Linux VM—— 2026-05-11 RECON 推翻了 vm_bundles 假设)。详见 §4.1.C。独立 npm CLI 版本在 P6 §4.6。
 
 Cowork tab UI 包含 **6 个左侧 sidebar 入口**（截图证据 2026-05-10）：
 
@@ -358,6 +358,189 @@ Composer 形态：
 | Risks | 🟡 Skills picker UIA-tree shape未知（RECON 必看）· 🟡 Dispatch (Beta) 可能弹独立 Win32 popup（已有跨窗能力 sub-run 4）· 🟡 异步任务 `wait_for_cowork_step` 等待语义需 RECON 确定真实 SSE/HTTP 节奏 · 🟢 chat-region driver 复用 90%（composer 同组件） |
 | Install assets | `Docs/install/PCE_MCP_INSTALL.md` (M-A) + `Docs/install/PCE_MCP_PROXY_INSTALL.md` (M-B) + `pce_mcp/mcpb/README.md` (`.mcpb` 打包步骤) |
 | First-probe checklist | **a)** RECON 60 min — `python -m tests.manual.recon_claude_desktop --duration 3600` 跑 cowork section（§5.B C00–C16 markers）· **b)** `.mcpb` 打包并安装到 Claude Desktop Settings → Extensions · **c)** `python -m pce_persistence_watcher scan` 扫一次 cowork session 后的 LocalCache · **d)** UIA dump cowork tab + skills picker（`scripts/dump_uia.py`）记 automation_id |
+
+---
+
+### 4.1.C P1 Claude Desktop — Code-region (inline)
+
+> **Status**: 标准落盘 2026-05-11（cowork sub-run P5.B.5.5c 收尾、tag `v1.1.0-alpha.11-cowork-p1` 之后即刻开工）。实施在 sub-phase **P5.B.7**（见 §7.7）。Code-region (inline) 是 P1 Claude Desktop 三大区中第三个独立区。**注意区分**: 独立 npm 安装的 Claude Code CLI 是产品 **P6**（§4.6），跟此节是两个独立运行实例。
+>
+> **Authority**: 这一节是 inline Code-region 的 E-case 范围、三轴覆盖、acceptance gate 的唯一权威来源。具体 E-case 验收信号待在 §5.C 落（Phase 2 后半 / Phase 3 开工前补）；sub-phase 落地顺序在 §7.7；RECON 全文在 `Docs/research/2026-05-11-code-tab-recon-findings.md`。
+
+#### 产品定位
+
+Claude Desktop 左侧 sidebar 第三个 tab **Code**，是一个**本机 host-native agent 入口**：
+
+- Desktop 把内嵌的 `claude-code\<ver>\claude.exe`（v2.1.128, ~254MB,
+  打包 Node runtime）作为 **Windows-native 子进程**启动。
+- 子进程跑在用户**真实文件系统**上（`F:\`、`C:\` 真盘,不是 Linux VM），
+  与同源代码的 **standalone Claude Code CLI 共享 agent loop 与
+  `~/.claude/` 数据目录**。
+- 与 chat / cowork 后端**不共用 endpoint** — 走的是
+  `claude.ai/v1/sessions/watch` SSE long-poll + `api.anthropic.com`
+  探针 + `claude.ai/v1/code/*` 配额端点的新家族。
+- 内部代号 **`ccr`** (Claude Code Remote)，beta gate
+  `anthropic-beta: ccr-byoc-2025-07-29` (BYOC = Bring Your Own
+  Code)。
+
+Code tab UI 包含 **4 个左侧 sidebar 入口** + Recents 列表（截图证据
+2026-05-11）：
+
+- **+ New session** — 新建 Code session（默认 `cwd` = 上次的 workspace）
+- **Routines** — Code-tab 版的 Skills picker（`/v1/plugins/...`）
+- **Customize** — 设置（model / permission mode / MCP tool enable）
+- **More** — 更多选项
+
+Composer 形态：
+
+- `Type / for commands` 提示 — 输入 `/` 触发 Routines/commands picker
+- "Accept edits" toggle — `permissionMode: acceptEdits` ↔
+  `bypassPermissions`
+- model picker — `Haiku 4.5` 等 (drive 期间观察)
+- 文件附件 (`+`) + 语音 mic
+- 工具 use 时弹 Read/Bash/Edit 权限对话框 (`Allow once` / `Allow always`)
+
+#### 三轴覆盖（ADR-018 三轴模型在 Code-region 重新评估）
+
+| Axis | 路径 | 当前状态 (2026-05-11) | Code-region 适用性 |
+|---|---|---|---|
+| **H1 (PATH CLI shim)** | `pce_cli_wrapper/` | ❌ **不适用** — Desktop 用绝对路径 spawn 内嵌 `claude.exe`，PATH shim 无法拦截。`discovery.py` 已注释此点 | **不适用** — 此轴专属 P6 standalone CLI |
+| **L1 (N axis network proxy)** | `pce_proxy/` (mitmproxy + 系统 CA) | ✅ chat/cowork 已用 · 已实证抓到 Code-tab shell 端点（`/v1/sessions/watch` 握手、`/dust/generate_title_and_branch`、`/code/repos`、`/v1/environment_providers/...`、`api.anthropic.com/api/claude_code/settings`） | **辅助** — 抓 shell 端点 + auto-titling endpoint 的 prompt 原文。**不抓对话内容** — `/v1/sessions/watch` 是 SSE long-poll，response body 永远不闭合，mitm 当前不入库（待 P1.5 follow-up 加 streaming hook） |
+| **L3g (持久化兜底,主路径)** | `pce_persistence_watcher/` | ✅ shipped alpha.8 + cowork structural normaliser P5.B.5 · 需新增源 root | **主路径** — JSONL transcript 在 `~/.claude/projects/<encoded-cwd>/<cliSessionId>.jsonl`（与 cowork 同构,16.7KB drive 样本已确认）；session pointer 在 `LocalCache\Roaming\Claude\claude-code-sessions\<user>\<org>\local_<sess>.json` |
+| **M (MCP middleware)** | `pce_mcp_proxy/` + `pce_mcp` `.mcpb` | ✅ shipped alpha.1+alpha.8 | **可用** — Code tab `enabledMcpTools` 字段中我们 6 个 PCE 工具全部可见（与 cowork 相反: cowork 拒绝用户 MCP packs,Code tab 接受）。E09 expected PASS |
+
+**关键架构发现 #1**: Code tab 跟 cowork 在 cwd-encoded JSONL transcript
+schema 上 100% 同构,只是顶级目录从 `local-agent-mode-sessions/`
+变成 `~/.claude/projects/`。**`pce_persistence_watcher/agent_sessions.py`
+的 cowork JSONL 解析器可以直接复用**,只需:
+
+1. 新加一个 watch root: `%USERPROFILE%\.claude\projects\` (+
+   `claude-code-sessions\` for the pointer JSON)
+2. 在 normaliser 里加 `entrypoint` 判别器:
+   - `entrypoint:"claude-desktop"` → `tool_family='claude-desktop-code'`
+   - `entrypoint:"cli"`（或缺失） → `tool_family='claude-code-cli'`（P6,
+     deferred）
+3. 新加一个 `source_id`:
+   `l3g-claude-code-tab-default`（与现有
+   `l3g-local-persistence-default` 并列）
+
+**关键架构发现 #2**: Code tab 与 standalone Claude Code CLI **共享
+`~/.claude/projects/` JSONL 存储**。`entrypoint` 字段是唯一可靠的
+discriminator。意味着任何对此目录的 watcher 既会捕 P1 Code-tab 也会捕
+P6 CLI — sweep 验证需明确按 `entrypoint` 过滤,避免跨产品污染。
+
+**关键架构发现 #3**: Code tab UI shell 复用了 cowork 的 `epitaxy`
+namespace（`referer: https://claude.ai/epitaxy`）— cowork 与
+Code-region 在 Desktop 内是**同一个 SPA route 下**的不同子界面。
+意味着 driver 的 tab 切换 helper 可以共用一套 UIA selector 框架。
+
+#### 已观察 endpoint（2026-05-11 RECON drive,`F:\test` 工作目录,一个 `cat /etc/os-release` prompt）
+
+| Endpoint | 频次 | 平均 body | 用途 |
+|---|---|---|---|
+| `GET /v1/environment_providers/private/organizations/<org>/environments` | 16x | small JSON | 心跳轮询（每 ~7s,**不**带 `?included_worker_types=cowork` 过滤） |
+| `GET /v1/sessions` | 12x | `{"data":[],"has_more":false}` | 会话列表 — 当前 drive 期间**始终返回空**（活跃 session 由 watch 推） |
+| `GET /v1/sessions/watch` | 1x | open SSE, body 不入库 | **conversation 主通道** — accept: text/event-stream + `anthropic-beta: ccr-byoc-2025-07-29` |
+| `GET https://api.anthropic.com/api/claude_code/settings` | 18x (9 req + 9 resp) | 163 B JSON, **all 404** | 30s 轮询 `api.anthropic.com`（**新 host**，与 chat/cowork 只用 `claude.ai` 不同）— 探一个尚未上线的 settings endpoint |
+| `POST /api/organizations/<org>/dust/generate_title_and_branch` | 2x | request 132 B（**含 prompt 原文**）/ response 90 B | auto-titling — 是 L1 上唯一带 prompt 原文的 endpoint |
+| `GET /api/organizations/<org>/code/repos?skip_status=true` | 2x | 237 B | **Code-tab 独有** GitHub repo 列表（drive 期间用户未连 GitHub,返回 `authentication_error`） |
+| `GET /api/organizations/<org>/plugins/list-plugins?installation_preference=...` | 4x | 23,140 B | Code-tab 版的 Skills catalogue（cowork 是 `/skills/list-skills?include_wiggle_skills=true`） |
+| `GET /api/organizations/<org>/memory/settings` | 2x | small JSON | memory 设置 |
+| `GET /api/organizations/<org>/marketplaces/list-account-marketplaces` | 4x | 19 B | marketplace presence |
+| `GET /api/bootstrap/<org>/current_user_access` | 4x | 1787 B JSON | 每 tab 切换/refresh 触发一次 access check |
+| `POST /api/event_logging/v2/batch` | 4x | 8–18 KB binary | Anthropic 遥测,**忽略** |
+| `GET /api/organizations/<org>/sync/settings` | 2x | small JSON | preferences sync |
+
+#### 持久化 layout（L3g 主路径）
+
+```
+%USERPROFILE%\.claude\
+└── projects\
+    └── <encoded-cwd>\                                      ← e.g. F--test  (F:\test 编码:  : → 去掉,  \ → -)
+        └── <cliSessionId>.jsonl                            ← ⭐ 全 transcript;每行一个 type ∈ {user, assistant, tool_use, tool_result}
+                                                              且每行带 entrypoint:"claude-desktop" 字段
+
+%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\
+└── claude-code-sessions\
+    └── <user_uuid>\                                        ← 与 cowork local-agent-mode-sessions 同 user-uuid namespace
+        └── <org_uuid>\
+            └── local_<sessionId>.json                      ← 946-byte session metadata pointer
+                                                              字段: sessionId, cliSessionId, cwd, model, title,
+                                                                    permissionMode, enabledMcpTools{},
+                                                                    sessionPermissionUpdates[]
+```
+
+**Pointer 与 transcript 的关系**: pointer 的 `cliSessionId` 字段
+等于 transcript 文件名的 stem，是配对 join key。pointer 跟 transcript
+不在同一个目录,这是 v0 normaliser 需特别处理的地方。
+
+#### 已建好的 tooling（开工前的 starting state）
+
+| 资产 | 完成度 | 残留 |
+|---|---|---|
+| `pce_proxy/` HTTP / SSE / WS hooks | ✅ shipped chat / cowork sub-runs | SSE long-poll body streaming hook（P1.5 follow-up,非 blocker） |
+| `pce_persistence_watcher/` 包结构 | ✅ shipped alpha.8 | 新加 `~/.claude/projects/` + `claude-code-sessions/` 两个 watch root |
+| `pce_core/normalizer/local_persistence.py` cowork JSONL parser | ✅ shipped P5.B.5 | `entrypoint` discriminator + `tool_family` 映射 |
+| `pce_mcp/server.py` + `.mcpb` 安装包 | ✅ shipped + 真机已安装 (drive 期间 `enabledMcpTools` 实证) | — |
+| `ClaudeDesktopDriver` UIA scaffold | ✅ chat/cowork 19/22 + 12/5/0 | 需补 4 个 Code-tab helper（见下） |
+| `tests/e2e_desktop_ui/` 框架 | ✅ shipped | 需新加 E-case 套件 + sweep runner |
+
+#### 待补 tooling（P5.B.7 范围）
+
+- **`pce_persistence_watcher` 新源**:
+  - `~/.claude/projects/` watcher（基于 mtime,生成
+    `source_id='l3g-claude-code-tab-default'` 行）
+  - `claude-code-sessions\<user>\<org>\local_<sess>.json` pointer 读取
+    （静态文件,不需要 tail）
+- **`pce_core/normalizer/local_persistence.py` 扩展**:
+  - `entrypoint` discriminator → `tool_family` 映射
+  - pointer JSON 字段 (`title`, `model`, `permissionMode`,
+    `enabledMcpTools`, `sessionPermissionUpdates`) 写到
+    `sessions.oi_attributes_json`
+  - pointer 与 transcript 由 `cliSessionId` 跨表关联
+- **`ClaudeDesktopDriver` Code-tab helpers**（4 个,~0.5 天）:
+  - `open_code_tab()` — 顶部 Code tab 切换；等待
+    `/v1/sessions/watch` 握手出现在 DB
+  - `new_code_session(cwd: Optional[Path])` — 左侧 "+ New session"，
+    optional 设置 cwd via UIA file picker
+  - `send_code_prompt(text: str)` — 复用 chat composer 的 paste +
+    Enter 逻辑
+  - `wait_for_code_response(timeout=120)` — 轮询活跃 session 对应的
+    JSONL 文件 mtime + tail 出现 `type:"assistant"` 且
+    `stop_reason:"end_turn"` 的行
+  - `accept_permission_dialog(rule_substring: str)` — 处理 Read /
+    Bash / Edit 权限对话框（"Allow once" 按钮）
+- **E-case 套件** — `tests/e2e_desktop_ui/cases/p1_code_*.py` 16 文件
+  （spec 在 §5.C,待 P5.B.7.0 doc sub-phase 落）
+- **Sweep runner** — `tests/e2e_desktop_ui/run_p1_code_sweep.py`,镜像
+  cowork 的 `run_p1_cowork_sweep.py` 结构（双模式 static + live、
+  per-case verdict aggregator）
+
+#### Acceptance gate
+
+| Gate | 阈值 | 备注 |
+|---|---|---|
+| **P1 Code-region (inline) D0 sub-gate** | ≥75% (12/16) E-cases PASS | 镜像 cowork 12/5/0 的现实目标;Code-region 比 cowork 简单一些（无 sandbox VM、无 wiggle 文件循环、官方 MCP 路径开放）,理论上能拿更高 PASS |
+| **驱动层最小集** | 4 个 Code-tab helper + 复用 chat/cowork driver | — |
+| **L3g 联调** | JSONL transcript 出现且被 normaliser 解析成 `sessions` + `messages` 行,`tool_family='claude-desktop-code'` | E01-E03 acceptance |
+| **MCP 联调** | PCE 6 tools 在 `enabledMcpTools` 字段可见 + 至少 1 个 PCE tool 在一次 E09 case 中被调用并回写 messages 行 | E09 acceptance |
+| **0 capture-pipeline FAIL** | 全 sweep 跨 16 case | 同 chat/cowork sweep 硬规则 |
+
+| Field | Value |
+|---|---|
+| Region | Code-region (P1 Claude Desktop sub-region 3/3, inline) |
+| OS | Windows (MSIX + Squirrel) + macOS — same as chat-region/cowork |
+| Primary plane | **L3g 持久化** (JSONL transcript) + **M** (MCP tool 调用) |
+| Secondary plane | **L1 (N)** — shell endpoint 抓取（heartbeat / settings probe / GitHub auth / auto-title / plugins / telemetry） |
+| 不适用 plane | **H1 PATH shim** — Desktop 绝对路径 spawn,无法拦截 |
+| Real-time axis | N/A — Code-tab 的对话主通道是 `/v1/sessions/watch` SSE,body 不入 L1（v0 限制） |
+| UI driver | `tests/e2e_desktop_ui/` — **共用 chat/cowork driver**,新增 4 个 Code-tab helper |
+| Normalizer | `anthropic.py` ✅ + `local_persistence.py` ⬜ (扩展 `entrypoint` 判别器) |
+| `source_type` | `local-persistence` (L3g,新 source_id `l3g-claude-code-tab-default`) + `mcp_proxy` (M-B) + `pce_mcp` (M-A) + `proxy` (L1 shell) |
+| Archetype | **Run Trace** ⬜ (host-native multi-step agent loop,与 cowork cloud-sandbox 多步是兄弟形态) |
+| Risks | 🟡 `/v1/sessions/watch` SSE body 不入 L1（缺失对话原文的网络冗余;L3g 是 source of truth）· 🟡 Code-tab 与 P6 standalone CLI 共享 `~/.claude/projects/` JSONL 存储,sweep 需明确按 `entrypoint` 过滤 · 🟢 cowork JSONL parser 90% 复用 · 🟢 chat/cowork driver 80% 复用 |
+| Install assets | 现有 `Docs/install/PCE_MCP_PROXY_INSTALL.md` + `Docs/install/PCE_CLAUDE_DESKTOP_INSTALL.md` 复用,无 Code-tab 专属安装资产 |
+| First-probe checklist | **a)** Phase 0 evidence: `~/.claude\projects\<encoded-cwd>\` 存在并最近有写入 · **b)** `LocalCache\Roaming\Claude\claude-code-sessions\` 存在 · **c)** mitm 抓到 `/v1/sessions/watch` 握手 + `/dust/generate_title_and_branch` POST · **d)** pointer JSON `enabledMcpTools` 含 `pce_*` 6 tools | 
 
 ---
 
