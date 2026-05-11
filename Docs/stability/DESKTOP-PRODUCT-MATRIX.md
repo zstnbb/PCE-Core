@@ -851,6 +851,74 @@ Resolution path: 60-min RECON via `tests/manual/recon_claude_desktop.py` with co
 
 ---
 
+## 5.C Code-region (inline) E-cases (P1 Claude Desktop only)
+
+> **Scope**: this section defines the Code-region (inline Code-tab) acceptance bar for **P1 Claude Desktop only**. E-cases are independent from the chat-region D-cases (§5) and the cowork-region C-cases (§5.B); they use a separate ID namespace (`E00`–`E15`) to avoid collision. The Code-region D0 sub-gate is defined in §4.1.C and §7.5: ≥75% (12/16) E-cases PASS for P1 (mirrors cowork's 12/16 realized target from P5.B.5.5c).
+>
+> **Why a parallel namespace and not D-cases / C-cases**: the inline Code tab is a **synchronous dev-assistant** product — the agent runs as a **host-native Windows child process** (`claude-code\<ver>\claude.exe`, verified via RECON 2026-05-11) operating on the real host filesystem, NOT a cloud-sandbox async task like cowork and NOT a chat one-turn dialogue. Capture surfaces diverge (L3g JSONL is the **primary** content channel, not a backstop; L1 network captures only session-watch SSE + endpoint heartbeats), MCP semantics diverge (Code-tab honors user-installed `.mcpb` packs — the 6 PCE tools appear in `enabledMcpTools`; cowork's curated namespace rejects them), permission-flow semantics diverge (`permissionMode` + `sessionPermissionUpdates[]` audit log), and the H1 PATH-shim mechanism is **not applicable** (Desktop spawns `claude.exe` via absolute path). Sharing the D / C prefix would overload acceptance signals.
+>
+> **Audit anchor for each E-case**: every PASS verdict must produce ≥1 `raw_captures` row with `host='local-agent-mode'` + `path='/claude-desktop/agent-transcript/<sess>/<line>'` (from `~/.claude/projects/<encoded-cwd>/<cliSessId>.jsonl`), ≥1 `messages` row with `tool_family='claude-desktop-code'` (entrypoint-keyed discriminator — see `pce_core/normalizer/local_persistence.py:_TOOL_FAMILY_BY_ENTRYPOINT`), and (where pointer metadata is relevant) ≥1 row with `path='/claude-desktop/code-tab-session-pointer/<sess>'`. Capture-pipeline failures (FAIL) are distinct from product-feature SKIPs and are tracked separately, mirroring the chat-region "0 capture-pipeline FAILs" hard rule.
+
+| E-id | Name | Acceptance signal |
+|------|------|-------------------|
+| **E00** | Code-tab detection | Switching to Code tab triggers `POST /v1/sessions/watch` (SSE long-poll with `anthropic-beta: ccr-byoc-2025-07-29`) + fresh `~/.claude/projects/<encoded-cwd>/` directory created on first send + pointer JSON written to `<app_profile>/claude-code-sessions/<user_uuid>/<org_uuid>/local_<sessId>.json` ≤ 5 s after the prompt submit. Proves the driver landed on Code-region, not chat-region or cowork. |
+| **E01** | single prompt → response | "What's 2+2?"-style prompt → 1 `<cliSessionId>.jsonl` under `~/.claude/projects/`, ≥1 `user` line + ≥1 `assistant` line ingested by `pce_persistence_watcher.iter_code_tab_transcript_records`, normalised with `tool_family='claude-desktop-code'` + `layer_meta.entrypoint='claude-desktop'` + `layer_meta.version` matching agent build (`2.1.128` on the RECON drive). |
+| **E02** | streaming complete | Prompt triggering multi-block response (≥3 text blocks OR ≥2 tool_use steps) → every block/step present in the JSONL as separate lines; reconstructed `content_text` (concat of text blocks + serialised tool calls) round-trips to UI-rendered text. Proves no mid-stream truncation at the L3g writer or our JSONL walker. |
+| **E03** | multi-turn conversation | ≥3 user/assistant turn pairs in a single session → 6+ lines in same JSONL, all share one `sessionId`, `parentUuid` chain intact top-to-bottom, `cwd` + `version` + `entrypoint` fields constant across lines. `messages` table shows exactly 6 rows with matching `session_key`. |
+| **E04** | Bash tool (echo) | Prompt "run `echo pce-e04`" with `permissionMode=acceptEdits` → assistant JSONL line carries a `tool_use` block with `name='Bash'` + `input.command='echo pce-e04'`; next `user` line carries the paired `tool_result` with `content='pce-e04\n'` (or similar). `messages.content_json.tool_calls[]` reflects the pair. |
+| **E05** | Read tool (host file) | Prompt "read C:\Windows\System32\drivers\etc\hosts" → `tool_use` with `name='Read'` + `input.file_path` matching; `tool_result` containing real file content lines. **Verifies the "NOT a VM" architectural finding** from the RECON: the agent reads directly from host filesystem, not a sandbox mount. |
+| **E06** | Write tool (filesystem effect) | Prompt "create `F:\test\pce_e06.txt` with content 'e06-marker'" → `tool_use` with `name='Write'`; `tool_result` success; after the response completes, the file `F:\test\pce_e06.txt` physically exists on disk with `content='e06-marker\n'`. **Second verification of host-native agent** — cowork writes to sandbox `/mnt/user-data/outputs/`, Code-tab writes to the real drive. |
+| **E07** | Edit tool (file mutation) | Prompt "replace 'e06' with 'edited' in `F:\test\pce_e06.txt`" → `tool_use` with `name='Edit'` + `input.old_string` + `input.new_string`; `tool_result` success; post-run file content reflects the replacement. Exercises in-place mutation path (vs Write's create path in E06). |
+| **E08** | Glob tool (filesystem enumeration) | Prompt "find all `.py` files under F:\test" → `tool_use` with `name='Glob'` + `input.pattern='**/*.py'`; `tool_result` is a list of concrete paths matching the actual filesystem state. Exercises the search-tool category; Grep would be an equivalent substitute. |
+| **E09** | permission audit trail | After any session that exercised ≥1 tool use → `claude-code-sessions/.../local_<sess>.json` pointer has non-empty `sessionPermissionUpdates[]` with ≥1 entry per tool_use, each entry containing `toolName` + `decision` (`allowOnce` / `allowAlways` / `deny`) + `timestamp`. Confirms the permission-audit surface is write-through. |
+| **E10** | permission dialog (default mode) | Fresh session with `permissionMode=default` + prompt that triggers a tool → UI dialog appears ≤ 5 s after prompt submit (UIA tree has a dialog element with "Allow" / "Deny" button children); driver's `accept_permission_dialog()` helper clicks "Allow once" → tool runs, `sessionPermissionUpdates[]` records `decision='allowOnce'`. Exercises the interactive permission flow that `acceptEdits` mode bypasses. |
+| **E11** | PCE MCP tools visible | After opening a Code-tab session with the user-installed PCE `.mcpb` → pointer's `enabledMcpTools` dict contains all 6 PCE tools: `mcp__pce-mcp__pce_capture`, `mcp__pce-mcp__pce_query`, `mcp__pce-mcp__pce_stats`, `mcp__pce-mcp__pce_sessions`, `mcp__pce-mcp__pce_session_messages`, `mcp__pce-mcp__pce_capture_pair`. **Opposite of cowork C16** — cowork's curated namespace HIDES these tools; Code-tab surfaces them because user-installed `.mcpb` packs are honored. |
+| **E12** | `pce_capture` invocation | Prompt "Use the `pce_capture` MCP tool to record that this is E12" → assistant `tool_use` block with `name='mcp__pce-mcp__pce_capture'`; `tool_result` succeeds; corresponding row lands in `messages` with `source_type='pce_mcp'` + `source_id='mcp-default'` via the `pce_mcp_proxy` frame capture. Proves both the L3g pathway AND the MCP pathway capture the same tool call (cross-axis redundancy). |
+| **E13** | pointer field completeness | After a first prompt → pointer JSON has ALL of: `sessionId` (== `local_<uuid>` suffix), `cliSessionId` (UUID-shaped, matches JSONL filename stem), `cwd` (Windows absolute path), `model` (Haiku/Sonnet name), `title` (auto-generated), `titleSource` (`generated-title` / `user-provided`), `permissionMode`, `enabledMcpTools` (dict), `sessionPermissionUpdates` (array), `createdAt` (ms), `lastActivityAt` (ms). Verifies pointer→transcript join completeness for dashboard enrichment. |
+| **E14** | idle silence | No Code-tab activity for 5 min → 0 new `transcript_line` rows for that session, ≤ 20 heartbeat rows across `/v1/sessions/watch` SSE + `api.anthropic.com/api/claude_code/settings` 404 poll + telemetry, all classified as non-task background. **Mirrors chat-region D12 + cowork C15**; confirms the Code-tab polling isn't flooding our capture layer. |
+| **E15** | session persistence across restart | Kill Claude Desktop mid-session (Task Manager or graceful close) → re-launch → Code-tab sidebar lists the previous session by its auto-generated title → clicking it restores JSONL content in UI; JSONL file is unchanged on disk (no truncation) and `lastActivityAt` in pointer reflects restart timestamp. Proves session durability doesn't depend on live app state. |
+
+### 5.C.1 Code-region applicability
+
+`✅` = must pass · `🟡` = best-effort / partial mirror · `—` = N/A (product has no inline Code-region).
+
+| | P1 Claude Desktop | P2 ChatGPT Desktop | P3 Cursor | P4 Windsurf | P5 Copilot | P6 Claude Code | P7 Codex CLI | P8 Gemini CLI |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| E00 detection | ✅ | — | — | — | — | — | — | — |
+| E01 single prompt | ✅ | — | — | — | — | 🟡 (CLI mirror) | — | — |
+| E02 streaming | ✅ | — | — | — | — | 🟡 | — | — |
+| E03 multi-turn | ✅ | — | — | — | — | 🟡 | — | — |
+| E04 Bash tool | ✅ | — | — | — | — | 🟡 | — | — |
+| E05 Read tool | ✅ | — | — | — | — | 🟡 | — | — |
+| E06 Write tool | ✅ | — | — | — | — | 🟡 | — | — |
+| E07 Edit tool | ✅ | — | — | — | — | 🟡 | — | — |
+| E08 Glob tool | ✅ | — | — | — | — | 🟡 | — | — |
+| E09 permission audit | ✅ | — | — | — | — | 🟡 | — | — |
+| E10 permission dialog | ✅ | — | — | — | — | — | — | — |
+| E11 PCE MCP visible | ✅ | — | — | — | — | ✅ | 🟡 | 🟡 |
+| E12 `pce_capture` invoke | ✅ | — | — | — | — | ✅ | 🟡 | 🟡 |
+| E13 pointer completeness | ✅ | — | — | — | — | 🟡 (JSONL only, no pointer) | — | — |
+| E14 idle silence | ✅ | — | — | — | — | 🟡 | — | — |
+| E15 session restart | ✅ | — | — | — | — | 🟡 | — | — |
+| **applicable** | 16 | 0 | 0 | 0 | 0 | 9 (CLI mirror) | 2 (best-effort) | 2 (best-effort) |
+
+> **P6 Claude Code mirror note**: standalone Claude Code CLI writes to the **same** `~/.claude/projects/<encoded-cwd>/<cliSessId>.jsonl` store as the Desktop Code tab, but with `entrypoint: "cli"` instead of `"claude-desktop"` on each line. The `tool_family` discriminator in `LocalPersistenceNormalizer` deliberately keeps `"cli"` unmapped (falls through to the default) so P6 work — when it resumes — can add one line `"cli": "claude-code-cli"` to `_TOOL_FAMILY_BY_ENTRYPOINT` and instantly cover E01-E09 + E14-E15 via the existing walker. E10 (UI dialog) and E13 (pointer) are NOT applicable to P6 (CLI has no `claude-code-sessions/` pointer dir — pointer is a Desktop-UI concern). P6 applicability total: **9 of 16 (all best-effort mirrors)**.
+
+### 5.C.2 Open architectural questions (deferred or RECON-resolvable in 60 min)
+
+These are questions the 2026-05-11 RECON drive did **not** close (non-blocker — E-case verdicts above do not depend on them). Each is noted with its verdict-level impact:
+
+1. **Subagent JSONL shape**: subdirectories observed under `~/.claude/projects/<encoded-cwd>/` (e.g. `subagents/<uuid>.jsonl`) — subagent conversations when the agent spawns a Task() sub-session. Our walker deliberately does NOT descend into subdirectories in v0 to avoid uncharted shape risk. **Impact**: subagent-using prompts (E04-E08 if they decompose into subagents) may under-report step count; mitigate by keeping E-case prompts short enough to stay on the top-level agent.
+2. **Permission dialog UIA element names**: RECON did not run `permissionMode=default` end-to-end; the exact UIA control-type / AutomationId / Name of the "Allow once" / "Allow always" / "Deny" buttons is unknown. **Impact**: E10 driver helper (`accept_permission_dialog()`) needs a UIA probe under `permissionMode=default` to pick the right `_find_uia_by_name_substr` pattern.
+3. **Pointer write debounce**: does Desktop write the pointer JSON on **every** message, only on terminal events, or on a time-based debounce? **Impact**: E13 field-completeness timing — if fields like `lastActivityAt` are debounced, driver must wait longer before reading.
+4. **Title-generation endpoint body**: `POST /cowork/generate_title_and_branch` was observed in RECON but full request body was not captured (mitmproxy binding issue). **Impact**: E13 `titleSource='generated-title'` verification — we know the pointer ends up with a title, but don't know if it came from this endpoint or elsewhere. Minor.
+5. **MCP handshake timing**: `enabledMcpTools` in the pointer — is it populated at session open (before first user prompt) or after the first tool_use? **Impact**: E11 timing — may need to wait for first tool_use before asserting the field. Mitigate: always send a prompt that uses at least one tool (E04-style).
+6. **Multi-session concurrency**: can the Desktop host multiple Code-tab sessions in parallel (e.g. in different Code-tab windows)? RECON only exercised one. **Impact**: none for P5.B.7 scope (single-session sweep), but may be an E16+ follow-up case.
+
+Resolution path for open questions: targeted 30-min follow-up RECON during M4 driver development (questions 2 + 5 will surface naturally when we script `accept_permission_dialog()` + E11 assertion).
+
+---
+
 ## 6. Test infrastructure layout
 
 Six test trees, parallel to the existing
