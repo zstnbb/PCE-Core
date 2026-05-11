@@ -1112,3 +1112,371 @@ class ClaudeDesktopDriver(DesktopDriver):
             return False
         time.sleep(1.0)
         return True
+
+    # ────────────────────────────────────────────────────────────────────
+    # P5.B.5.2 — Cowork-region driver helpers (added 2026-05-11)
+    #
+    # All shapes empirically locked during the 3-pass RECON on
+    # 2026-05-11. See
+    # ``Docs/research/2026-05-11-cowork-recon-findings.md`` for the
+    # per-question evidence trail. Each helper is a thin wrapper over
+    # ``_find_uia_by_name_substr`` + ``click_input`` modelled on the
+    # existing ``select_model`` / ``open_project`` patterns.
+    # ────────────────────────────────────────────────────────────────────
+
+    def open_cowork_tab(self) -> bool:
+        """Click the top-level "Cowork" tab.
+
+        Claude Desktop's top of the main window has three tabs:
+        Chat / Cowork / Code. RECON 2 baseline UIA dump and the user's
+        clean Cowork screenshot (11:38) confirm these render as
+        ``TabItem`` or ``Button`` controls in the y<120 band of the
+        2560×1344 main window.
+
+        Returns True if a click landed.
+        """
+        self.focus()
+        target = self._find_uia_by_name_substr(
+            ("Cowork",),
+            control_types=("TabItem", "Button", "Hyperlink"),
+            timeout=3.0,
+        )
+        if target is None:
+            logger.warning("open_cowork_tab: 'Cowork' tab not found in UIA tree")
+            return False
+        try:
+            target.click_input()
+        except Exception as exc:
+            logger.warning("open_cowork_tab: click failed: %s", exc)
+            return False
+        time.sleep(1.2)
+        return True
+
+    def open_chat_tab(self) -> bool:
+        """Click the top-level "Chat" tab (return-to-chat utility)."""
+        self.focus()
+        target = self._find_uia_by_name_substr(
+            ("Chat",),
+            control_types=("TabItem", "Button", "Hyperlink"),
+            timeout=3.0,
+        )
+        if target is None:
+            return False
+        try:
+            target.click_input()
+        except Exception:
+            return False
+        time.sleep(0.8)
+        return True
+
+    def pick_skill(self, name_substring: str, *, timeout: float = 6.0) -> bool:
+        """Open the Cowork slash-picker Directory and click a skill row.
+
+        Empirical shape (RECON 1+2, Q1 closure):
+        1. ``/`` in the Cowork composer opens a **Radix UI modal
+           Directory dialog** (descendant of the main Claude window;
+           NOT a separate Win32 popup). 3 tabs: Skills / Connectors /
+           Plugins. The search field is **shared/persisted** across
+           openings — must be cleared first.
+        2. The dialog renders as ``Window class="radix-..."`` with a
+           descendant ``Close`` button.
+        3. Skill rows are descendants matching the skill's display name.
+
+        Strategy:
+        1. ``click_composer()`` + send ``/`` to open the picker.
+        2. Wait for a ``Directory`` window/text to appear in the UIA.
+        3. Send ``Ctrl+A`` + ``Backspace`` to clear any sticky search.
+        4. Switch to the Skills tab (click "Skills" hyperlink/button).
+        5. Type ``name_substring`` into the search field (sticky-focused).
+        6. Click the matching row.
+        7. The dialog auto-closes on row click; if not, press ``Esc``.
+
+        Returns True on apparent success.
+        """
+        self.focus()
+        self.click_composer()
+        time.sleep(0.3)
+        try:
+            send_keys("/", pause=0.1)
+        except Exception as exc:
+            logger.warning("pick_skill: '/' keystroke failed: %s", exc)
+            return False
+        time.sleep(1.5)  # let Directory dialog render
+
+        # Verify the modal is open by looking for the Directory label
+        directory_marker = self._find_uia_by_name_substr(
+            ("Directory",),
+            control_types=("Text", "Window"),
+            timeout=2.0,
+        )
+        if directory_marker is None:
+            logger.warning("pick_skill: Directory dialog did not appear")
+            return False
+
+        # Clear any sticky search text (per Q1 empirical observation)
+        try:
+            send_keys("^a", pause=0.05)
+            send_keys("{BACKSPACE}", pause=0.05)
+        except Exception:
+            pass
+        time.sleep(0.2)
+
+        # Switch to Skills tab. The tabs are rendered as Hyperlinks in
+        # the Radix dialog body — match "Skills" specifically (avoid
+        # accidentally clicking a row with "skill" in its title).
+        skills_tab = self._find_uia_by_name_substr(
+            ("Skills",),
+            control_types=("Hyperlink", "Button", "TabItem"),
+            timeout=2.0,
+        )
+        if skills_tab is not None:
+            try:
+                skills_tab.click_input()
+                time.sleep(0.5)
+            except Exception:
+                pass
+
+        # Re-clear search after tab switch (some Radix configurations
+        # preserve search, others don't — be defensive).
+        try:
+            send_keys("^a", pause=0.05)
+            send_keys("{BACKSPACE}", pause=0.05)
+        except Exception:
+            pass
+
+        # Type the skill name into the search field. The search field
+        # is auto-focused inside the Radix dialog so direct keystroke
+        # input works without a separate click.
+        try:
+            send_keys(name_substring, pause=0.03, vk_packet=True)
+        except Exception as exc:
+            logger.warning("pick_skill: search text input failed: %s", exc)
+            return False
+        time.sleep(0.6)
+
+        # Click the matching skill row (descendant of the Radix modal).
+        deadline = time.time() + timeout
+        clicked = False
+        while time.time() < deadline and not clicked:
+            row = self._find_uia_by_name_substr(
+                (name_substring,),
+                control_types=("Button", "ListItem", "Hyperlink"),
+                timeout=1.0,
+            )
+            if row is not None:
+                try:
+                    row.click_input()
+                    clicked = True
+                except Exception:
+                    pass
+            else:
+                time.sleep(0.3)
+        if not clicked:
+            logger.warning(
+                "pick_skill: no row matching %r within %.1fs",
+                name_substring, timeout,
+            )
+            # Dismiss the picker so caller can recover
+            try:
+                send_keys("{ESC}", pause=0.05)
+            except Exception:
+                pass
+            return False
+        time.sleep(0.8)
+        return True
+
+    def select_ask_mode(self, mode_substring: str) -> bool:
+        """Click the composer's "Ask ▼" mode picker and pick a mode.
+
+        The Cowork composer has a mode picker labeled "Ask" (default)
+        with a dropdown that exposes modes such as "Ask", "Plan",
+        "Plan-and-execute" etc. RECON 2 baseline UIA dump shows it
+        renders next to the model picker and "Work in a project"
+        button in the composer footer.
+        """
+        self.focus()
+        # Locate the "Ask" mode button (Y near composer footer)
+        mode_btn = self._find_uia_by_name_substr(
+            ("Ask",),
+            control_types=("Button", "MenuItem", "ComboBox"),
+            timeout=3.0,
+        )
+        if mode_btn is None:
+            logger.warning("select_ask_mode: 'Ask' mode picker not found")
+            return False
+        try:
+            mode_btn.click_input()
+        except Exception as exc:
+            logger.warning("select_ask_mode: click failed: %s", exc)
+            return False
+        time.sleep(0.5)
+
+        # Pick the requested mode from the dropdown
+        target = self._find_uia_by_name_substr(
+            (mode_substring,),
+            control_types=("MenuItem", "Button", "ListItem", "RadioButton"),
+            timeout=2.0,
+        )
+        if target is None:
+            logger.warning(
+                "select_ask_mode: no mode matching %r in dropdown",
+                mode_substring,
+            )
+            # Press Esc to close the dropdown
+            try:
+                send_keys("{ESC}", pause=0.05)
+            except Exception:
+                pass
+            return False
+        try:
+            target.click_input()
+        except Exception:
+            return False
+        time.sleep(0.4)
+        return True
+
+    def view_live_artifacts(self) -> bool:
+        """Click the Cowork sidebar entry "Live artifacts".
+
+        RECON 2 confirmed this is a ``df-pill`` styled Button in the
+        left sidebar (visible alongside "New task", "Projects",
+        "Scheduled", "Dispatch (Beta)", "Customize"). Clicking
+        navigates to the Live Artifacts pane (in-app, no Win32 popup).
+        """
+        self.focus()
+        target = self._find_uia_by_name_substr(
+            ("Live artifacts", "Live Artifacts", "Live Artifact"),
+            control_types=("Button", "ListItem", "Hyperlink"),
+            timeout=3.0,
+        )
+        if target is None:
+            logger.warning("view_live_artifacts: sidebar entry not found")
+            return False
+        try:
+            target.click_input()
+        except Exception as exc:
+            logger.warning("view_live_artifacts: click failed: %s", exc)
+            return False
+        time.sleep(1.2)
+        return True
+
+    def open_dispatch(self) -> bool:
+        """Click the Cowork sidebar entry "Dispatch (Beta)".
+
+        RECON 2 Q3 closure: shape is an in-app pane, descendant of the
+        main Claude window. Button class ``df-pill hide-focus-ring``.
+        """
+        self.focus()
+        target = self._find_uia_by_name_substr(
+            ("Dispatch",),
+            control_types=("Button", "ListItem", "Hyperlink"),
+            timeout=3.0,
+        )
+        if target is None:
+            logger.warning("open_dispatch: 'Dispatch' sidebar entry not found")
+            return False
+        try:
+            target.click_input()
+        except Exception as exc:
+            logger.warning("open_dispatch: click failed: %s", exc)
+            return False
+        time.sleep(1.2)
+        return True
+
+    def open_scheduled(self) -> bool:
+        """Click the Cowork sidebar entry "Scheduled"."""
+        self.focus()
+        target = self._find_uia_by_name_substr(
+            ("Scheduled",),
+            control_types=("Button", "ListItem", "Hyperlink"),
+            timeout=3.0,
+        )
+        if target is None:
+            logger.warning("open_scheduled: 'Scheduled' sidebar entry not found")
+            return False
+        try:
+            target.click_input()
+        except Exception as exc:
+            logger.warning("open_scheduled: click failed: %s", exc)
+            return False
+        time.sleep(1.0)
+        return True
+
+    def wait_for_cowork_step(
+        self,
+        *,
+        timeout: float = 180.0,
+        poll_interval: float = 1.5,
+        idle_settle: float = 3.0,
+    ) -> dict:
+        """Wait for a Cowork turn to complete using UI-side cues.
+
+        Cowork chat traffic does NOT appear in PCE's network captures
+        (Q2 WS-over-HTTP/2 gap), so the standard ``wait_done`` which
+        counts ``/completion`` rows can't tell us when a Cowork turn
+        finished. This helper polls UIA instead:
+
+        1. While a "Stop" / "Cancel" button is visible in the composer
+           area, the assistant is still generating.
+        2. Once that button disappears AND stays missing for
+           ``idle_settle`` seconds, the turn is considered done.
+        3. Aborts after ``timeout`` seconds with ``outcome="timeout"``.
+
+        Returns a dict with keys::
+
+            outcome:        "done" | "timeout"
+            elapsed_s:      float
+            polls:          int
+            saw_stop_button: bool   (True if stop was observed at least once)
+        """
+        start = time.time()
+        polls = 0
+        saw_stop = False
+        last_seen_stop = start  # last time we saw the stop button
+        # Search names — Claude Desktop on different builds uses any of
+        # these labels for the in-flight stop control. Empty match
+        # means "stop button not visible right now".
+        stop_names = ("Stop response", "Stop generating", "Stop", "Cancel")
+
+        while True:
+            polls += 1
+            elapsed = time.time() - start
+            if elapsed > timeout:
+                return {
+                    "outcome": "timeout",
+                    "elapsed_s": round(elapsed, 1),
+                    "polls": polls,
+                    "saw_stop_button": saw_stop,
+                }
+
+            stop_btn = self._find_uia_by_name_substr(
+                stop_names,
+                control_types=("Button",),
+                timeout=0.5,
+            )
+            if stop_btn is not None:
+                saw_stop = True
+                last_seen_stop = time.time()
+            else:
+                # Stop button absent. If we previously saw it OR
+                # ``idle_settle`` seconds have passed without ever
+                # seeing it (e.g. a very short turn), the turn is done.
+                idle_for = time.time() - last_seen_stop
+                if saw_stop and idle_for >= idle_settle:
+                    return {
+                        "outcome": "done",
+                        "elapsed_s": round(time.time() - start, 1),
+                        "polls": polls,
+                        "saw_stop_button": True,
+                    }
+                if (not saw_stop) and elapsed >= idle_settle:
+                    # Turn likely produced no streaming (e.g. an
+                    # extremely fast text-only reply that completed
+                    # between polls). Return done conservatively.
+                    return {
+                        "outcome": "done",
+                        "elapsed_s": round(time.time() - start, 1),
+                        "polls": polls,
+                        "saw_stop_button": False,
+                    }
+            time.sleep(poll_interval)

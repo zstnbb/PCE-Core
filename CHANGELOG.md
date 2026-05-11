@@ -5,6 +5,213 @@ All notable changes to PCE (core + browser extension) are documented in this fil
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-05-11 — P5.B.5 cowork-region implementation (L3g JSONL normaliser + cowork driver helpers + C-case sweep)
+
+Direct upstream of the 2026-05-10 standard-alignment sub-run. With the
+RECON authority chain frozen (see `Docs/research/2026-05-11-cowork-recon-findings.md`,
+renamed from the 05-XX placeholder), this sub-run lands the three
+code deliverables that the §7.5 phasing called for:
+
+- **P5.B.5.3** `LocalPersistenceNormalizer` v0 — turns L3g transcript
+  rows into Tier-1 sessions + messages (closing the WS-over-HTTP/2
+  gap discovered in Round-2 RECON).
+- **P5.B.5.2** 7 cowork driver helpers in
+  `tests/e2e_desktop_ui/drivers/claude_desktop.py`.
+- **P5.B.5.5** `run_p1_cowork_sweep.py` aggregator with all 17 C-cases
+  (C00–C16) in a single file plus per-case JSON evidence.
+
+### Architectural finding (RECON Round 2) — Cowork chat is WebSocket-over-HTTP/2
+
+`pce_proxy/addon.py` in upstream HTTP-proxy mode does not see Cowork
+chat traffic at all: the Cowork tab uses RFC 8441 WebSocket-over-HTTP/2
+(`:protocol=websocket` extended CONNECT) for prompt/response streaming,
+which mitmproxy upstream mode passes through opaquely. **`websocket_message` +
+`websocket_end` hooks** were added to `pce_proxy/addon.py` as a defence-in-depth
+measure (they capture any future plain ws:// traffic that may appear),
+but the production fix for Cowork capture is the L3g axis below — not
+the L1 axis.
+
+### P5.B.5.3 — L3g local-persistence JSONL normaliser
+
+Discovery: Cowork persists the **full** conversation transcript as
+JSONL files on disk under
+
+```
+%LOCALAPPDATA%/Packages/Claude_pzs8sxrjxfjjc/LocalCache/Roaming/Claude
+  /local-agent-mode-sessions/<user_uuid>/<org_uuid>/local_<session_uuid>
+  /.claude/projects/<encoded-cwd>/<session_uuid>.jsonl
+```
+
+Six top-level line types observed (`user`, `assistant`, `ai-title`,
+`queue-operation`, `last-prompt`, `attachment`). `user`/`assistant` lines
+carry standard Anthropic Messages content blocks (`text`, `thinking`,
+`tool_use`, `tool_result`) so the existing
+`pce_core/normalizer/anthropic.py::_extract_rich_blocks` is reused.
+
+#### New / modified files
+
+- **`pce_core/normalizer/local_persistence.py`** (NEW, ~240 lines) —
+  `LocalPersistenceNormalizer` with `can_handle` matching capture
+  envelopes where `provider=local-agent-mode` and path contains
+  `/agent-transcript/`. `normalize()` parses a single JSONL line into
+  one `NormalizedMessage` (or zero for non-content line types like
+  `ai-title` / `queue-operation` / `last-prompt`), reusing
+  `_extract_rich_blocks` for content. Session-key resolution prefers
+  the JSONL line's `sessionId` field over any literal "unknown" path
+  segment.
+- **`pce_core/normalizer/registry.py`** — registers
+  `LocalPersistenceNormalizer` ahead of the `ConversationNormalizer`
+  catch-all.
+- **`pce_core/normalizer/pipeline.py`** — `normalize_conversation` gains
+  a branch for `provider=local-agent-mode` + `/agent-transcript/` paths
+  that routes directly to `LocalPersistenceNormalizer`, bypassing
+  `try_normalize_pair` (which assumes a request+response pair).
+- **`pce_persistence_watcher/agent_sessions.py`** — `AgentSessionRecord`
+  gains a `transcript_line` kind plus `line_uuid` + `line_index` fields.
+  New helpers: `_parse_iso8601_to_ms`, `_find_transcript_jsonl_files`
+  (recurses into `.claude/projects/<encoded-cwd>/`), and
+  `iter_transcript_records` (yields one record per JSONL line, deriving
+  `session_id` from the local-agent-mode-sessions ancestor directory).
+- **`pce_persistence_watcher/capture.py`** — `ChromiumStateObserver.stats`
+  gains a `transcript_line` counter. `observe_agent_session` learns the
+  `transcript_line` kind: dedup fingerprint prefers `line_uuid` over
+  `line_index`, metadata gains `line_uuid` + `line_index` + `line_type`.
+  `_write` gains a `trigger_normalize` parameter and
+  `_normalize_just_inserted` to fire `pipeline.normalize_conversation`
+  for transcript lines immediately after insert, so they materialise as
+  Tier-1 sessions+messages in the same scan pass.
+- **`pce_persistence_watcher/__main__.py`** — `_scan_install` now iterates
+  `iter_transcript_records` after the existing agent-session records,
+  so a single watcher tick covers both the manifest-level and
+  line-level views.
+
+#### Tests
+
+- **`tests/test_local_persistence.py`** (NEW, 15 tests) — `can_handle`
+  positive/negative; `normalize` for user / assistant / tool_use /
+  tool_result / queue-operation / ai-title / last-prompt / attachment;
+  session-key fallback when path segment is `"unknown"`; end-to-end
+  watcher → capture → pipeline → messages round-trip via the
+  `tests/fixtures/cowork_transcript_sample.jsonl` fixture (copied from
+  a real Round-3 RECON session, redacted); idempotency (re-running the
+  same watcher pass does not produce duplicate messages).
+- **`tests/fixtures/cowork_transcript_sample.jsonl`** (NEW, 65 KB) —
+  fixture covering all six line types.
+- All 15 tests pass.
+
+#### Empirical L3g ingestion
+
+Restarting the persistence watcher on the developer's real machine
+retroactively ingested **133 transcript rows → 6 cowork sessions → 54
+messages** including 14 `mcp__*` tool calls, 2 `mcp__workspace__bash`
+calls, 1 Skill invocation, and 54 attachment-bearing messages. This
+is the empirical evidence behind the C-case sweep PASSes below.
+
+### P5.B.5.2 — Cowork driver helpers
+
+`tests/e2e_desktop_ui/drivers/claude_desktop.py` gains 7 helpers
+empirically locked by the auto-RECON pass:
+
+- `open_cowork_tab()` / `open_chat_tab()` — top-bar tab toggle.
+- `pick_skill(skill_name, timeout)` — clicks `/`-picker row matching
+  the given skill (`xlsx`, `pdf`, etc.); uses Y-band-aware finder for
+  the in-app popup (per Q3 closure: descendant pane, not Win32 popup).
+- `select_ask_mode()` — switches Cowork mode dropdown to "Ask".
+- `view_live_artifacts()` — clicks the sidebar Live Artifacts entry.
+- `open_dispatch()` — clicks the Dispatch (Beta) sidebar entry.
+- `open_scheduled()` — clicks the Scheduled sidebar entry.
+- `wait_for_cowork_step(timeout)` — polls for the agent-step done
+  signal in the Cowork pane (Stop button → Send button transition),
+  replacing the chat-region `/completion` HTTP probe (which doesn't
+  fire for Cowork due to the WS-over-HTTP/2 architecture).
+
+### P5.B.5.5 — C-case sweep aggregator
+
+**`tests/e2e_desktop_ui/run_p1_cowork_sweep.py`** (NEW, ~700 lines) —
+single-file aggregator with 17 case functions (C00–C16) each returning
+`{verdict, reason, evidence, elapsed_s}`. Two modes:
+
+- `--mode static` (fast, ~10 s wall-clock) — verifies from existing DB
+  rows + filesystem state. No UI driving. Suitable as a CI smoke that
+  catches L3g pipeline regressions.
+- `--mode live` (~10–15 min, requires no-touch) — drives Claude Desktop
+  UI via the new driver helpers, sends real prompts, waits via
+  `wait_for_cowork_step`, then verifies the resulting cowork session.
+
+Per-run output: `tests/e2e_desktop_ui/reports/p1_cowork/<ts>_mode-<m>/`
+with `summary.json` (counts + acceptance verdict) and one `case_C*.json`
+per case (gitignored, mirrors `/tests/e2e/reports/` convention added to
+`.gitignore`).
+
+#### Static-mode first run (developer machine)
+
+**9 PASS / 8 SKIP / 0 FAIL** out of 17 cases — vastly exceeds the
+≥5-PASS static-mode target. The 9 PASSes empirically confirm L3g
+pipeline health end-to-end:
+
+| Case | Static PASS evidence |
+|------|----------------------|
+| C00  | 1670 cowork heartbeats in `raw_captures` (`/environments?included_worker_types=cowork`) |
+| C02  | 33 assistant messages with non-empty `content_text` in past cowork sessions |
+| C05  | 54 cowork messages with attachment-style `content_json` |
+| C06  | 2 cowork messages carrying `mcp__workspace__bash` tool calls (code execution observed) |
+| C07  | 14 cowork messages with `mcp__*` tool calls (internal Anthropic MCP plumbing active) |
+| C08  | 1 past `[Tool call: Skill]` invocation in cowork content_text |
+| C09  | `vm_bundles/<...>/*.vhdx` exists on disk (agent-mode VM provisioned) |
+| C13  | 76 `/cowork_settings` GETs in `raw_captures` |
+| C14  | L3g pipeline healthy: 133 transcript rows → 6 sessions → 54 messages |
+
+The 8 SKIPs split into: 5 live-mode-only cases (C01, C03, C10, C12,
+C15), 1 known-bug inheritance (C04 ← chat-region D04 cancel-mid-stream),
+1 scope-deferred (C11 scheduled-task lifecycle, per Q6 inconclusive),
+and 1 awaiting-real-invocation (C16, `.mcpb` packs but no `pce_*` MCP
+tool call yet observed).
+
+The live-mode sweep (target ≥13/16 PASS) is a separate user-driven
+step and is tracked in the next sub-run.
+
+### Defence-in-depth: WebSocket hooks in pce_proxy
+
+Even though the production fix is L3g, `pce_proxy/addon.py` gained
+`websocket_message` + `websocket_end` hooks that capture WS frames as
+`raw_captures` rows with `direction=ws_send` / `ws_recv` and
+`body_format=ws_text` / `ws_binary`. These would catch any future
+ws://-style traffic (e.g. third-party MCP servers) and do not interfere
+with the existing HTTP request/response capture path.
+
+### Recon-findings doc renamed + finalised
+
+`Docs/research/2026-05-XX-cowork-recon-findings.md` → `2026-05-11-cowork-recon-findings.md`.
+Q0–Q8 status table updated with empirical resolutions: Q0 closed
+(Outcome B — Cowork MCP namespace is isolated, user .mcpb extensions
+do not load in Cowork); Q1/Q3/Q4 closed (auto-RECON evidence); Q5/Q7
+closed (Round-3 JSONL discovery); Q2 reframed as architectural finding
+(WS-over-HTTP/2); Q6/Q8 inconclusive, scope-deferred. New §Architectural
+Outcomes section (A1 WS-over-HTTP/2 gap downgraded to nice-to-have
+thanks to L3g, A2/A3/A4 addon + watcher + schema fixes, A5 acceptance
+targets revised upward).
+
+### What stays unchanged
+
+- Chat-region D-case closures (19 PASS / 1 SKIP / 1 KNOWN BUG / 1
+  deferred) remain canonical.
+- ADR-018 three-axis model unchanged; cowork adds M middleware as
+  fourth axis on top.
+- `pce_core/server.py` HTTP capture path unchanged; the L3g axis
+  writes through the same ingest endpoint.
+- Browser-extension capture path unchanged (cowork is a desktop-only
+  surface).
+
+### Next sub-run
+
+P5.B.5.5c — drive the sweep in `--mode live` against a real Claude
+Desktop install (user no-touch for ~15 min). Target verdict ≥13 PASS
+/ ≤3 SKIP / 0 FAIL (per the `Docs/research/2026-05-11-cowork-recon-findings.md`
+§A5 acceptance targets). On clearance, tag `v1.1.0-alpha.X-cowork-p1`
+and update §8.2 v1.1 ship checklist.
+
+---
+
 ## [Unreleased] - 2026-05-10 (still later same day) — P1 cowork-region standard alignment
 
 Documentation-only sub-run. Lands the cowork-region acceptance bar in

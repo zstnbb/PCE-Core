@@ -40,6 +40,7 @@ from . import __version__
 from .agent_sessions import (
     iter_local_config_records,
     iter_records as iter_agent_session_records,
+    iter_transcript_records,
 )
 from .capture import ChromiumStateObserver
 from .config import WatcherConfig, parse_argv
@@ -168,6 +169,22 @@ def _scan_install(
                 n += 1
             if cfg.verbose:
                 sys.stderr.write(f"    agent_sessions records parsed: {n}\n")
+
+    # ── Cowork agent-mode JSONL transcripts (P5.B.5.3, 2026-05-11) ──
+    # Walks the deeply-nested transcript path emitted by Cowork in
+    # local agent mode. Each non-blank JSONL line becomes ONE
+    # raw_captures row; user/assistant lines further normalise into
+    # sessions + messages via LocalPersistenceNormalizer. See
+    # ``Docs/research/2026-05-11-cowork-recon-findings.md`` Q5.
+    if only in (None, "agent_sessions", "transcripts"):
+        ag_root = inst.root("agent_sessions")
+        if ag_root is not None:
+            n = 0
+            for rec in iter_transcript_records(ag_root):
+                observer.observe_agent_session(rec)
+                n += 1
+            if cfg.verbose:
+                sys.stderr.write(f"    transcript_line records parsed: {n}\n")
 
     # ── local-config surfaces (free, ADR-018 §6 C4 supplementary) ──
     # The four small JSON / device-id files at the LocalCache profile

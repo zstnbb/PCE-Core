@@ -61,23 +61,35 @@ class AgentSessionRecord:
     """A parsed record from a Claude Desktop persistence surface.
 
     ``kind`` is one of ``"session"`` / ``"skills_catalogue"`` /
-    ``"local_config"`` — the observer uses it to route the record into
-    the right PCE capture envelope shape.
+    ``"local_config"`` / ``"transcript_line"`` — the observer uses it
+    to route the record into the right PCE capture envelope shape.
 
     ``surface`` is set only for ``kind == "local_config"`` and names
     which top-level config file the record came from (per ADR-018 §6
     C4 supplementary findings, 2026-05-10): one of ``"preferences"``,
     ``"cowork_owner"``, ``"git_worktrees"``, ``"device_id"``.
+
+    ``line_uuid`` and ``line_index`` are set only for ``kind ==
+    "transcript_line"`` (added 2026-05-11 after Round 3 RECON revealed
+    Cowork's JSONL transcript schema — see
+    ``Docs/research/2026-05-11-cowork-recon-findings.md`` Q5 closure).
+    ``line_uuid`` is the line's own ``uuid`` field when present (used
+    for per-line dedup so a growing append-only JSONL doesn't re-emit
+    old lines). ``line_index`` is the 0-based position in the file for
+    lines that have no ``uuid`` (queue-operation, ai-title,
+    last-prompt). At least one of the two is always set.
     """
 
-    kind: str  # "session" | "skills_catalogue" | "local_config"
-    session_id: Optional[str]  # uuid if kind == "session", else None
+    kind: str  # "session" | "skills_catalogue" | "local_config" | "transcript_line"
+    session_id: Optional[str]  # uuid if kind == "session"/"transcript_line", else None
     source_path: Path
     mtime_ns: int
     size_bytes: int
-    body_json: dict  # parsed manifest content
-    last_updated_ms: Optional[int]  # from manifest when present
+    body_json: dict  # parsed manifest content OR parsed JSONL line
+    last_updated_ms: Optional[int]  # from manifest/line when present
     surface: Optional[str] = None  # set when kind == "local_config"
+    line_uuid: Optional[str] = None  # set when kind == "transcript_line"
+    line_index: Optional[int] = None  # set when kind == "transcript_line"
 
 
 # ---------------------------------------------------------------------------
@@ -259,6 +271,202 @@ def count(agent_sessions_root: Path) -> dict[str, int]:
     for rec in iter_records(agent_sessions_root):
         counts[rec.kind] = counts.get(rec.kind, 0) + 1
     return counts
+
+
+# ---------------------------------------------------------------------------
+# Cowork agent-mode JSONL transcript walker (P5.B.5.3, 2026-05-11)
+#
+# Discovered via Round 3 RECON (see
+# ``Docs/research/2026-05-11-cowork-recon-findings.md`` Q5 closure):
+# Cowork persists the full conversation transcript at
+#
+#   <agent_sessions_root>/<user_uuid>/<org_uuid>/local_<session_uuid>/
+#       .claude/projects/<encoded-cwd>/<session_uuid>.jsonl
+#
+# Each line is a JSON event in one of six top-level ``type`` shapes:
+# ``user`` / ``assistant`` / ``ai-title`` / ``queue-operation`` /
+# ``last-prompt`` / ``attachment``. The ``user`` / ``assistant`` lines
+# carry standard Anthropic Messages content blocks (text / thinking /
+# tool_use / tool_result) and are the primary content channel for
+# Cowork on the L3g axis — they bypass the WS-over-HTTP/2 gap (Q2).
+# ---------------------------------------------------------------------------
+
+
+def _parse_iso8601_to_ms(ts: object) -> Optional[int]:
+    """Parse an ISO-8601 timestamp string into milliseconds-since-epoch.
+
+    Returns None for non-string inputs, unparseable strings, or any
+    other parse failure. Tolerates trailing ``Z`` and microsecond
+    precision (Cowork emits e.g. ``2026-05-11T03:47:02.714Z``).
+    """
+    if not isinstance(ts, str) or not ts:
+        return None
+    import datetime as _dt
+    s = ts.strip()
+    # Python 3.11+ ``fromisoformat`` accepts trailing 'Z' natively;
+    # 3.10 and earlier do not. Be defensive across versions.
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    try:
+        dt = _dt.datetime.fromisoformat(s)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=_dt.timezone.utc)
+    return int(dt.timestamp() * 1000)
+
+
+def _find_transcript_jsonl_files(agent_sessions_root: Path) -> Iterator[Path]:
+    """Yield every ``*.jsonl`` file under the Cowork transcript layout.
+
+    Walks::
+
+        <root>/<user_uuid>/<org_uuid>/local_<session_uuid>/
+            .claude/projects/<encoded-cwd>/<session_uuid>.jsonl
+
+    Bounded recursion: only descends through structurally-expected
+    directory shapes (UUID user dir → UUID org dir → ``local_<uuid>``
+    session dir → ``.claude`` → ``projects`` → encoded-cwd dir →
+    jsonl files). A malformed deep tree cannot trigger an unbounded
+    walk.
+    """
+    if not agent_sessions_root.exists() or not agent_sessions_root.is_dir():
+        return
+    try:
+        users = list(agent_sessions_root.iterdir())
+    except OSError:
+        return
+    for user_dir in users:
+        if not user_dir.is_dir() or not _looks_like_uuid(user_dir.name):
+            continue
+        try:
+            orgs = list(user_dir.iterdir())
+        except OSError:
+            continue
+        for org_dir in orgs:
+            if not org_dir.is_dir() or not _looks_like_uuid(org_dir.name):
+                continue
+            try:
+                sessions = list(org_dir.iterdir())
+            except OSError:
+                continue
+            for session_dir in sessions:
+                if not session_dir.is_dir():
+                    continue
+                if not session_dir.name.startswith("local_"):
+                    # Cowork session directories all use the ``local_<uuid>``
+                    # naming convention; other top-level files (e.g.
+                    # ``cowork-gb-cache.json``, ``local_<uuid>.json``) are
+                    # session metadata pointers, not session content roots.
+                    continue
+                projects = session_dir / ".claude" / "projects"
+                if not projects.is_dir():
+                    continue
+                try:
+                    cwds = list(projects.iterdir())
+                except OSError:
+                    continue
+                for cwd in cwds:
+                    if not cwd.is_dir():
+                        continue
+                    try:
+                        for f in cwd.iterdir():
+                            if f.is_file() and f.suffix == ".jsonl":
+                                yield f
+                    except OSError:
+                        continue
+
+
+def iter_transcript_records(
+    agent_sessions_root: Path,
+) -> Iterator[AgentSessionRecord]:
+    """Walk Cowork JSONL transcripts and yield one record per LINE.
+
+    One ``AgentSessionRecord`` is emitted per non-blank JSON line.
+    ``session_id`` is set from the line's ``sessionId`` field when
+    present, falling back to the parent ``local_<uuid>`` directory
+    name. ``line_uuid`` is the line's own ``uuid`` (when present) for
+    per-line dedup; ``line_index`` is always set as a fallback so
+    lines without ``uuid`` (queue-operation, ai-title, last-prompt,
+    attachment) still get a stable dedup key.
+
+    Parse failures on a single line are logged at WARNING and skipped;
+    the rest of the file is still emitted. File-level read failures
+    are logged at DEBUG and the whole file is skipped.
+    """
+    for jsonl_path in _find_transcript_jsonl_files(agent_sessions_root):
+        stat = _stat_safe(jsonl_path)
+        if stat is None:
+            continue
+        mtime_ns, _file_size = stat
+
+        # Derive a fallback session_id from the parent ``local_<uuid>``
+        # directory (5 levels up: jsonl → cwd → projects → .claude →
+        # local_<session>). Used when a line lacks ``sessionId``.
+        try:
+            parts = jsonl_path.parts
+            session_dir_name = parts[-5]  # local_<uuid>
+        except (IndexError, ValueError):
+            session_dir_name = jsonl_path.parent.name
+        path_session_id: Optional[str] = None
+        if session_dir_name.startswith("local_"):
+            candidate = session_dir_name[len("local_"):]
+            if _looks_like_uuid(candidate):
+                path_session_id = candidate
+
+        try:
+            with jsonl_path.open("r", encoding="utf-8", errors="replace") as fh:
+                for line_index, raw_line in enumerate(fh):
+                    line = raw_line.rstrip("\r\n")
+                    if not line.strip():
+                        continue
+                    try:
+                        body = json.loads(line)
+                    except json.JSONDecodeError as exc:
+                        logger.warning(
+                            "malformed jsonl line at %s:%d: %s",
+                            jsonl_path, line_index, exc,
+                        )
+                        continue
+                    if not isinstance(body, dict):
+                        logger.debug(
+                            "skipping non-dict jsonl line at %s:%d (type=%s)",
+                            jsonl_path, line_index, type(body).__name__,
+                        )
+                        continue
+
+                    # session_id: prefer the line's sessionId, fall back
+                    # to path-derived. Both Anthropic camelCase and
+                    # snake_case have been observed in the wild — accept
+                    # either.
+                    line_session_id = (
+                        body.get("sessionId")
+                        or body.get("session_id")
+                        or path_session_id
+                    )
+
+                    # line_uuid: prefer the line's uuid for stable dedup;
+                    # if absent, the record will use line_index as the
+                    # dedup key in the observer.
+                    line_uuid = body.get("uuid") if isinstance(body.get("uuid"), str) else None
+
+                    # timestamp → last_updated_ms (best-effort)
+                    last_updated_ms = _parse_iso8601_to_ms(body.get("timestamp"))
+
+                    yield AgentSessionRecord(
+                        kind="transcript_line",
+                        session_id=line_session_id,
+                        source_path=jsonl_path,
+                        mtime_ns=mtime_ns,
+                        size_bytes=len(line.encode("utf-8", errors="replace")),
+                        body_json=body,
+                        last_updated_ms=last_updated_ms,
+                        line_uuid=line_uuid,
+                        line_index=line_index,
+                    )
+        except OSError as exc:
+            logger.debug("cannot read jsonl %s: %s", jsonl_path, exc)
+            continue
 
 
 # ---------------------------------------------------------------------------

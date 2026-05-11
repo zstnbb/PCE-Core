@@ -44,6 +44,7 @@ def _auto_register():
     from .anthropic import AnthropicMessagesNormalizer
     from .conversation import ConversationNormalizer
     from .mcp_jsonrpc import MCPJsonRpcNormalizer
+    from .local_persistence import LocalPersistenceNormalizer
 
     register_normalizer(OpenAIChatNormalizer())
     register_normalizer(AnthropicMessagesNormalizer())
@@ -51,6 +52,11 @@ def _auto_register():
     # provider="mcp:*" + host="stdio", so ordering is moot — but kept
     # before Conversation (the catch-all) so it stays explicit.
     register_normalizer(MCPJsonRpcNormalizer())
+    # L3g Cowork agent-mode JSONL transcript (P5.B.5.3, 2026-05-11).
+    # Specific to host="local-agent-mode" + path matching
+    # ``/<app_id>/agent-transcript/...``, so ordering is moot. Kept
+    # before Conversation (catch-all) for clarity.
+    register_normalizer(LocalPersistenceNormalizer())
     # Conversation normalizer is registered last as a catch-all for
     # browser extension DOM-extracted captures (DeepSeek, Gemini, etc.)
     register_normalizer(ConversationNormalizer())

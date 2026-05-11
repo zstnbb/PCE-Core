@@ -115,6 +115,27 @@ def normalize_conversation(
         with pipeline_span("pce.normalize", direction=direction):
             if direction == "network_intercept":
                 result = _normalize_network_intercept(capture_row)
+            elif (
+                capture_row.get("host") == "local-agent-mode"
+                and "/agent-transcript/" in (capture_row.get("path") or "")
+            ):
+                # L3g Cowork agent-mode JSONL transcript (P5.B.5.3,
+                # 2026-05-11). Each line is independently parseable;
+                # the body is one JSONL line as a JSON string. Route
+                # directly to LocalPersistenceNormalizer to avoid the
+                # ConversationNormalizer fallback (which expects a
+                # DOM-extracted shape).
+                from .local_persistence import LocalPersistenceNormalizer
+                _lp_norm = LocalPersistenceNormalizer()
+                body = capture_row.get("body_text_or_json", "") or ""
+                result = _lp_norm.normalize(
+                    body, body,
+                    provider=capture_row.get("provider", "anthropic"),
+                    host=capture_row.get("host", "local-agent-mode"),
+                    path=capture_row.get("path", ""),
+                    model_name=capture_row.get("model_name"),
+                    created_at=capture_row.get("created_at"),
+                )
             else:
                 # For conversation captures (DOM extraction), use ConversationNormalizer
                 # directly.  Going through the registry would pick OpenAIChatNormalizer

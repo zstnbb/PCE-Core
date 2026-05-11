@@ -147,6 +147,12 @@ class ChromiumStateObserver:
             "leveldb": 0,
             "local_config": 0,
             "indexeddb_summary": 0,
+            # P5.B.5.3 (2026-05-11) — Cowork agent-mode JSONL transcript
+            # per-line ingestion. Counts ALL transcript lines seen,
+            # including ai-title / queue-operation / etc. metadata
+            # lines. The normaliser routes user / assistant lines into
+            # sessions+messages; metadata lines stay in raw_captures.
+            "transcript_line": 0,
         }
 
     # ------------------------------------------------------------------
@@ -164,13 +170,34 @@ class ChromiumStateObserver:
           path=/<app_id>/local-config/<surface>, session_hint=None.
           (ADR-018 §6 C4 supplementary surfaces — preferences,
           cowork_owner, git_worktrees, device_id.)
+        - ``"transcript_line"``: host=local-agent-mode,
+          path=/<app_id>/agent-transcript/<session_id>/<line_key>,
+          session_hint=<session_id>, fingerprint uses line_uuid OR
+          line_index so a growing append-only JSONL only re-emits the
+          new lines. After insert, triggers
+          ``pipeline.normalize_conversation`` to produce sessions +
+          messages immediately (P5.B.5.3, 2026-05-11).
         """
         with self._lock:
             self.stats["records_seen"] += 1
             self.stats[rec.kind] = self.stats.get(rec.kind, 0) + 1
 
             body_str = self._body_for(rec.body_json)
-            fp = self._fingerprint(rec.source_path, rec.kind, body_str)
+
+            # Fingerprint seed depends on kind:
+            # - transcript_line uses line_uuid (preferred) or line_index
+            #   for per-line dedup so an appended JSONL only re-emits
+            #   the NEW lines (otherwise content-hash dedup would
+            #   re-emit every existing line on each watcher pass).
+            # - Everything else uses the canonical body-string hash.
+            if rec.kind == "transcript_line":
+                seed = (
+                    rec.line_uuid
+                    or f"idx={rec.line_index}|sz={rec.size_bytes}"
+                )
+            else:
+                seed = body_str
+            fp = self._fingerprint(rec.source_path, rec.kind, seed)
             if self._already_emitted(fp):
                 self.stats["records_deduped"] += 1
                 return
@@ -188,11 +215,25 @@ class ChromiumStateObserver:
             }
             if rec.surface is not None:
                 meta["surface"] = rec.surface
+            if rec.kind == "transcript_line":
+                meta["line_uuid"] = rec.line_uuid
+                meta["line_index"] = rec.line_index
+                meta["line_type"] = rec.body_json.get("type")
 
+            triggered_normalize = False
             if rec.kind == "local_config":
                 host = "local-config"
                 path = f"/{self.app_id}/local-config/{rec.surface or 'unknown'}"
                 session_hint: Optional[str] = None
+            elif rec.kind == "transcript_line":
+                host = "local-agent-mode"
+                line_key = rec.line_uuid or f"idx-{rec.line_index}"
+                path = (
+                    f"/{self.app_id}/agent-transcript/"
+                    f"{rec.session_id or 'unknown'}/{line_key}"
+                )
+                session_hint = rec.session_id
+                triggered_normalize = True
             else:
                 host = "local-agent-mode"
                 path = f"/{self.app_id}/agent-session/{rec.session_id or 'unknown'}"
@@ -206,6 +247,7 @@ class ChromiumStateObserver:
                 body_str=body_str,
                 meta=meta,
                 session_hint=session_hint,
+                trigger_normalize=triggered_normalize,
             )
             if ok:
                 # dry_run must be fully side-effect-free: count but do
@@ -444,7 +486,16 @@ class ChromiumStateObserver:
         body_str: str,
         meta: dict[str, Any],
         session_hint: Optional[str],
+        trigger_normalize: bool = False,
     ) -> bool:
+        """Insert a raw_captures row.
+
+        When ``trigger_normalize`` is True, also invoke
+        ``pipeline.normalize_conversation`` on the freshly-written row
+        so the L3g capture lands in sessions+messages immediately. Used
+        by transcript_line records where each line is independently
+        parseable (P5.B.5.3, 2026-05-11).
+        """
         if self.dry_run:
             return True
         payload_body = body_str if self.include_bodies else ""
@@ -469,6 +520,8 @@ class ChromiumStateObserver:
                 db_path=self.db_path,
                 session_hint=session_hint,
             )
+            if trigger_normalize:
+                self._normalize_just_inserted(pair_id)
             return True
         except Exception as exc:  # pragma: no cover — defensive guard
             self.stats["capture_failures"] += 1
@@ -484,6 +537,50 @@ class ChromiumStateObserver:
                 },
             )
             return False
+
+    def _normalize_just_inserted(self, pair_id: str) -> None:
+        """Trigger ``normalize_conversation`` on a single L3g pair.
+
+        Imports are lazy to avoid a watcher → normaliser → DB import
+        cycle at module load (the normaliser pulls in heavy SQL helpers
+        only needed once we actually have a capture to process).
+
+        Failures are recorded into ``pipeline_errors`` and counted in
+        ``stats["capture_failures"]`` but never raised — the watcher
+        must keep running even if one line fails to normalise.
+        """
+        try:
+            from pce_core.db import query_by_pair, record_pipeline_error
+            from pce_core.normalizer.pipeline import normalize_conversation
+        except Exception as exc:  # pragma: no cover — defensive
+            logger.debug("normaliser import failed (skipping): %s", exc)
+            return
+        try:
+            rows = query_by_pair(pair_id, db_path=self.db_path)
+            if not rows:
+                return
+            normalize_conversation(
+                rows[0],
+                source_id=SOURCE_L3G_LOCAL_PERSISTENCE,
+                created_via="l3g_transcript_line",
+                db_path=self.db_path,
+            )
+        except Exception as exc:
+            self.stats["capture_failures"] += 1
+            try:
+                record_pipeline_error(
+                    "normalize",
+                    f"normalize_conversation(l3g): {type(exc).__name__}: {exc}",
+                    source_id=SOURCE_L3G_LOCAL_PERSISTENCE,
+                    pair_id=pair_id,
+                    details={"axis": "L3g", "kind": "transcript_line"},
+                )
+            except Exception:
+                pass
+            logger.debug(
+                "transcript_line normalise failed pair=%s: %s",
+                pair_id[:8], exc,
+            )
 
 
 # ---------------------------------------------------------------------------

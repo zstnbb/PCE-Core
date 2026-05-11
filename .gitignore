@@ -35,6 +35,7 @@ Thumbs.db
 /tests/e2e/fixtures/generated/
 /tests/e2e/reports/
 /tests/e2e_probe/reports/
+/tests/e2e_desktop_ui/reports/
 /logs/
 
 # Local probe diagnostics and scratch artifacts

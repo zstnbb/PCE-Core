@@ -199,6 +199,11 @@ def _register_discovered_domain(host: str, confidence: str, reasons: list[str]) 
 # ---------------------------------------------------------------------------
 _flow_meta: dict[str, dict] = {}
 
+# WebSocket session state — populated on first websocket_message for an
+# allowlisted flow, cleared on websocket_end. One pair_id per WS session
+# so all frames in the session are queryable by pair_id.
+_ws_state: dict[str, dict] = {}
+
 
 class PCEAddon:
     """mitmproxy addon that captures AI traffic into local SQLite."""
@@ -405,6 +410,107 @@ class PCEAddon:
                 details={"direction": "response", "host": host},
             )
 
+
+    # ── WebSocket frame capture (P5.B.5 — Cowork uses WS, not /completion) ─
+    #
+    # mitmproxy upgrades any allowlisted HTTP(S) flow that completes a 101
+    # handshake into a WebSocket flow. ``websocket_message`` then fires for
+    # every frame (text or binary) in either direction. We allocate ONE
+    # pair_id per WS session so all frames are queryable together via
+    # ``WHERE pair_id = ?``. Direction is ``ws_send`` (client → server)
+    # or ``ws_recv`` (server → client). Body format is ``ws_text`` or
+    # ``ws_binary``.
+    #
+    # Without this hook Cowork chat traffic is invisible to the L1 axis —
+    # discovered 2026-05-11 during P5.B.5 RECON when 0 ``/completion``
+    # rows materialised despite Claude Desktop responding to a multi-step
+    # prompt over a persistent WS connection.
+
+    def websocket_message(self, flow: http.HTTPFlow) -> None:
+        try:
+            ws = getattr(flow, "websocket", None)
+            if ws is None or not getattr(ws, "messages", None):
+                return
+
+            # Initialise WS session state on first message
+            ws_state = _ws_state.get(flow.id)
+            if ws_state is None:
+                host = _resolve_host(flow)
+                if host is None:
+                    return  # not allowlisted, skip
+                pair_id = new_pair_id()
+                ws_state = {
+                    "pair_id": pair_id,
+                    "host": host,
+                    "path": flow.request.path,
+                    "first_seen": time.time(),
+                    "frame_count": 0,
+                }
+                _ws_state[flow.id] = ws_state
+                log_event(
+                    logger, "capture.ws_session_start",
+                    pair_id=pair_id[:8], host=host, path=flow.request.path,
+                )
+
+            msg = ws.messages[-1]
+            from_client = bool(getattr(msg, "from_client", True))
+            direction = "ws_send" if from_client else "ws_recv"
+
+            content = getattr(msg, "content", None)
+            if content is None:
+                content = b""
+            if isinstance(content, str):
+                content = content.encode("utf-8", errors="replace")
+
+            # Detect text vs binary — mitmproxy 10+ exposes ``is_text``,
+            # older versions use ``type`` enum. Default to text if unsure.
+            is_text = getattr(msg, "is_text", None)
+            if is_text is None:
+                msg_type = getattr(msg, "type", None)
+                is_text = (str(msg_type).lower().endswith("text") if msg_type else True)
+
+            if is_text:
+                try:
+                    body_text = content.decode("utf-8", errors="replace")
+                except Exception:
+                    body_text = ""
+                body_fmt = "ws_text"
+            else:
+                # Binary — store as length marker; full bytes are too noisy
+                # for a SQLite TEXT column and v1.1 normaliser doesn't read
+                # them anyway. If a use case emerges, store base64 here.
+                body_text = f"<binary {len(content)}B>"
+                body_fmt = "ws_binary"
+
+            body_text = redact_body_secrets(body_text)
+            ws_state["frame_count"] += 1
+
+            insert_capture(
+                direction=direction,
+                pair_id=ws_state["pair_id"],
+                host=ws_state["host"],
+                path=ws_state["path"],
+                method="WS",
+                provider=_provider_from_host(ws_state["host"]),
+                body_text_or_json=body_text,
+                body_format=body_fmt,
+            )
+        except Exception:
+            logger.exception("websocket_message capture failed — dropping frame")
+
+    def websocket_end(self, flow: http.HTTPFlow) -> None:
+        ws_state = _ws_state.pop(flow.id, None)
+        if ws_state is not None:
+            try:
+                log_event(
+                    logger, "capture.ws_session_end",
+                    pair_id=ws_state["pair_id"][:8],
+                    host=ws_state["host"],
+                    frame_count=ws_state["frame_count"],
+                    duration_s=round(time.time() - ws_state["first_seen"], 1),
+                )
+            except Exception:
+                pass
 
     # ── TLS failure hooks (P5.A-6) ────────────────────────────────────────
     #

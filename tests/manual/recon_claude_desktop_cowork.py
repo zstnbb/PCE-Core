@@ -152,7 +152,9 @@ def _resolve_agent_sessions_root() -> Optional[Path]:
         return None
 
     for inst in installs:
-        if inst.app_id != "claude_desktop":
+        # discover() returns canonical app_id "claude-desktop" (hyphen)
+        # per pce_persistence_watcher.discovery._DISCOVERY_ORDER.
+        if inst.app_id != "claude-desktop":
             continue
         ag_root = inst.root("agent_sessions")
         if ag_root is not None and ag_root.exists():
@@ -250,7 +252,9 @@ class DbTailer:
         self._stats = stats
         self._stop_event = stop_event
         self._poll_interval_s = poll_interval_s
-        self._cursor_id: int = 0  # last id seen
+        # Cursor by created_at (REAL) — `id` column is TEXT (UUID hex)
+        # post-schema-migration 0011/0012 and not int-castable.
+        self._cursor_ts: float = since_ts
         self._stats_lock = threading.Lock()
         self._thread: Optional[threading.Thread] = None
 
@@ -266,24 +270,8 @@ class DbTailer:
             self._thread.join(timeout=timeout)
 
     def _run(self) -> None:
-        try:
-            # Initial seek: find the highest existing id at since_ts so we
-            # only emit NEW rows. Without this the tailer would replay the
-            # entire DB on first poll.
-            con = sqlite3.connect(str(self._db_path))
-            try:
-                con.row_factory = sqlite3.Row
-                row = con.execute(
-                    "SELECT IFNULL(MAX(id), 0) AS max_id FROM raw_captures "
-                    "WHERE created_at < ?",
-                    (self._since_ts,),
-                ).fetchone()
-                self._cursor_id = int(row["max_id"]) if row else 0
-            finally:
-                con.close()
-        except Exception as exc:
-            logger.warning("DB tailer initial-seek failed: %s", exc)
-
+        # Cursor is initialised to since_ts in __init__ — no DB seek
+        # needed. We emit only rows with created_at > since_ts.
         while not self._stop_event.is_set():
             try:
                 self._poll_once()
@@ -298,18 +286,22 @@ class DbTailer:
             cur = con.execute(
                 "SELECT id, created_at, host, path, method, direction, "
                 "       status_code, body_format, length(body_text_or_json) AS body_len, "
-                "       pair_id, source, source_id, source_type "
+                "       pair_id, source, source_id "
                 "FROM raw_captures "
-                "WHERE id > ? "
-                "ORDER BY id ASC",
-                (self._cursor_id,),
+                "WHERE created_at > ? "
+                "ORDER BY created_at ASC",
+                (self._cursor_ts,),
             )
             rows = cur.fetchall()
         finally:
             con.close()
 
         for r in rows:
-            self._cursor_id = int(r["id"])
+            ts = r["created_at"]
+            if ts is not None:
+                ts_f = float(ts)
+                if ts_f > self._cursor_ts:
+                    self._cursor_ts = ts_f
             path = (r["path"] or "")
             host = (r["host"] or "")
             matched = _match_cowork_pattern(path, host)
@@ -318,7 +310,7 @@ class DbTailer:
             event = {
                 "ts": time.time(),
                 "kind": "raw_capture",
-                "id": int(r["id"]),
+                "id": str(r["id"]),
                 "created_at": float(r["created_at"]) if r["created_at"] is not None else None,
                 "host": host,
                 "path": path,
@@ -330,7 +322,6 @@ class DbTailer:
                 "pair_id": r["pair_id"],
                 "source": r["source"],
                 "source_id": r["source_id"],
-                "source_type": r["source_type"],
                 "pattern": matched,
             }
             self._writer.write_event(event)
