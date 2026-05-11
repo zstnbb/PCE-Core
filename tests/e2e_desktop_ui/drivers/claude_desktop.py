@@ -274,7 +274,18 @@ class ClaudeDesktopDriver(DesktopDriver):
         *,
         wait_done: bool = True,
         wait_timeout: float = 60.0,
+        wait_request: bool = True,
     ) -> Optional[str]:
+        """Type ``text`` into the composer and press Enter.
+
+        For chat-region cases the default behaviour is to wait for the
+        ``/completion`` POST to materialise in ``raw_captures`` and
+        return that ``pair_id``. For cowork-region cases the underlying
+        traffic is WebSocket-over-HTTP/2 (Q2 architectural finding) and
+        ``/completion`` is never observed by L1; callers there should
+        pass ``wait_request=False`` to skip the 15 s HTTP probe and
+        verify the turn via UI cues + L3g axis instead.
+        """
         # Use a since_ts that's guaranteed to be earlier than any new
         # request triggered by this call (subtract 2s for clock skew
         # between Python's time.time() and mitm's internal clock).
@@ -287,6 +298,13 @@ class ClaudeDesktopDriver(DesktopDriver):
         send_keys(text, with_spaces=True, vk_packet=True, pause=0.02)
         time.sleep(0.3)
         send_keys("{ENTER}", pause=0.05)
+
+        if not wait_request:
+            # Cowork-region path: caller will verify the turn via UI
+            # cues + L3g. Return a synthetic placeholder so the caller
+            # can still tell "send completed" from "send raised".
+            logger.info("send_message: wait_request=False — returning without probing /completion")
+            return "cowork-no-probe"
 
         # Wait for the /completion request to materialize in raw_captures
         pair_id = wait_for_new_completion(
@@ -1152,6 +1170,52 @@ class ClaudeDesktopDriver(DesktopDriver):
         time.sleep(1.2)
         return True
 
+    def ensure_cowork_chat(self) -> bool:
+        """Return Claude to a fresh Cowork chat composer state.
+
+        Top-tab "Cowork" alone does NOT bring back the chat composer
+        if the right pane is currently showing Live artifacts /
+        Dispatch / Projects / etc. (a sidebar-driven subpane).
+        This helper:
+
+        1. Clicks the top-level "Cowork" tab.
+        2. Clicks the "New task" button in the sidebar — this resets
+           the right pane to a fresh Cowork chat composer.
+        3. Verifies a composer UIA element exists.
+
+        Returns True if the composer is reachable afterwards.
+        """
+        self.focus()
+        # 1. Cowork tab
+        if not self.open_cowork_tab():
+            logger.warning("ensure_cowork_chat: open_cowork_tab failed")
+            # don't bail — composer may still be reachable
+        time.sleep(0.4)
+
+        # 2. New task button
+        new_task = self._find_uia_by_name_substr(
+            ("New task",),
+            control_types=("Button",),
+            timeout=2.0,
+        )
+        if new_task is None:
+            logger.warning("ensure_cowork_chat: 'New task' sidebar button not found")
+        else:
+            try:
+                new_task.click_input()
+                time.sleep(1.2)
+            except Exception as exc:
+                logger.warning(
+                    "ensure_cowork_chat: 'New task' click failed: %s", exc,
+                )
+
+        # 3. Composer reachability check
+        composer = self._find_composer_uia()
+        if composer is None:
+            logger.warning("ensure_cowork_chat: composer still not reachable")
+            return False
+        return True
+
     def open_chat_tab(self) -> bool:
         """Click the top-level "Chat" tab (return-to-chat utility)."""
         self.focus()
@@ -1170,26 +1234,26 @@ class ClaudeDesktopDriver(DesktopDriver):
         return True
 
     def pick_skill(self, name_substring: str, *, timeout: float = 6.0) -> bool:
-        """Open the Cowork slash-picker Directory and click a skill row.
+        """Open the Cowork slash-picker and click a matching command/skill.
 
-        Empirical shape (RECON 1+2, Q1 closure):
-        1. ``/`` in the Cowork composer opens a **Radix UI modal
-           Directory dialog** (descendant of the main Claude window;
-           NOT a separate Win32 popup). 3 tabs: Skills / Connectors /
-           Plugins. The search field is **shared/persisted** across
-           openings — must be cleared first.
-        2. The dialog renders as ``Window class="radix-..."`` with a
-           descendant ``Close`` button.
-        3. Skill rows are descendants matching the skill's display name.
+        Empirical shape (2026-05-11 sweep recon, build N+1):
+        1. ``/`` in the Cowork composer opens a flat menu
+           (NO "Directory" header, NO Skills/Connectors/Plugins tabs).
+        2. The search field is an ``Edit`` element with the typed text
+           (initially "/"). Auto-focused — keystrokes go straight in.
+        3. Each command/skill row is a ``MenuItem`` whose name is the
+           command identifier (e.g. ``"skill-creator"``,
+           ``"add-files Open file picker"``).
 
         Strategy:
         1. ``click_composer()`` + send ``/`` to open the picker.
-        2. Wait for a ``Directory`` window/text to appear in the UIA.
-        3. Send ``Ctrl+A`` + ``Backspace`` to clear any sticky search.
-        4. Switch to the Skills tab (click "Skills" hyperlink/button).
-        5. Type ``name_substring`` into the search field (sticky-focused).
-        6. Click the matching row.
-        7. The dialog auto-closes on row click; if not, press ``Esc``.
+        2. Wait for any ``MenuItem`` to appear (proves picker is open).
+        3. Type ``name_substring`` to filter the list.
+        4. Wait for a ``MenuItem`` whose name contains ``name_substring``
+           and click it.
+        5. If no row matches within ``timeout``, send ``Esc`` + clean
+           up the lingering ``/`` characters in the composer and
+           return False.
 
         Returns True on apparent success.
         """
@@ -1201,66 +1265,52 @@ class ClaudeDesktopDriver(DesktopDriver):
         except Exception as exc:
             logger.warning("pick_skill: '/' keystroke failed: %s", exc)
             return False
-        time.sleep(1.5)  # let Directory dialog render
 
-        # Verify the modal is open by looking for the Directory label
-        directory_marker = self._find_uia_by_name_substr(
-            ("Directory",),
-            control_types=("Text", "Window"),
-            timeout=2.0,
-        )
-        if directory_marker is None:
-            logger.warning("pick_skill: Directory dialog did not appear")
-            return False
-
-        # Clear any sticky search text (per Q1 empirical observation)
-        try:
-            send_keys("^a", pause=0.05)
-            send_keys("{BACKSPACE}", pause=0.05)
-        except Exception:
-            pass
-        time.sleep(0.2)
-
-        # Switch to Skills tab. The tabs are rendered as Hyperlinks in
-        # the Radix dialog body — match "Skills" specifically (avoid
-        # accidentally clicking a row with "skill" in its title).
-        skills_tab = self._find_uia_by_name_substr(
-            ("Skills",),
-            control_types=("Hyperlink", "Button", "TabItem"),
-            timeout=2.0,
-        )
-        if skills_tab is not None:
+        # Wait for the picker to render — any MenuItem appearing is
+        # the canonical signal. Old builds had a "Directory" Text
+        # marker; the new build has none, so we probe MenuItems.
+        deadline = time.time() + 3.0
+        picker_open = False
+        while time.time() < deadline:
+            probe = self._find_uia_by_name_substr(
+                ("",),  # match any MenuItem
+                control_types=("MenuItem",),
+                timeout=0.5,
+            )
+            if probe is not None:
+                picker_open = True
+                break
+            time.sleep(0.25)
+        if not picker_open:
+            logger.warning(
+                "pick_skill: slash picker did not render any MenuItem within 3s"
+            )
             try:
-                skills_tab.click_input()
-                time.sleep(0.5)
+                send_keys("{BACKSPACE}", pause=0.05)
             except Exception:
                 pass
+            return False
 
-        # Re-clear search after tab switch (some Radix configurations
-        # preserve search, others don't — be defensive).
-        try:
-            send_keys("^a", pause=0.05)
-            send_keys("{BACKSPACE}", pause=0.05)
-        except Exception:
-            pass
-
-        # Type the skill name into the search field. The search field
-        # is auto-focused inside the Radix dialog so direct keystroke
-        # input works without a separate click.
+        # Type the search query — the Edit field is auto-focused inside
+        # the picker so keystrokes filter the list directly.
         try:
             send_keys(name_substring, pause=0.03, vk_packet=True)
         except Exception as exc:
             logger.warning("pick_skill: search text input failed: %s", exc)
+            try:
+                send_keys("{ESC}", pause=0.05)
+            except Exception:
+                pass
             return False
         time.sleep(0.6)
 
-        # Click the matching skill row (descendant of the Radix modal).
+        # Click the matching MenuItem.
         deadline = time.time() + timeout
         clicked = False
         while time.time() < deadline and not clicked:
             row = self._find_uia_by_name_substr(
                 (name_substring,),
-                control_types=("Button", "ListItem", "Hyperlink"),
+                control_types=("MenuItem",),
                 timeout=1.0,
             )
             if row is not None:
@@ -1273,12 +1323,16 @@ class ClaudeDesktopDriver(DesktopDriver):
                 time.sleep(0.3)
         if not clicked:
             logger.warning(
-                "pick_skill: no row matching %r within %.1fs",
+                "pick_skill: no MenuItem matching %r within %.1fs",
                 name_substring, timeout,
             )
-            # Dismiss the picker so caller can recover
+            # Dismiss + clean up lingering '/' + typed query in composer
             try:
                 send_keys("{ESC}", pause=0.05)
+                # Erase the '/' + query string left in the composer
+                # (one BACKSPACE per char + the leading '/')
+                for _ in range(len(name_substring) + 1):
+                    send_keys("{BACKSPACE}", pause=0.02)
             except Exception:
                 pass
             return False

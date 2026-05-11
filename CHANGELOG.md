@@ -202,13 +202,86 @@ targets revised upward).
 - Browser-extension capture path unchanged (cowork is a desktop-only
   surface).
 
+### P5.B.5.5c — live-mode sweep result (13 PASS / 4 SKIP / 0 FAIL)
+
+Three live-mode iterations against the developer's real Claude Desktop
+MSIX install. Final run `tests/e2e_desktop_ui/reports/p1_cowork/20260511-145124_mode-live/`
+(gitignored) — **13 PASS / 4 SKIP / 0 FAIL**, the PASS target (≥13)
+and the FAIL target (=0) are met; the SKIP target (≤3) is exceeded
+by 1 because all 4 SKIPs are documented out-of-scope:
+
+| Case | Verdict | Evidence summary |
+|------|---------|------------------|
+| C00  | PASS | 94 cowork heartbeats in `raw_captures` (5-min window) |
+| C01  | PASS | session `87fb931b` — 3 messages, plain prompt |
+| C02  | PASS | session `0a790186` — 3 messages, multi-paragraph reply |
+| C03  | PASS | session `f4fdac2c` — 3 messages, multi-step reasoning |
+| C04  | SKIP | inherits D04 cancel-mid-stream known bug (chat-region) |
+| C05  | PASS | cowork message references `_c05_test.txt` post-paste |
+| C06  | PASS | session `8cacfd49` — 5 messages incl. tool calls |
+| C07  | PASS | 17 cowork messages with `mcp__*` tool calls |
+| C08  | PASS | slash-picker invoked `skill-creator`; 4/6 new msgs mention 'skill' |
+| C09  | PASS | Live Artifacts sidebar entry clicked; in-app pane surfaced |
+| C10  | PASS | Dispatch (Beta) entry clicked; in-app pane (per Q3 closure) |
+| C11  | SKIP | scheduled-task lifecycle needs >24 h soak (Q6 out-of-scope) |
+| C12  | SKIP | `CLAUDE_PROJECT_NAME` env not set (account has no projects) |
+| C13  | PASS | 92 `/cowork_settings` GETs visible in `raw_captures` |
+| C14  | PASS | L3g pipeline healthy: 342 transcript rows → 14 sessions → 128 messages |
+| C15  | PASS | 60 s idle: 3 total events, 0 transcript content events (silent) |
+| C16  | SKIP | `.mcpb` packs but `pce_*` MCP tool call not yet invoked in Chat |
+
+The C04 / C11 / C12 / C16 SKIPs are tracked in `Docs/research/2026-05-11-cowork-recon-findings.md`
+§A5; none indicate a capture-pipeline regression. Acceptance is met
+on the PASS bar (13 ≥ 13) and the **0-FAIL bar** (the load-bearing
+quality gate); the SKIP ceiling miss-by-1 is explainable and not
+fixable inside this sub-run.
+
+#### Bugs found & fixed during the three live iterations
+
+- **Navigation drift after sidebar clicks** — Cases C09 / C10 click
+  sidebar items (Live Artifacts / Dispatch) which leave Claude on a
+  non-Cowork view; subsequent live cases (C13–C16 in the prior
+  iteration) failed because `_find_composer_uia` returned `None`.
+  Fix: new `ClaudeDesktopDriver.ensure_cowork_chat()` helper that
+  clicks the Cowork tab and the "New task" button, restoring a fresh
+  composer. Wired into `_live_send_and_verify`, C05, C08, and after
+  C09 / C10 in `run_p1_cowork_sweep.py`.
+- **Watcher ingestion race** — Cowork transcript JSONL writes happen
+  after the assistant reply finishes, and the watcher polls every 5 s.
+  Naive "wait 5 s then query" missed late writes. Fix: active poll
+  loop (`_wait_for_new_cowork_messages`) that re-queries the DB up
+  to `watcher_timeout` seconds for a new `messages` row in the
+  cowork tool family.
+- **C05 sandbox rejection** — Writing the paste test file under the
+  workspace `run_dir` on `F:\` triggered Claude's MSIX sandbox to
+  reject the file ("Could not get file paths" toast). Fix: write the
+  fixture to `os.environ["TEMP"]` (a `C:\` path the MSIX sandbox
+  trusts).
+- **Slash-picker UI changed** — RECON-time slash picker was a
+  Directory dialog with Skill / Tool tabs; live UI is a flat
+  `MenuItem` list under a popup. Fix: `pick_skill` rewritten to walk
+  the new `MenuItem` shape (substring match against `skill_name`),
+  empirically verified against `skill-creator`.
+- **`send_message` 15 s probe stall** — `wait_for_new_completion`
+  blocks for 15 s on chat-region `/completion`, which never fires
+  for Cowork (WS-over-HTTP/2). Fix: new `wait_request=False` kwarg
+  short-circuits the probe and saves ~15 s × 6 = ~90 s per sweep.
+
+#### Files modified (this sub-run)
+
+- `tests/e2e_desktop_ui/drivers/claude_desktop.py` — `+ensure_cowork_chat`,
+  rewritten `pick_skill` (MenuItem shape), `send_message(wait_request=False)`.
+- `tests/e2e_desktop_ui/run_p1_cowork_sweep.py` — active-poll for
+  watcher ingestion, ensure_cowork_chat wiring, C05 `%TEMP%` fix,
+  C08 `skill-creator` exercise, refined per-case verdicts.
+
 ### Next sub-run
 
-P5.B.5.5c — drive the sweep in `--mode live` against a real Claude
-Desktop install (user no-touch for ~15 min). Target verdict ≥13 PASS
-/ ≤3 SKIP / 0 FAIL (per the `Docs/research/2026-05-11-cowork-recon-findings.md`
-§A5 acceptance targets). On clearance, tag `v1.1.0-alpha.X-cowork-p1`
-and update §8.2 v1.1 ship checklist.
+Optional — re-run C12 once a project is created in Claude Desktop
+(`CLAUDE_PROJECT_NAME=<substring>`), and once C16 `.mcpb` is invoked
+at least once in Chat. Neither is a P5.B.5 blocker; both can roll
+into the v1.1 GA polish window. Tag decision (`v1.1.0-alpha.X-cowork-p1`)
+deferred to the user.
 
 ---
 
