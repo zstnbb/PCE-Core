@@ -234,6 +234,25 @@ class ChromiumStateObserver:
                 )
                 session_hint = rec.session_id
                 triggered_normalize = True
+            elif rec.kind == "code_tab_session_pointer":
+                # P5.B.7 (2026-05-11) — Code-tab session metadata
+                # pointer (~1 KB JSON at claude-code-sessions/<user>/
+                # <org>/local_<sess>.json). Carries title / model /
+                # permissionMode / enabledMcpTools /
+                # sessionPermissionUpdates. Pointer is metadata-only —
+                # the transcript JSONL is the message ledger and
+                # triggers the normaliser; this branch just stores the
+                # pointer for downstream session enrichment via
+                # cliSessionId join.
+                host = "local-agent-mode"
+                cli_sess = rec.body_json.get("cliSessionId") if isinstance(rec.body_json, dict) else None
+                path = (
+                    f"/{self.app_id}/code-tab-session-pointer/"
+                    f"{rec.session_id or 'unknown'}"
+                )
+                session_hint = (
+                    cli_sess if isinstance(cli_sess, str) else rec.session_id
+                )
             else:
                 host = "local-agent-mode"
                 path = f"/{self.app_id}/agent-session/{rec.session_id or 'unknown'}"

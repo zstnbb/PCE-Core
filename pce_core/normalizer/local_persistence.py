@@ -79,7 +79,33 @@ _TRANSCRIPT_PATH_RE = re.compile(
 # a session-key linkage without polluting the messages table.
 _CONTENT_LINE_TYPES = {"user", "assistant"}
 
-_TOOL_FAMILY = "cowork-local-agent"
+# Default tool_family used when the JSONL line lacks a discriminator
+# field (entrypoint absent / unknown). Empirically observed cowork
+# records on real Claude Desktop fall through to this default.
+_TOOL_FAMILY_DEFAULT = "cowork-local-agent"
+
+# P5.B.7 (2026-05-11) — Inline Code-tab transcripts share the same
+# JSONL format as cowork's local-agent-mode JSONL (same agent
+# binary). The ``entrypoint`` field on each line is the documented
+# discriminator:
+#
+#   - ``"claude-desktop"`` → P1 Claude Desktop Code-tab inline
+#                            (this sub-phase, tool_family below)
+#   - ``"cli"`` (or absent) → P6 standalone Claude Code CLI (deferred,
+#                            keeps the legacy default for backwards
+#                            compatibility with the existing 15+
+#                            cowork sessions in the wild)
+#
+# See `Docs/research/2026-05-11-code-tab-recon-findings.md` Q5
+# ("Distinguishing Desktop Code tab vs standalone CLI in the same
+# JSONL store") for empirical evidence and reasoning.
+_TOOL_FAMILY_BY_ENTRYPOINT: dict[str, str] = {
+    "claude-desktop": "claude-desktop-code",
+    # Add more mappings here when P6 stand-alone CLI work resumes
+    # ("cli": "claude-code-cli"). Keeping the dict minimal for now
+    # to avoid surprise re-classification of existing data.
+}
+
 _PROVIDER = "anthropic"
 
 
@@ -127,12 +153,20 @@ class LocalPersistenceNormalizer(BaseNormalizer):
             or body.get("session_id")
         )
 
+        # P5.B.7 (2026-05-11) — select tool_family by entrypoint.
+        # Defaults to cowork's family for backwards compatibility
+        # with the existing 15+ in-the-wild cowork sessions whose
+        # entrypoint field may be absent / different.
+        ep_raw = body.get("entrypoint")
+        ep = ep_raw if isinstance(ep_raw, str) else None
+        tool_family = _TOOL_FAMILY_BY_ENTRYPOINT.get(ep or "", _TOOL_FAMILY_DEFAULT)
+
         # Always emit a result (even for metadata-only lines) so the
         # session row gets created/touched. Messages list stays empty
         # for non-content types — reconciler is a no-op for empties.
         result = NormalizedResult(
             provider=_PROVIDER,
-            tool_family=_TOOL_FAMILY,
+            tool_family=tool_family,
             model_name=model_name,
             session_key=session_key,
             messages=[],

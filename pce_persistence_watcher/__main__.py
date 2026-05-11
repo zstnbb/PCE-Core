@@ -38,6 +38,8 @@ from pce_core.db import init_db
 
 from . import __version__
 from .agent_sessions import (
+    iter_code_tab_pointer_records,
+    iter_code_tab_transcript_records,
     iter_local_config_records,
     iter_records as iter_agent_session_records,
     iter_transcript_records,
@@ -185,6 +187,43 @@ def _scan_install(
                 n += 1
             if cfg.verbose:
                 sys.stderr.write(f"    transcript_line records parsed: {n}\n")
+
+    # ── Inline Code-tab JSONL transcripts (P5.B.7, 2026-05-11) ──
+    # Walks the flat ~/.claude/projects/<encoded-cwd>/<cliSessId>.jsonl
+    # layout. Each line emits a transcript_line record (same shape as
+    # cowork) and the LocalPersistenceNormalizer routes by entrypoint
+    # field: "claude-desktop" → tool_family='claude-desktop-code',
+    # "cli" (or absent) → 'claude-code-cli' (P6, deferred filter).
+    # See ``Docs/research/2026-05-11-code-tab-recon-findings.md``.
+    if only in (None, "agent_sessions", "transcripts", "code_tab"):
+        cp_root = inst.root("claude_projects")
+        if cp_root is not None:
+            n = 0
+            for rec in iter_code_tab_transcript_records(cp_root):
+                observer.observe_agent_session(rec)
+                n += 1
+            if cfg.verbose:
+                sys.stderr.write(
+                    f"    code-tab transcript_line records parsed: {n}\n"
+                )
+
+    # ── Inline Code-tab session pointers (P5.B.7, 2026-05-11) ──
+    # Reads ~1 KB session-metadata JSON files at
+    # claude-code-sessions/<user>/<org>/local_<sessId>.json. Carries
+    # title / model / permissionMode / enabledMcpTools /
+    # sessionPermissionUpdates fields used to enrich the dashboard
+    # session view. Joins to transcript via cliSessionId.
+    if only in (None, "code_tab"):
+        ccs_root = inst.root("claude_code_sessions")
+        if ccs_root is not None:
+            n = 0
+            for rec in iter_code_tab_pointer_records(ccs_root):
+                observer.observe_agent_session(rec)
+                n += 1
+            if cfg.verbose:
+                sys.stderr.write(
+                    f"    code-tab session_pointer records parsed: {n}\n"
+                )
 
     # ── local-config surfaces (free, ADR-018 §6 C4 supplementary) ──
     # The four small JSON / device-id files at the LocalCache profile

@@ -174,6 +174,20 @@ def _discover_msix(app_id: str, name_pattern: str) -> Optional[AppInstall]:
                     roots["agent_sessions"] = child / "local-agent-mode-sessions"
                     roots["vm_bundles"] = child / "vm_bundles"
                     roots["claude_code_vm"] = child / "claude-code-vm"
+                    # P5.B.7 (2026-05-11): inline Code-tab session
+                    # pointer dir. Pairs cliSessionId↔transcript at
+                    # ~/.claude/projects/<encoded-cwd>/<cliSessId>.jsonl
+                    # via the JSON pointer at
+                    # claude-code-sessions/<user>/<org>/local_<sess>.json
+                    # See `Docs/research/2026-05-11-code-tab-recon-findings.md`.
+                    roots["claude_code_sessions"] = child / "claude-code-sessions"
+                    # P5.B.7 (2026-05-11): inline Code-tab JSONL
+                    # transcripts live OUTSIDE app_profile, in user
+                    # home (~/.claude/projects/<encoded-cwd>/<cliSessId>.jsonl).
+                    # Same dir is shared with standalone P6 Claude
+                    # Code CLI; entrypoint:"claude-desktop" field on
+                    # each line discriminates Desktop vs CLI origin.
+                    roots["claude_projects"] = Path.home() / ".claude" / "projects"
                     roots["logs"] = child / "logs"
                     break
 
@@ -239,6 +253,8 @@ def _discover_squirrel(app_id: str) -> Optional[AppInstall]:
         roots["agent_sessions"] = state_root / "local-agent-mode-sessions"
         roots["vm_bundles"] = state_root / "vm_bundles"
         roots["claude_code_vm"] = state_root / "claude-code-vm"
+        roots["claude_code_sessions"] = state_root / "claude-code-sessions"
+        roots["claude_projects"] = Path.home() / ".claude" / "projects"
         roots["logs"] = state_root / "logs"
 
     version: Optional[str] = None
@@ -295,6 +311,8 @@ def _discover_mac(app_id: str) -> Optional[AppInstall]:
                 roots["local_storage_leveldb"] = support / "Local Storage" / "leveldb"
                 roots["indexeddb"] = support / "IndexedDB"
                 roots["agent_sessions"] = support / "local-agent-mode-sessions"
+                roots["claude_code_sessions"] = support / "claude-code-sessions"
+                roots["claude_projects"] = Path.home() / ".claude" / "projects"
                 roots["logs"] = support / "logs"
             return AppInstall(
                 app_id=app_id,

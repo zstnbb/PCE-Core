@@ -470,6 +470,220 @@ def iter_transcript_records(
 
 
 # ---------------------------------------------------------------------------
+# Inline Code-tab JSONL transcript walker (P5.B.7, 2026-05-11)
+#
+# Discovered via the Code-tab RECON drive on 2026-05-11 (see
+# ``Docs/research/2026-05-11-code-tab-recon-findings.md``): Claude
+# Desktop's inline Code tab spawns the bundled ``claude.exe`` agent
+# which writes its full transcript to::
+#
+#   ~/.claude/projects/<encoded-cwd>/<cliSessionId>.jsonl
+#
+# The format is the standard Claude Code CLI JSONL (same parser that
+# Cowork uses, minus the user/org/local_<sess>/.claude/projects nesting
+# wrapper). Each line carries an ``entrypoint`` discriminator:
+#
+# - ``"claude-desktop"`` → Desktop Code tab (P1 P5.B.7 scope)
+# - ``"cli"`` (or absent) → standalone Claude Code CLI (P6, deferred)
+#
+# The normaliser maps ``entrypoint`` to ``tool_family`` so a single
+# walker feeding into the existing observer pipeline correctly
+# distinguishes the two products without path-level branching.
+# ---------------------------------------------------------------------------
+
+
+def _find_code_tab_transcript_jsonl_files(
+    claude_projects_root: Path,
+) -> Iterator[Path]:
+    """Yield every ``*.jsonl`` file under the flat Code-tab layout.
+
+    Walks::
+
+        <root>/<encoded-cwd>/<cliSessionId>.jsonl
+
+    Bounded recursion: only descends one level (encoded-cwd dirs) and
+    yields direct ``.jsonl`` children. Subdirectories under
+    ``<encoded-cwd>/`` (e.g. ``subagents/``) are NOT followed in v0 —
+    they hold subagent transcripts whose ingestion semantics differ
+    and will be added in a follow-up sub-phase.
+    """
+    if not claude_projects_root.exists() or not claude_projects_root.is_dir():
+        return
+    try:
+        cwd_dirs = list(claude_projects_root.iterdir())
+    except OSError:
+        return
+    for cwd_dir in cwd_dirs:
+        if not cwd_dir.is_dir():
+            continue
+        try:
+            children = list(cwd_dir.iterdir())
+        except OSError:
+            continue
+        for child in children:
+            if child.is_file() and child.suffix == ".jsonl":
+                yield child
+
+
+def iter_code_tab_transcript_records(
+    claude_projects_root: Path,
+) -> Iterator[AgentSessionRecord]:
+    """Walk ``~/.claude/projects/`` JSONL transcripts and yield one record per LINE.
+
+    Shape-identical to :func:`iter_transcript_records` so the
+    ``ChromiumStateObserver.observe_agent_session`` pipeline handles
+    Code-tab records via the same ``transcript_line`` branch — the
+    normaliser's ``entrypoint`` discriminator does the
+    ``claude-desktop-code`` vs ``cowork-local-agent`` routing
+    downstream.
+
+    Differences from the cowork walker:
+
+    - Flat layout: 2 levels deep (cwd → jsonl) instead of 6
+      (user/org/local_sess/.claude/projects/cwd → jsonl).
+    - Fallback ``session_id``: derived from the filename stem
+      (which equals ``cliSessionId``) when the line lacks a
+      ``sessionId`` field, instead of the cowork ``local_<uuid>``
+      ancestor directory.
+    """
+    for jsonl_path in _find_code_tab_transcript_jsonl_files(claude_projects_root):
+        stat = _stat_safe(jsonl_path)
+        if stat is None:
+            continue
+        mtime_ns, _file_size = stat
+
+        # Fallback session_id: filename stem == cliSessionId (UUID-shaped).
+        # Used when a line lacks ``sessionId``; the field is rarely
+        # absent in observed Code-tab transcripts but defensive.
+        path_session_id: Optional[str] = None
+        stem = jsonl_path.stem
+        if _looks_like_uuid(stem):
+            path_session_id = stem
+
+        try:
+            with jsonl_path.open("r", encoding="utf-8", errors="replace") as fh:
+                for line_index, raw_line in enumerate(fh):
+                    line = raw_line.rstrip("\r\n")
+                    if not line.strip():
+                        continue
+                    try:
+                        body = json.loads(line)
+                    except json.JSONDecodeError as exc:
+                        logger.warning(
+                            "malformed jsonl line at %s:%d: %s",
+                            jsonl_path, line_index, exc,
+                        )
+                        continue
+                    if not isinstance(body, dict):
+                        logger.debug(
+                            "skipping non-dict jsonl line at %s:%d (type=%s)",
+                            jsonl_path, line_index, type(body).__name__,
+                        )
+                        continue
+
+                    line_session_id = (
+                        body.get("sessionId")
+                        or body.get("session_id")
+                        or path_session_id
+                    )
+                    line_uuid = (
+                        body.get("uuid") if isinstance(body.get("uuid"), str) else None
+                    )
+                    last_updated_ms = _parse_iso8601_to_ms(body.get("timestamp"))
+
+                    yield AgentSessionRecord(
+                        kind="transcript_line",
+                        session_id=line_session_id,
+                        source_path=jsonl_path,
+                        mtime_ns=mtime_ns,
+                        size_bytes=len(line.encode("utf-8", errors="replace")),
+                        body_json=body,
+                        last_updated_ms=last_updated_ms,
+                        line_uuid=line_uuid,
+                        line_index=line_index,
+                    )
+        except OSError as exc:
+            logger.debug("cannot read jsonl %s: %s", jsonl_path, exc)
+            continue
+
+
+def iter_code_tab_pointer_records(
+    claude_code_sessions_root: Path,
+) -> Iterator[AgentSessionRecord]:
+    """Walk ``claude-code-sessions/`` and yield per-session metadata pointers.
+
+    Layout::
+
+        <root>/<user_uuid>/<org_uuid>/local_<sessionId>.json
+
+    Each pointer is ~1 KB JSON with fields::
+
+        sessionId, cliSessionId, cwd, model, title, titleSource,
+        permissionMode, enabledMcpTools{}, sessionPermissionUpdates[],
+        createdAt, lastActivityAt
+
+    Yields one ``AgentSessionRecord(kind="code_tab_session_pointer")``
+    per pointer found. The pointer's ``cliSessionId`` field is the
+    join key to the transcript JSONL filename
+    (``~/.claude/projects/<encoded-cwd>/<cliSessionId>.jsonl``).
+
+    Returns silently if root is missing.
+    """
+    if not claude_code_sessions_root.exists() or not claude_code_sessions_root.is_dir():
+        return
+    try:
+        users = list(claude_code_sessions_root.iterdir())
+    except OSError:
+        return
+    for user_dir in users:
+        if not user_dir.is_dir() or not _looks_like_uuid(user_dir.name):
+            continue
+        try:
+            orgs = list(user_dir.iterdir())
+        except OSError:
+            continue
+        for org_dir in orgs:
+            if not org_dir.is_dir() or not _looks_like_uuid(org_dir.name):
+                continue
+            try:
+                files = list(org_dir.iterdir())
+            except OSError:
+                continue
+            for f in files:
+                if not f.is_file() or f.suffix != ".json":
+                    continue
+                if not f.name.startswith("local_"):
+                    continue
+                body = _safe_read_json(f)
+                if body is None:
+                    continue
+                stat = _stat_safe(f)
+                if stat is None:
+                    continue
+                mtime_ns, size = stat
+                # Pointer's sessionId == local_<uuid>; use it as session_id.
+                pointer_session_id = body.get("sessionId")
+                if not isinstance(pointer_session_id, str):
+                    pointer_session_id = None
+                # Last-activity time when present; else createdAt.
+                last_updated_ms: Optional[int] = None
+                for key in ("lastActivityAt", "createdAt"):
+                    v = body.get(key)
+                    if isinstance(v, int):
+                        last_updated_ms = v
+                        break
+                yield AgentSessionRecord(
+                    kind="code_tab_session_pointer",
+                    session_id=pointer_session_id,
+                    source_path=f,
+                    mtime_ns=mtime_ns,
+                    size_bytes=size,
+                    body_json=body,
+                    last_updated_ms=last_updated_ms,
+                )
+
+
+# ---------------------------------------------------------------------------
 # Local-config surfaces (ADR-018 §6 C4 supplementary, mapped 2026-05-10)
 # ---------------------------------------------------------------------------
 #
