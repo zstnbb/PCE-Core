@@ -37,8 +37,11 @@ Known caveats:
 """
 from __future__ import annotations
 
+import json
 import logging
+import os
 import time
+from pathlib import Path
 from typing import Iterable, Optional
 
 from pywinauto import Desktop
@@ -1534,3 +1537,373 @@ class ClaudeDesktopDriver(DesktopDriver):
                         "saw_stop_button": False,
                     }
             time.sleep(poll_interval)
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Code-region (inline) helpers — P5.B.7 (2026-05-11)
+    #
+    # Unlike chat-region's /completion SSE pairing, the inline Code-
+    # tab agent writes every turn directly to a local JSONL
+    # transcript at ~/.claude/projects/<encoded-cwd>/<cliSessId>.jsonl.
+    # Wait semantics therefore key off the JSONL (not PCE's DB).
+    #
+    # The permission-dialog helper targets permissionMode=default
+    # flows where tool_use blocks surface an Allow/Deny modal.
+    # 2026-05-11 RECON did NOT close the dialog UIA control names
+    # (MATRIX §5.C.2 Q2); we try several well-known substrings.
+    # ──────────────────────────────────────────────────────────────────────
+
+    def open_code_tab(self) -> bool:
+        """Click the top-level "Code" tab.
+
+        Mirrors :meth:`open_cowork_tab` / :meth:`open_chat_tab`.
+        Claude Desktop's top strip has Chat / Cowork / Code as
+        ``TabItem`` / ``Button`` / ``Hyperlink`` controls in the y<120
+        band of the main window.
+        """
+        self.focus()
+        target = self._find_uia_by_name_substr(
+            ("Code",),
+            control_types=("TabItem", "Button", "Hyperlink"),
+            timeout=3.0,
+        )
+        if target is None:
+            logger.warning("open_code_tab: 'Code' tab not found in UIA tree")
+            return False
+        try:
+            target.click_input()
+        except Exception as exc:
+            logger.warning("open_code_tab: click failed: %s", exc)
+            return False
+        time.sleep(1.2)
+        return True
+
+    def ensure_code_session(self) -> bool:
+        """Land on a Code-tab composer ready to send a prompt.
+
+        1. Click the Code top-level tab.
+        2. If a "New session" / "New" button is visible in the left
+           panel, click it to force a fresh composer state (no
+           previously-open session resumed).
+        3. Verify a composer UIA element is reachable.
+
+        Returns True if the composer is reachable afterwards.
+        """
+        self.focus()
+        if not self.open_code_tab():
+            logger.warning("ensure_code_session: open_code_tab failed")
+            # don't bail — composer may still be reachable
+        time.sleep(0.5)
+
+        new_btn = self._find_uia_by_name_substr(
+            ("New session", "New chat", "New"),
+            control_types=("Button", "Hyperlink", "ListItem"),
+            timeout=2.0,
+        )
+        if new_btn is not None:
+            try:
+                new_btn.click_input()
+                time.sleep(1.0)
+            except Exception as exc:
+                logger.debug("ensure_code_session: 'New' click failed: %s", exc)
+
+        composer = self._find_composer_uia()
+        if composer is None:
+            logger.warning("ensure_code_session: composer not reachable")
+            return False
+        return True
+
+    def find_active_code_session(
+        self,
+        *,
+        encoded_cwd: Optional[str] = None,
+        max_age_s: float = 300.0,
+    ) -> Optional[dict]:
+        """Scan ``~/.claude/projects/`` for the most recent Code-tab session.
+
+        Returns ``None`` if no JSONL file modified within ``max_age_s``
+        seconds was found. Otherwise a dict::
+
+            {
+              "cli_session_id":  str,   # JSONL filename stem (UUID)
+              "jsonl_path":      Path,
+              "encoded_cwd":     str,   # parent dir name, e.g. "F--test"
+              "mtime_ns":        int,
+              "line_count":      int,   # current line count
+              "pointer_path":    Optional[Path],
+              "pointer_body":    Optional[dict],
+            }
+
+        ``encoded_cwd``, when provided, restricts the scan to a single
+        subdir so parallel sessions in other cwds don't interfere.
+
+        The pointer join walks MSIX-style and Squirrel-style
+        ``claude-code-sessions/<user>/<org>/local_<sess>.json`` and
+        matches on ``cliSessionId``; pointer_path/body are None if no
+        pointer has been written yet (possible on very-first prompt).
+        """
+        projects_root = Path.home() / ".claude" / "projects"
+        if not projects_root.is_dir():
+            return None
+
+        now = time.time()
+        best: Optional[tuple[int, Path]] = None
+        if encoded_cwd:
+            cwd_dirs = [projects_root / encoded_cwd]
+        else:
+            try:
+                cwd_dirs = [p for p in projects_root.iterdir() if p.is_dir()]
+            except OSError:
+                return None
+
+        for cwd_dir in cwd_dirs:
+            if not cwd_dir.is_dir():
+                continue
+            try:
+                children = list(cwd_dir.iterdir())
+            except OSError:
+                continue
+            for f in children:
+                if not f.is_file() or f.suffix != ".jsonl":
+                    continue
+                try:
+                    mtime_ns = f.stat().st_mtime_ns
+                except OSError:
+                    continue
+                age_s = now - (mtime_ns / 1e9)
+                if max_age_s and age_s > max_age_s:
+                    continue
+                if best is None or mtime_ns > best[0]:
+                    best = (mtime_ns, f)
+
+        if best is None:
+            return None
+        mtime_ns, jsonl_path = best
+        cli_session_id = jsonl_path.stem
+
+        try:
+            with jsonl_path.open("r", encoding="utf-8", errors="replace") as fh:
+                line_count = sum(1 for _ in fh)
+        except OSError:
+            line_count = 0
+
+        pointer_path, pointer_body = self._find_code_pointer_for(cli_session_id)
+
+        return {
+            "cli_session_id": cli_session_id,
+            "jsonl_path": jsonl_path,
+            "encoded_cwd": jsonl_path.parent.name,
+            "mtime_ns": mtime_ns,
+            "line_count": line_count,
+            "pointer_path": pointer_path,
+            "pointer_body": pointer_body,
+        }
+
+    def _find_code_pointer_for(
+        self, cli_session_id: str,
+    ) -> tuple[Optional[Path], Optional[dict]]:
+        """Locate the claude-code-sessions pointer JSON for a cliSessionId.
+
+        Walks the MSIX virtual-store paths and the legacy Squirrel
+        state dir. Returns (None, None) if no pointer yet matches.
+        """
+        candidates: list[Path] = []
+        local_appdata = os.environ.get("LOCALAPPDATA")
+        appdata = os.environ.get("APPDATA")
+        if local_appdata:
+            try:
+                for pkg in (Path(local_appdata) / "Packages").glob("*Claude*"):
+                    p = pkg / "LocalCache" / "Roaming" / "Claude" / "claude-code-sessions"
+                    if p.is_dir():
+                        candidates.append(p)
+            except OSError:
+                pass
+        if appdata:
+            p = Path(appdata) / "Claude" / "claude-code-sessions"
+            if p.is_dir():
+                candidates.append(p)
+
+        for root in candidates:
+            try:
+                users = list(root.iterdir())
+            except OSError:
+                continue
+            for user in users:
+                if not user.is_dir():
+                    continue
+                try:
+                    orgs = list(user.iterdir())
+                except OSError:
+                    continue
+                for org in orgs:
+                    if not org.is_dir():
+                        continue
+                    try:
+                        pointers = list(org.iterdir())
+                    except OSError:
+                        continue
+                    for pointer in pointers:
+                        if not pointer.is_file() or pointer.suffix != ".json":
+                            continue
+                        try:
+                            body = json.loads(pointer.read_text(encoding="utf-8"))
+                        except (OSError, ValueError):
+                            continue
+                        if (
+                            isinstance(body, dict)
+                            and body.get("cliSessionId") == cli_session_id
+                        ):
+                            return pointer, body
+        return None, None
+
+    def wait_for_code_response(
+        self,
+        *,
+        jsonl_path: Path,
+        prior_line_count: int,
+        timeout: float = 90.0,
+        poll_interval: float = 1.0,
+        idle_settle: float = 3.0,
+    ) -> dict:
+        """Wait for the Code-tab JSONL to grow and stabilize.
+
+        Code-tab writes every turn directly to the local JSONL
+        transcript. This helper polls for file growth; when a line
+        with ``type='assistant'`` is present AND no new lines arrive
+        for ``idle_settle`` seconds, the turn is considered complete.
+
+        Returns::
+
+            {
+              "outcome":             "done" | "timeout" | "no_growth",
+              "elapsed_s":           float,
+              "polls":               int,
+              "final_line_count":    int,
+              "new_lines":           int,
+              "last_assistant_uuid": Optional[str],
+            }
+
+        ``no_growth`` is returned when the JSONL did not grow at all
+        after ``max(idle_settle, timeout/3)`` seconds — a strong hint
+        that the prompt didn't actually submit (focus missed the
+        composer, modal blocking, etc.).
+        """
+        start = time.time()
+        polls = 0
+        last_growth = start
+        last_count = prior_line_count
+        last_assistant_uuid: Optional[str] = None
+
+        while True:
+            polls += 1
+            elapsed = time.time() - start
+            if elapsed > timeout:
+                return {
+                    "outcome": "timeout",
+                    "elapsed_s": round(elapsed, 1),
+                    "polls": polls,
+                    "final_line_count": last_count,
+                    "new_lines": max(0, last_count - prior_line_count),
+                    "last_assistant_uuid": last_assistant_uuid,
+                }
+            try:
+                with jsonl_path.open("r", encoding="utf-8", errors="replace") as fh:
+                    lines = fh.readlines()
+            except OSError:
+                lines = []
+            count = len(lines)
+            if count > last_count:
+                last_count = count
+                last_growth = time.time()
+                # Scan back for the most recent assistant-line uuid
+                for raw in reversed(lines):
+                    try:
+                        body = json.loads(raw)
+                    except (ValueError, TypeError):
+                        continue
+                    if isinstance(body, dict) and body.get("type") == "assistant":
+                        u = body.get("uuid")
+                        if isinstance(u, str):
+                            last_assistant_uuid = u
+                        break
+            else:
+                idle_for = time.time() - last_growth
+                if last_assistant_uuid and idle_for >= idle_settle:
+                    return {
+                        "outcome": "done",
+                        "elapsed_s": round(time.time() - start, 1),
+                        "polls": polls,
+                        "final_line_count": last_count,
+                        "new_lines": max(0, last_count - prior_line_count),
+                        "last_assistant_uuid": last_assistant_uuid,
+                    }
+                # Hard no-growth exit after max(idle_settle, timeout/3)
+                if (
+                    count == prior_line_count
+                    and elapsed >= max(idle_settle, timeout / 3)
+                ):
+                    return {
+                        "outcome": "no_growth",
+                        "elapsed_s": round(elapsed, 1),
+                        "polls": polls,
+                        "final_line_count": last_count,
+                        "new_lines": 0,
+                        "last_assistant_uuid": None,
+                    }
+            time.sleep(poll_interval)
+
+    def accept_permission_dialog(
+        self,
+        *,
+        which: str = "once",
+        timeout: float = 5.0,
+    ) -> bool:
+        """Click the Code-tab permission dialog's accept (or deny) button.
+
+        ``which`` selects the button kind::
+
+            "once"   — "Allow once" (one-time accept)
+            "always" — "Allow always" / "Always allow"
+            "deny"   — "Deny" / "Reject"
+
+        The 2026-05-11 RECON did not close the exact UIA control Name
+        for these buttons (MATRIX §5.C.2 Q2), so this helper tries
+        several well-known substrings per ``which`` value. Returns
+        True if a click landed, False otherwise.
+
+        Only meaningful under ``permissionMode=default``;
+        ``permissionMode=acceptEdits`` sessions auto-approve without
+        ever surfacing this dialog.
+        """
+        self.focus()
+        candidates = {
+            "once": (
+                "Allow once", "Accept once", "Approve once",
+                "Allow", "Accept", "Approve", "Yes",
+            ),
+            "always": (
+                "Allow always", "Always allow", "Accept always",
+                "Allow this and future", "Always",
+            ),
+            "deny": (
+                "Deny", "Reject", "Cancel", "No",
+            ),
+        }.get(which, ("Allow once", "Accept", "Yes"))
+
+        target = self._find_uia_by_name_substr(
+            candidates,
+            control_types=("Button",),
+            timeout=timeout,
+        )
+        if target is None:
+            logger.warning(
+                "accept_permission_dialog: no button matching %r found (which=%s)",
+                candidates, which,
+            )
+            return False
+        try:
+            target.click_input()
+        except Exception as exc:
+            logger.warning("accept_permission_dialog: click failed: %s", exc)
+            return False
+        time.sleep(0.4)
+        return True
