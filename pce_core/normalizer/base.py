@@ -33,6 +33,15 @@ class NormalizedMessage:
     # siblings without a schema change.
     provider_message_uuid: Optional[str] = None
     provider_parent_uuid: Optional[str] = None
+    # Optional discriminator written to ``messages.interaction_kind``
+    # (column added in migration 0010). Free-form tag, e.g.
+    # ``"chat"`` (default — column stays NULL when None),
+    # ``"cancelled"`` (D04 cancel-mid-stream emitter writes user-only
+    # rows from a request-only path), ``"tool_call"`` /
+    # ``"tool_result"`` / ``"thinking"`` / ``"system"`` (future).
+    # The processor passes this through to ``db.insert_message`` and
+    # the column is selected back via ``query_messages``.
+    interaction_kind: Optional[str] = None
 
 
 @dataclass

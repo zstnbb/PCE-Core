@@ -627,6 +627,7 @@ def persist_result(
             branch_id=fork_branch_id if fork_branch_id else None,
             branch_parent_id=fork_parent if fork_parent else None,
             turn_index=None,
+            interaction_kind=msg.interaction_kind,
             db_path=db_path,
         )
         if msg_id:

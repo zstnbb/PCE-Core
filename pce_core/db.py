@@ -454,6 +454,65 @@ def query_by_pair(pair_id: str, db_path: Optional[Path] = None) -> list[dict]:
         conn.close()
 
 
+def query_orphan_request_rows(
+    *,
+    min_age_seconds: float = 30.0,
+    now: Optional[float] = None,
+    limit: int = 200,
+    db_path: Optional[Path] = None,
+) -> list[dict]:
+    """Return ``raw_captures`` request rows whose pair has no response.
+
+    A request row is "orphan" iff:
+      - ``direction = 'request'``
+      - no other row in ``raw_captures`` shares its ``pair_id`` with
+        ``direction = 'response'``
+      - it is older than ``now - min_age_seconds`` (default 30s — gives
+        the response time to land before we treat the pair as cancelled)
+      - no ``messages`` row already references its ``pair_id`` via
+        ``capture_pair_id`` (idempotency — the sweeper can run repeatedly)
+
+    Used by ``pipeline.sweep_orphan_request_rows`` to drive the D04
+    cancel-mid-stream recovery path: a user prompt that the upstream
+    never finished answering still surfaces as a single ``role='user'``
+    message tagged ``interaction_kind='cancelled'``.
+
+    Returned dicts mirror the ``raw_captures`` row shape (same fields
+    as ``query_by_pair``). Ordered by ``created_at`` ascending so the
+    oldest orphans drain first.
+    """
+    if now is None:
+        now = time.time()
+    cutoff = now - max(0.0, float(min_age_seconds))
+
+    conn = get_connection(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """
+            SELECT rc.*
+            FROM raw_captures rc
+            WHERE rc.direction = 'request'
+              AND rc.created_at <= ?
+              AND NOT EXISTS (
+                  SELECT 1 FROM raw_captures rc2
+                  WHERE rc2.pair_id = rc.pair_id
+                    AND rc2.direction = 'response'
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM messages m
+                  WHERE m.capture_pair_id = rc.pair_id
+              )
+            ORDER BY rc.created_at ASC
+            LIMIT ?
+            """,
+            (cutoff, int(limit)),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
 def query_captures(
     *,
     last: int = 20,
@@ -1311,6 +1370,7 @@ def insert_message(
     branch_id: Optional[str] = None,
     branch_parent_id: Optional[str] = None,
     turn_index: Optional[int] = None,
+    interaction_kind: Optional[str] = None,
     db_path: Optional[Path] = None,
 ) -> Optional[str]:
     """Insert a message. Returns message id or None on failure.
@@ -1368,15 +1428,17 @@ def insert_message(
                      content_text, content_json, model_name, token_estimate,
                      oi_role_raw, oi_input_tokens, oi_output_tokens,
                      oi_attributes_json, oi_schema_version,
-                     branch_id, branch_parent_id, turn_index)
+                     branch_id, branch_parent_id, turn_index,
+                     interaction_kind)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1,
-                        ?, ?, ?)
+                        ?, ?, ?, ?)
                 """,
                 (msg_id, session_id, capture_pair_id, ts, role,
                  content_text, content_json, model_name, token_estimate,
                  oi_role_raw, oi_input_tokens, oi_output_tokens,
                  oi_attributes_json,
-                 effective_branch_id, branch_parent_id, turn_index),
+                 effective_branch_id, branch_parent_id, turn_index,
+                 interaction_kind),
             )
             # Update session message count and ended_at
             conn.execute(

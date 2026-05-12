@@ -12,7 +12,7 @@ import time
 from typing import Optional
 from pathlib import Path
 
-from ..db import query_by_pair, query_sessions
+from ..db import query_by_pair, query_orphan_request_rows, query_sessions
 from ..otel_exporter import pipeline_span
 from ..rich_content import build_content_json
 from .base import normalize_pair, NormalizedResult
@@ -84,6 +84,208 @@ def try_normalize_pair(
                 created_at=request_row.get("created_at", time.time()),
                 db_path=db_path,
             )
+
+
+# ---------------------------------------------------------------------------
+# D04 — request-only normalization (cancel-mid-stream recovery)
+# ---------------------------------------------------------------------------
+#
+# When a user cancels a streaming response mid-flight (Esc on Claude
+# Desktop, Stop button on ChatGPT web, SIGINT on a CLI agent, etc.) the
+# proxy sees the request leave but the response never arrives — mitmproxy
+# closes the upstream connection and ``response()`` never fires. The
+# request row lands in ``raw_captures`` alone, ``try_normalize_pair``
+# silently gives up because ``len(rows) < 2``, and the user's prompt is
+# invisible to the dashboard.
+#
+# Fix: replay the request body through the normal normalizer with an
+# empty ``response_body``. The provider normalizers (Anthropic / OpenAI)
+# already gracefully degrade in that case — they extract whatever
+# user / system messages exist in the request and skip the assistant
+# branch. We then drop any non-user/system rows the normalizer produced
+# (e.g. assistant history pre-loaded into a multi-turn request body) so
+# the cancelled prompt surfaces as exactly one fresh user message tagged
+# ``interaction_kind='cancelled'``.
+#
+# Trigger model: a periodic sweeper. ``sweep_orphan_request_rows`` finds
+# every request row whose pair has no response after ``min_age_seconds``
+# (default 30s — gives the response time to land before we treat the
+# pair as dead) AND no message already references its ``capture_pair_id``
+# (idempotency), then routes each through ``try_normalize_pair_request_only``.
+# Same shape can be invoked synchronously from a ``client_disconnected``
+# mitmproxy hook in the future without touching this layer.
+#
+# Closes D04 (Claude Desktop chat cancel-mid-stream) + E04 (the same bug
+# surfacing on the Code-region inline tab when the user hits Esc on a
+# tool-use loop). E10 default-mode UIA RECON is independent.
+
+# Roles that survive the request-only filter. Assistant rows that may
+# come from echoed-back prior turns in a multi-turn request body are
+# always dropped — the request-only path can NOT confidently report
+# any assistant output for the cancelled turn, by definition.
+_REQUEST_ONLY_KEEP_ROLES: frozenset = frozenset({"user", "system", "tool"})
+
+
+def try_normalize_pair_request_only(
+    pair_id: str,
+    source_id: str,
+    *,
+    reason: str = "cancelled",
+    created_via: str = "auto-sweep",
+    db_path: Optional[Path] = None,
+) -> Optional[str]:
+    """Normalize a request-only pair (no response row).
+
+    Used to recover the user prompt from a cancel-mid-stream pair: the
+    network proxy captured the request but the response never came.
+    Returns ``session_id`` on success, ``None`` if:
+
+    - the pair_id has no request row, OR
+    - it already has a paired response row (caller should use
+      ``try_normalize_pair`` instead), OR
+    - the request body cannot be normalized into any user message.
+
+    The emitted message(s) carry ``interaction_kind=reason`` (default
+    ``"cancelled"``) so dashboard / export layers can distinguish them
+    from a fully-completed turn.
+    """
+    with pipeline_span(
+        "pce.pipeline.try_normalize_pair_request_only",
+        pair_id=pair_id, source_id=source_id, reason=reason,
+    ):
+        rows = query_by_pair(pair_id, db_path=db_path)
+        if not rows:
+            return None
+        request_row = None
+        has_response = False
+        for r in rows:
+            if r["direction"] == "request" and request_row is None:
+                request_row = r
+            elif r["direction"] == "response":
+                has_response = True
+        if request_row is None or has_response:
+            return None
+
+        # Synthesize an empty response row so the existing registry
+        # dispatch + confidence scoring keep working unchanged.
+        synthetic_response = dict(request_row)
+        synthetic_response["direction"] = "response"
+        synthetic_response["body_text_or_json"] = ""
+        synthetic_response["status_code"] = None
+
+        with pipeline_span(
+            "pce.normalize.request_only",
+            pair_id=pair_id, provider=request_row.get("provider", ""),
+        ):
+            result = normalize_pair(request_row, synthetic_response)
+        if result is None or not result.messages:
+            return None
+
+        # Drop assistants — request-only path has nothing trustworthy
+        # to say about them. Tag every survivor with the reason.
+        kept = [
+            m for m in result.messages
+            if (m.role or "").lower() in _REQUEST_ONLY_KEEP_ROLES
+        ]
+        if not kept:
+            return None
+        for m in kept:
+            m.interaction_kind = reason
+        result.messages = kept
+
+        with pipeline_span(
+            "pce.persist.message.request_only",
+            pair_id=pair_id,
+            provider=result.provider,
+            normalizer=getattr(result, "normalizer_name", None),
+            confidence=getattr(result, "confidence", 0.0),
+            reason=reason,
+        ):
+            return _persist_result(
+                result,
+                pair_id=pair_id,
+                source_id=source_id,
+                created_via=created_via,
+                created_at=request_row.get("created_at", time.time()),
+                db_path=db_path,
+            )
+
+
+def sweep_orphan_request_rows(
+    *,
+    min_age_seconds: float = 30.0,
+    reason: str = "cancelled",
+    created_via: str = "auto-sweep",
+    limit: int = 200,
+    db_path: Optional[Path] = None,
+) -> dict:
+    """Find aged-orphan request rows and emit cancelled-user messages.
+
+    A capture pair is "orphan" when its request row has no matching
+    response row after ``min_age_seconds`` AND no ``messages`` row
+    already references its ``capture_pair_id``. The sweeper routes each
+    such request through ``try_normalize_pair_request_only``.
+
+    Returns a stats dict::
+
+        {
+            "scanned": int,           # total orphans returned by query
+            "recovered": int,         # produced at least one message
+            "skipped_no_normalizer": int,  # normalizer chain returned None
+            "errors": int,            # exception during normalize/persist
+            "session_ids": list[str], # unique sessions touched
+        }
+
+    Idempotent: rerunning immediately after a successful sweep returns
+    ``scanned=0`` because ``query_orphan_request_rows`` filters out any
+    pair that already has a message row.
+    """
+    stats = {
+        "scanned": 0,
+        "recovered": 0,
+        "skipped_no_normalizer": 0,
+        "errors": 0,
+        "session_ids": [],
+    }
+    with pipeline_span(
+        "pce.pipeline.sweep_orphan_request_rows",
+        min_age_seconds=min_age_seconds, reason=reason, limit=limit,
+    ):
+        orphans = query_orphan_request_rows(
+            min_age_seconds=min_age_seconds,
+            limit=limit,
+            db_path=db_path,
+        )
+        stats["scanned"] = len(orphans)
+        seen_sessions: set[str] = set()
+        for row in orphans:
+            pair_id = row.get("pair_id") or ""
+            source_id = row.get("source_id") or ""
+            if not pair_id or not source_id:
+                continue
+            try:
+                session_id = try_normalize_pair_request_only(
+                    pair_id=pair_id,
+                    source_id=source_id,
+                    reason=reason,
+                    created_via=created_via,
+                    db_path=db_path,
+                )
+            except Exception:  # pragma: no cover - sweeper must never crash caller
+                logger.exception(
+                    "sweep_orphan_request_rows: normalization failed for pair=%s",
+                    pair_id[:8] if pair_id else "?",
+                )
+                stats["errors"] += 1
+                continue
+            if session_id is None:
+                stats["skipped_no_normalizer"] += 1
+                continue
+            stats["recovered"] += 1
+            if session_id not in seen_sessions:
+                seen_sessions.add(session_id)
+                stats["session_ids"].append(session_id)
+        return stats
 
 
 def normalize_conversation(

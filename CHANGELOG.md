@@ -5,6 +5,118 @@ All notable changes to PCE (core + browser extension) are documented in this fil
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-05-12 — fix(D04/E04): cancel-mid-stream request-only recovery
+
+Closes the **D04** known bug carry-forward from P5.B (Claude Desktop chat
+cancel-mid-stream) and the **E04** mirror on the inline Code-region tab.
+Both surfaced as the same root cause: `pipeline.try_normalize_pair`
+required both request + response rows; on cancel, mitmproxy's
+`response()` hook never fires, so the user's prompt sat in
+`raw_captures` but never surfaced as a `messages` row.
+
+### Root cause
+
+`pce_core/normalizer/pipeline.py::try_normalize_pair` line 53–54:
+
+```python
+if len(rows) < 2:
+    return None  # pair not yet complete
+```
+
+Cancel means `len(rows) == 1` forever, so the user's prompt is
+captured but invisible.
+
+### Fix — request-only normalization path
+
+Four layered changes, all additive:
+
+1. **`NormalizedMessage.interaction_kind`** (`pce_core/normalizer/base.py`)
+   — new optional field that propagates through to the
+   `messages.interaction_kind` column (already present from migration
+   0010 but never populated by the pipeline before now). Free-form tag
+   used here as `"cancelled"`; reserved future values per migration
+   0010 docstring (`chat`/`tool_call`/`tool_result`/`thinking`/`system`).
+2. **`db.insert_message(..., interaction_kind=None)`** (`pce_core/db.py`)
+   — new keyword arg, propagated by `message_processor.persist_result`.
+3. **`pipeline.try_normalize_pair_request_only(pair_id, source_id, *, reason="cancelled")`**
+   — synthesises an empty response row, runs the existing normalizer
+   chain (Anthropic / OpenAI / Conversation gracefully degrade with
+   empty response), drops any assistant rows from the result (request
+   body may carry echoed history that we cannot trust as a "completed"
+   answer), tags every survivor with the `reason`. Refuses to run when
+   the pair already has a response or has zero rows.
+4. **`pipeline.sweep_orphan_request_rows(*, min_age_seconds=30, ...)`**
+   + **`db.query_orphan_request_rows(...)`** — periodic sweeper that
+   finds aged-orphan request rows via a single SQL `NOT EXISTS` query
+   (excludes pairs that already have a response OR a `messages` row,
+   so the sweeper is **idempotent**) and routes each through (3).
+   Returns a stats dict with `scanned` / `recovered` /
+   `skipped_no_normalizer` / `errors` / `session_ids` keys.
+
+### Tests
+
+`tests/test_d04_cancel_mid_stream.py` — 12 sub-tests across 4 layers
+(orphan SQL / request-only / sweeper / E04 mirror):
+
+- `_test_orphan_query_skips_completed_pairs` — completed pairs do NOT
+  surface as orphans
+- `_test_orphan_query_respects_min_age` — fresh requests (< min_age)
+  are not yet treated as orphans (they may still get a response)
+- `_test_orphan_query_idempotent_after_message_inserted` — once a
+  recovery has run, the pair drops out of subsequent orphan queries
+- `_test_request_only_anthropic_api_shape` — `/v1/messages` request →
+  one `cancelled` user message
+- `_test_request_only_anthropic_web_shape` — `claude.ai`
+  `prompt + parent_message_uuid` shape → cancelled user message
+- `_test_request_only_drops_assistants_from_request_history` — multi-
+  turn request body's assistant echoes are dropped (we cannot trust
+  them as "completed answers" on a cancelled pair)
+- `_test_request_only_skips_when_response_present` — refuses to run on
+  a pair that already has a response
+- `_test_request_only_returns_none_for_unknown_pair`
+- `_test_sweep_recovers_one_orphan` — 1 orphan + 1 complete pair → 1
+  recovery, complete pair untouched
+- `_test_sweep_idempotent` — second sweep sees `scanned=0`
+- `_test_sweep_skips_fresh_orphans` — under-age orphans skipped
+- `_test_e04_code_region_inline_cancel` — inline Code-region tab
+  cancel-mid-stream produces the cancelled user msg the same way
+
+All 12 PASS in 3.5 s. Combined regression run (D04 + normalizer +
+confidence + reconciler + rich-content + sse-pipeline + g4-branch +
+g6-c07-c08 + retention) = **119 PASS / 0 FAIL** in 10.7 s. P5.C 156-
+test matrix re-run = **156 PASS** in 12.3 s. No regressions.
+
+### Files modified
+
+- `pce_core/normalizer/base.py` — +9 LOC (`interaction_kind` field +
+  docstring)
+- `pce_core/normalizer/message_processor.py` — +1 LOC
+  (`interaction_kind=msg.interaction_kind` in `insert_message` call)
+- `pce_core/db.py` — +60 LOC (`query_orphan_request_rows` +
+  `interaction_kind` arg in `insert_message`)
+- `pce_core/normalizer/pipeline.py` — +200 LOC
+  (`try_normalize_pair_request_only` + `sweep_orphan_request_rows` +
+  35-line design comment block) + 1-line import
+- `tests/test_d04_cancel_mid_stream.py` — NEW, ~440 LOC, 12 tests
+
+### Trigger model
+
+The sweeper is intended to be invoked on a wallclock interval (e.g.
+once per minute) by an out-of-band runner. A future commit can wire
+this into `pce_proxy/addon.py`'s `client_disconnected` hook for
+synchronous recovery, but that path is not required for the D04 /
+E04 fix to work — the sweeper alone closes both gaps.
+
+### Closes
+
+- **D04** (Claude Desktop chat cancel-mid-stream) — was the last open
+  P5.B chat-region known bug
+- **E04** (inline Code-region tab cancel-mid-stream) — same code path,
+  same fix
+- 1 of 3 P5.B carry-forwards listed in `Docs/handoff/HANDOFF-P5C-COMPLETION-2026-05-12.md`
+  §4.1. Remaining: **E10** (default-mode UIA RECON, requires manual
+  Claude Desktop drive in default permission mode).
+
 ## [Unreleased] - 2026-05-12 — P5.C.5.3 P5.C completion handoff (closes Meta-Pipeline)
 
 Third + final P5.C sub-commit. Caps the entire P5.C phase with a
