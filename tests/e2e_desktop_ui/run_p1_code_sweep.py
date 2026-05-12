@@ -1673,6 +1673,218 @@ def case_E22_tool_palette(ctx: CaseContext) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# P5.B.7.P2.1 (2026-05-12) — surfaces caught by the post-P2 audit
+# ---------------------------------------------------------------------------
+#
+# A full ``Get-ChildItem ~/.claude`` walk after the P2 tag found three
+# more on-disk surfaces the documentation-only RECON had missed:
+# ``sessions/<pid>.json`` (PID-keyed session metadata),
+# ``agents/*.md`` (user-defined sub-agent prompts), and
+# ``plugins/{installed_plugins,blocklist,known_marketplaces,config}.json``
+# (plugin install state). E23 verifies the high-value sessions/ surface
+# (always present when Claude Code has been used); E24 + E25 verify
+# the optional surfaces and SKIP cleanly on installs that don't use
+# custom agents or plugins.
+
+
+def case_E23_pid_sessions_captured(ctx: CaseContext) -> dict:
+    """E23 — ``~/.claude/sessions/<pid>.json`` PID-keyed metadata captured.
+
+    Claude Code writes a small (~228 B) JSON for each recently-active
+    session at ``~/.claude/sessions/<pid>.json``. Body shape:
+    ``{pid, sessionId, cwd, startedAt, procStart, version,
+    peerProtocol, kind, entrypoint}``. This is the **PID ↔ sessionId
+    Rosetta Stone** — the only on-disk surface that ties an OS
+    process to a Claude session, and the ``entrypoint`` field
+    directly discriminates desktop vs. CLI.
+
+    PASS condition: at least one user_state_pid_session capture
+    exists AND its body has both ``pid`` (int) and ``sessionId``
+    (str) fields. Required for static gate — these files persist
+    across sessions, so any install that has been used at least
+    once will populate this surface.
+    """
+    con = _connect(ctx.db_path)
+    try:
+        n = con.execute(
+            "SELECT COUNT(*) FROM raw_captures "
+            "WHERE path LIKE '/claude-desktop/user-state/user_state_pid_session/%'"
+        ).fetchone()[0]
+        sample = con.execute(
+            "SELECT body_text_or_json, session_hint FROM raw_captures "
+            "WHERE path LIKE '/claude-desktop/user-state/user_state_pid_session/%' "
+            "LIMIT 1"
+        ).fetchone()
+    finally:
+        con.close()
+
+    if n == 0:
+        return _verdict(
+            "E23", "skip",
+            reason="no user_state_pid_session captures; run watcher with --only user_state",
+        )
+    if sample is None:
+        return _verdict("E23", "fail", reason="pid_session count > 0 but sample fetch failed")
+    try:
+        body = json.loads(sample["body_text_or_json"])
+    except json.JSONDecodeError as exc:
+        return _verdict("E23", "fail", reason=f"pid_session body malformed: {exc}")
+    if not isinstance(body.get("pid"), int) or not isinstance(body.get("sessionId"), str):
+        return _verdict(
+            "E23", "fail",
+            reason="pid_session body lacks 'pid' (int) or 'sessionId' (str)",
+            evidence={"body_keys": list(body.keys())},
+        )
+    # session_hint must propagate the body's sessionId so the dashboard
+    # can JOIN this snapshot to the actual session row.
+    sh_ok = sample["session_hint"] == body["sessionId"]
+    return _verdict(
+        "E23", "pass",
+        reason=f"sessions/<pid>.json captured: {n} record(s); sample "
+               f"pid={body['pid']} entrypoint={body.get('entrypoint','?')!r}",
+        evidence={"n_records": n, "session_hint_matches_body_sessionId": sh_ok,
+                  "sample_entrypoint": body.get("entrypoint"),
+                  "sample_version": body.get("version")},
+    )
+
+
+def case_E24_user_agents_captured(ctx: CaseContext) -> dict:
+    """E24 — user-defined ``agents/*.md`` sub-agent prompts captured.
+
+    Claude Code lets users author custom sub-agent definitions under
+    ``~/.claude/agents/<name>.md``. Each is a markdown file with YAML
+    frontmatter (``{name, description, model, color, tools}``) and a
+    body that is the system prompt.
+
+    PASS condition: at least one user_state_agents capture exists
+    AND its body has the expected envelope keys
+    (``name`` / ``filename`` / ``frontmatter`` / ``system_prompt``).
+    SKIP if no custom agents defined — most users won't have any
+    until they author one with ``/agents create``.
+    """
+    con = _connect(ctx.db_path)
+    try:
+        n = con.execute(
+            "SELECT COUNT(*) FROM raw_captures "
+            "WHERE path LIKE '/claude-desktop/user-state/user_state_agents/%'"
+        ).fetchone()[0]
+        sample = con.execute(
+            "SELECT body_text_or_json FROM raw_captures "
+            "WHERE path LIKE '/claude-desktop/user-state/user_state_agents/%' "
+            "LIMIT 1"
+        ).fetchone()
+    finally:
+        con.close()
+
+    if n == 0:
+        return _verdict(
+            "E24", "skip",
+            reason="no user_state_agents captures (no custom sub-agents "
+                   "defined, or watcher needs --only user_state)",
+        )
+    if sample is None:
+        return _verdict("E24", "fail", reason="agents count > 0 but sample fetch failed")
+    try:
+        body = json.loads(sample["body_text_or_json"])
+    except json.JSONDecodeError as exc:
+        return _verdict("E24", "fail", reason=f"agent body malformed: {exc}")
+    expected = {"name", "filename", "frontmatter", "system_prompt"}
+    missing = expected - set(body.keys())
+    if missing:
+        return _verdict(
+            "E24", "fail",
+            reason=f"agent body missing keys: {sorted(missing)}",
+            evidence={"body_keys": list(body.keys())},
+        )
+    fm = body.get("frontmatter") or {}
+    has_prompt = isinstance(body.get("system_prompt"), str) and len(body["system_prompt"]) > 0
+    return _verdict(
+        "E24", "pass",
+        reason=f"user_state_agents captured: {n} agent file(s); "
+               f"sample name={body['name']!r}, prompt_len="
+               f"{len(body.get('system_prompt') or '')}",
+        evidence={"n_agents": n, "sample_name": body.get("name"),
+                  "sample_frontmatter_keys": sorted(fm.keys()),
+                  "sample_has_prompt": has_prompt},
+    )
+
+
+# Plugin-state files we expect to surface (matches
+# ``claude_user_state._PLUGIN_STATE_FILES``).
+_EXPECTED_PLUGIN_FILES: frozenset[str] = frozenset({
+    "installed_plugins.json",
+    "blocklist.json",
+    "known_marketplaces.json",
+    "config.json",
+})
+
+
+def case_E25_plugin_state_captured(ctx: CaseContext) -> dict:
+    """E25 — ``~/.claude/plugins/*.json`` plugin install state captured.
+
+    Four allow-listed JSON files at the plugins/ root: which plugins
+    the user has installed (``installed_plugins.json``, per-project),
+    which marketplaces are configured
+    (``known_marketplaces.json``), which plugins are on the user's
+    blocklist (``blocklist.json``, with reasons), and the active
+    repository config (``config.json``).
+
+    PASS condition: at least one user_state_plugins capture exists
+    AND its filename is in the allow-list. SKIP if no plugin state
+    on disk — the plugins feature is optional and many installs
+    will lack it.
+    """
+    con = _connect(ctx.db_path)
+    try:
+        n = con.execute(
+            "SELECT COUNT(*) FROM raw_captures "
+            "WHERE path LIKE '/claude-desktop/user-state/user_state_plugins/%'"
+        ).fetchone()[0]
+        rows = con.execute(
+            "SELECT path, body_text_or_json FROM raw_captures "
+            "WHERE path LIKE '/claude-desktop/user-state/user_state_plugins/%' "
+            "LIMIT 4"
+        ).fetchall()
+    finally:
+        con.close()
+
+    if n == 0:
+        return _verdict(
+            "E25", "skip",
+            reason="no user_state_plugins captures (no plugins installed "
+                   "yet, or watcher needs --only user_state)",
+        )
+    seen_filenames: set[str] = set()
+    for row in rows:
+        try:
+            body = json.loads(row["body_text_or_json"])
+        except json.JSONDecodeError:
+            continue
+        fn = body.get("filename")
+        if isinstance(fn, str):
+            seen_filenames.add(fn)
+    unknown = seen_filenames - _EXPECTED_PLUGIN_FILES
+    if unknown:
+        # Tolerate but report — Claude Code might add more files in
+        # the future and the walker will pick them up under the same
+        # surface. Failure only if NONE of the seen names are valid.
+        if not (seen_filenames & _EXPECTED_PLUGIN_FILES):
+            return _verdict(
+                "E25", "fail",
+                reason=f"plugin captures present but no recognised "
+                       f"filename: {sorted(seen_filenames)}",
+                evidence={"seen": sorted(seen_filenames)},
+            )
+    return _verdict(
+        "E25", "pass",
+        reason=f"plugin state captured: {n} record(s); "
+               f"filenames={sorted(seen_filenames)}",
+        evidence={"n_records": n, "filenames": sorted(seen_filenames),
+                  "unknown_filenames": sorted(unknown)},
+    )
+
+
+# ---------------------------------------------------------------------------
 # Case registry + main
 # ---------------------------------------------------------------------------
 
@@ -1702,6 +1914,10 @@ CASES: tuple[tuple[str, Callable[[CaseContext], dict]], ...] = (
     ("E20", case_E20_todos_captured),
     ("E21", case_E21_history_captured),
     ("E22", case_E22_tool_palette),
+    # P5.B.7.P2.1 extensions (2026-05-12) — post-P2 audit surfaces.
+    ("E23", case_E23_pid_sessions_captured),
+    ("E24", case_E24_user_agents_captured),
+    ("E25", case_E25_plugin_state_captured),
 )
 
 
@@ -1829,12 +2045,18 @@ def main(argv: Optional[list[str]] = None) -> int:
         # P5.B.7.P2 additions (2026-05-12): E16-E22 cover the sub-agent
         # JSONLs + user-home state surfaces. All 7 are PASS-eligible on
         # any install that has been used at least once (the watcher's
-        # full scan captures them deterministically) — the only failure
-        # mode is "watcher hasn't run yet", which the per-case SKIP
-        # message tells the operator how to resolve.
+        # full scan captures them deterministically).
+        # P5.B.7.P2.1 additions (2026-05-12): E23 covers ``sessions/<pid>.json``,
+        # which Claude Code writes on every session start and persists
+        # across runs — required. E24 (custom agents) and E25 (plugin
+        # state) are optional features and SKIP cleanly on installs
+        # that don't use them, so they're NOT in static_required.
+        # The only failure mode is "watcher hasn't run yet", which the
+        # per-case SKIP message tells the operator how to resolve.
         static_required = {
             "E00", "E01", "E02", "E03", "E09", "E11", "E13", "E14",
             "E16", "E17", "E18", "E19", "E20", "E21", "E22",
+            "E23",
         }
         if selected:
             # Only enforce required cases that were actually run.

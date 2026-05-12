@@ -32,8 +32,13 @@ from pce_persistence_watcher.agent_sessions import (
 )
 from pce_persistence_watcher.capture import ChromiumStateObserver
 from pce_persistence_watcher.claude_user_state import (
+    _PLUGIN_STATE_FILES,
     _REDACTED,
+    _emit_plugin_state,
+    _emit_pid_sessions,
+    _emit_user_agents,
     _looks_like_secret_key,
+    _parse_md_frontmatter,
     _redact_env_block,
     _redact_global_state,
     _redact_settings,
@@ -732,3 +737,408 @@ class TestSubagentE2E:
         # Hoisted entrypoint routes to the Code-tab family.
         assert r["tool_family"] == "claude-desktop-code"
         assert r["provider"] == "anthropic"
+
+
+# ===========================================================================
+# P2.1 (2026-05-12) — sessions/<pid>.json + agents/*.md + plugins/*.json
+# ===========================================================================
+#
+# These three surfaces were caught by a post-P2 audit (a full
+# ``Get-ChildItem ~/.claude`` walk found them outside the Claude
+# documentation surface list). Tests are hermetic: each builds a
+# minimal ``~/.claude/`` subtree under ``tmp_path`` exercising one
+# surface in isolation.
+
+
+class TestFrontmatterParser:
+    """``_parse_md_frontmatter`` extracts YAML-style frontmatter."""
+
+    def test_parses_simple_keyvalue(self) -> None:
+        text = "---\nname: foo\nmodel: opus\ncolor: yellow\n---\nbody text here"
+        fm, body = _parse_md_frontmatter(text)
+        assert fm == {"name": "foo", "model": "opus", "color": "yellow"}
+        assert body == "body text here"
+
+    def test_no_frontmatter_returns_full_body(self) -> None:
+        text = "no frontmatter\njust a body\n"
+        fm, body = _parse_md_frontmatter(text)
+        assert fm == {}
+        assert body == text
+
+    def test_missing_closing_delim_treated_as_malformed(self) -> None:
+        # Opening --- but no closing ---: walker must not silently
+        # eat the entire file as frontmatter.
+        text = "---\nname: foo\nbody never closed\n"
+        fm, body = _parse_md_frontmatter(text)
+        assert fm == {}
+        assert body == text
+
+    def test_continuation_lines_append_to_last_key(self) -> None:
+        # Indented continuation extends the previous key's value
+        # (lenient YAML subset — sufficient for Claude's frontmatter).
+        text = "---\nname: foo\ndescription: line one\n  continued line two\n---\nbody"
+        fm, body = _parse_md_frontmatter(text)
+        assert fm["name"] == "foo"
+        assert "line one" in fm["description"]
+        assert "continued line two" in fm["description"]
+        assert body == "body"
+
+    @pytest.mark.parametrize("bad", [None, 123, [], {}])
+    def test_non_string_input_safe(self, bad: Any) -> None:
+        fm, body = _parse_md_frontmatter(bad)
+        assert fm == {}
+        assert body == ""
+
+
+class TestPidSessionWalker:
+    """``_emit_pid_sessions`` walks ``~/.claude/sessions/<pid>.json``."""
+
+    def _write_pid_session(
+        self, claude_home: Path, pid: int, session_id: str,
+        entrypoint: str = "claude-desktop", cwd: str = "/p/a",
+    ) -> Path:
+        sessions_dir = claude_home / "sessions"
+        sessions_dir.mkdir(exist_ok=True)
+        path = sessions_dir / f"{pid}.json"
+        path.write_text(
+            json.dumps({
+                "pid": pid,
+                "sessionId": session_id,
+                "cwd": cwd,
+                "startedAt": 1700000000000,
+                "procStart": "639100000000000000",
+                "version": "2.1.128",
+                "peerProtocol": 1,
+                "kind": "interactive",
+                "entrypoint": entrypoint,
+            }),
+            encoding="utf-8",
+        )
+        return path
+
+    def test_yields_one_record_per_pid_file(self, tmp_path: Path) -> None:
+        cd = tmp_path / ".claude"
+        cd.mkdir()
+        sess_a = "11111111-2222-3333-4444-555555555555"
+        sess_b = "22222222-3333-4444-5555-666666666666"
+        self._write_pid_session(cd, 11316, sess_a, entrypoint="claude-desktop")
+        self._write_pid_session(cd, 27968, sess_b, entrypoint="cli")
+        recs = list(_emit_pid_sessions(cd))
+        assert len(recs) == 2
+        # Both records have surface=user_state_pid_session and
+        # session_id propagated from the body's sessionId field.
+        for rec in recs:
+            assert rec.surface == "user_state_pid_session"
+            assert rec.kind == "user_state_snapshot"
+            assert rec.session_id in (sess_a, sess_b)
+        # Body fields preserved verbatim.
+        bodies = {r.body_json["pid"]: r.body_json for r in recs}
+        assert bodies[11316]["sessionId"] == sess_a
+        assert bodies[11316]["entrypoint"] == "claude-desktop"
+        assert bodies[27968]["entrypoint"] == "cli"
+
+    def test_non_pid_filenames_ignored(self, tmp_path: Path) -> None:
+        cd = tmp_path / ".claude"
+        sd = cd / "sessions"
+        sd.mkdir(parents=True)
+        # ``hello.json`` (not numeric) and ``readme.md`` (wrong ext)
+        # must both be skipped.
+        (sd / "hello.json").write_text(
+            json.dumps({"pid": "x", "sessionId": "y"}), encoding="utf-8",
+        )
+        (sd / "readme.md").write_text("# notes", encoding="utf-8")
+        # One valid pid file to confirm walker still yields it.
+        self._write_pid_session(cd, 999, "abc-uuid", entrypoint="claude-desktop")
+        recs = list(_emit_pid_sessions(cd))
+        assert len(recs) == 1
+        assert recs[0].body_json["pid"] == 999
+
+    def test_missing_sessions_dir_silent(self, tmp_path: Path) -> None:
+        cd = tmp_path / ".claude"
+        cd.mkdir()  # exists but no sessions/ subdir
+        assert list(_emit_pid_sessions(cd)) == []
+
+    def test_malformed_pid_json_skipped(self, tmp_path: Path) -> None:
+        cd = tmp_path / ".claude"
+        sd = cd / "sessions"
+        sd.mkdir(parents=True)
+        (sd / "1234.json").write_text("{not json", encoding="utf-8")
+        # And one good file
+        self._write_pid_session(cd, 5678, "good-uuid")
+        recs = list(_emit_pid_sessions(cd))
+        assert len(recs) == 1
+        assert recs[0].body_json["pid"] == 5678
+
+    def test_session_id_is_none_when_field_missing(self, tmp_path: Path) -> None:
+        cd = tmp_path / ".claude"
+        sd = cd / "sessions"
+        sd.mkdir(parents=True)
+        # File body has no sessionId field — defensive against schema
+        # drift; walker still yields the snapshot but session_id=None.
+        (sd / "777.json").write_text(
+            json.dumps({"pid": 777, "cwd": "/p"}), encoding="utf-8",
+        )
+        recs = list(_emit_pid_sessions(cd))
+        assert len(recs) == 1
+        assert recs[0].session_id is None
+
+
+class TestUserAgentsWalker:
+    """``_emit_user_agents`` walks ``~/.claude/agents/*.md``."""
+
+    AGENT_MD = (
+        "---\n"
+        "name: forge-engineering-executor\n"
+        "description: Run TRD tasks\n"
+        "model: inherit\n"
+        "color: yellow\n"
+        "---\n"
+        "You are Forge, a master-level AI macro software engineer.\n"
+        "Mission: Execute macro engineering tasks.\n"
+    )
+
+    def test_yields_one_record_per_agent_file(self, tmp_path: Path) -> None:
+        cd = tmp_path / ".claude"
+        ad = cd / "agents"
+        ad.mkdir(parents=True)
+        (ad / "forge.md").write_text(self.AGENT_MD, encoding="utf-8")
+        (ad / "scout.md").write_text(
+            "---\nname: scout\nmodel: haiku\n---\nshort prompt", encoding="utf-8",
+        )
+        recs = list(_emit_user_agents(cd))
+        assert len(recs) == 2
+        for rec in recs:
+            assert rec.kind == "user_state_snapshot"
+            assert rec.surface == "user_state_agents"
+            assert rec.session_id is None
+            body = rec.body_json
+            assert "name" in body
+            assert "filename" in body
+            assert "frontmatter" in body
+            assert "system_prompt" in body
+
+    def test_frontmatter_parsed_correctly(self, tmp_path: Path) -> None:
+        cd = tmp_path / ".claude"
+        ad = cd / "agents"
+        ad.mkdir(parents=True)
+        (ad / "forge.md").write_text(self.AGENT_MD, encoding="utf-8")
+        rec = next(iter(_emit_user_agents(cd)))
+        body = rec.body_json
+        fm = body["frontmatter"]
+        assert fm["name"] == "forge-engineering-executor"
+        assert fm["model"] == "inherit"
+        assert fm["color"] == "yellow"
+        assert "TRD" in fm["description"]
+        # Body is the system prompt (everything after the closing ---).
+        assert "Forge" in body["system_prompt"]
+        assert "Mission" in body["system_prompt"]
+        # Top-level ``name`` falls through from frontmatter.
+        assert body["name"] == "forge-engineering-executor"
+
+    def test_non_md_files_ignored(self, tmp_path: Path) -> None:
+        cd = tmp_path / ".claude"
+        ad = cd / "agents"
+        ad.mkdir(parents=True)
+        (ad / "notes.txt").write_text("not an agent", encoding="utf-8")
+        (ad / "config.json").write_text("{}", encoding="utf-8")
+        (ad / "scout.md").write_text("# scout\nbody", encoding="utf-8")
+        recs = list(_emit_user_agents(cd))
+        assert len(recs) == 1
+        assert recs[0].body_json["filename"] == "scout.md"
+
+    def test_no_frontmatter_falls_through(self, tmp_path: Path) -> None:
+        # Agent file without frontmatter: name falls back to stem,
+        # frontmatter is empty, system_prompt is the whole file.
+        cd = tmp_path / ".claude"
+        ad = cd / "agents"
+        ad.mkdir(parents=True)
+        (ad / "minimal.md").write_text("just a body\nwith no header", encoding="utf-8")
+        rec = next(iter(_emit_user_agents(cd)))
+        body = rec.body_json
+        assert body["name"] == "minimal"
+        assert body["frontmatter"] == {}
+        assert "just a body" in body["system_prompt"]
+
+    def test_missing_agents_dir_silent(self, tmp_path: Path) -> None:
+        cd = tmp_path / ".claude"
+        cd.mkdir()  # no agents/ subdir
+        assert list(_emit_user_agents(cd)) == []
+
+
+class TestPluginStateWalker:
+    """``_emit_plugin_state`` walks the four allow-listed plugin JSONs."""
+
+    INSTALLED_SAMPLE = {
+        "version": 2,
+        "plugins": {
+            "frontend-design@claude-plugins-official": [
+                {"scope": "project", "version": "abc123"},
+            ],
+        },
+    }
+    BLOCKLIST_SAMPLE = {
+        "fetchedAt": "2026-04-17T13:50:15.472Z",
+        "plugins": [
+            {"plugin": "evil@x", "added_at": "2026-02-11", "reason": "test"},
+        ],
+    }
+
+    def test_yields_one_record_per_known_file(self, tmp_path: Path) -> None:
+        cd = tmp_path / ".claude"
+        pd = cd / "plugins"
+        pd.mkdir(parents=True)
+        (pd / "installed_plugins.json").write_text(
+            json.dumps(self.INSTALLED_SAMPLE), encoding="utf-8",
+        )
+        (pd / "blocklist.json").write_text(
+            json.dumps(self.BLOCKLIST_SAMPLE), encoding="utf-8",
+        )
+        (pd / "config.json").write_text(
+            json.dumps({"repositories": {}}), encoding="utf-8",
+        )
+        (pd / "known_marketplaces.json").write_text(
+            json.dumps({"claude-plugins-official": {}}), encoding="utf-8",
+        )
+        recs = list(_emit_plugin_state(cd))
+        assert len(recs) == 4
+        filenames = {r.body_json["filename"] for r in recs}
+        assert filenames == set(_PLUGIN_STATE_FILES)
+        for rec in recs:
+            assert rec.kind == "user_state_snapshot"
+            assert rec.surface == "user_state_plugins"
+            assert "data" in rec.body_json
+
+    def test_partial_presence_yields_only_existing(self, tmp_path: Path) -> None:
+        # Only installed_plugins.json present; walker still yields it
+        # without erroring on the missing siblings.
+        cd = tmp_path / ".claude"
+        pd = cd / "plugins"
+        pd.mkdir(parents=True)
+        (pd / "installed_plugins.json").write_text(
+            json.dumps(self.INSTALLED_SAMPLE), encoding="utf-8",
+        )
+        recs = list(_emit_plugin_state(cd))
+        assert len(recs) == 1
+        assert recs[0].body_json["filename"] == "installed_plugins.json"
+        assert recs[0].body_json["data"]["version"] == 2
+
+    def test_subdirs_not_walked(self, tmp_path: Path) -> None:
+        # ``cache/``, ``repos/``, ``marketplaces/`` are explicitly
+        # NOT walked — they hold mirrored upstream plugin source
+        # (~3 MB on the reference machine).
+        cd = tmp_path / ".claude"
+        pd = cd / "plugins"
+        cache_dir = pd / "cache" / "claude-plugins-official" / "frontend-design"
+        cache_dir.mkdir(parents=True)
+        (cache_dir / "code.js").write_text("// plugin code", encoding="utf-8")
+        (cache_dir / "manifest.json").write_text(
+            json.dumps({"name": "frontend-design"}), encoding="utf-8",
+        )
+        # No top-level plugin-state files — walker yields nothing.
+        recs = list(_emit_plugin_state(cd))
+        assert recs == []
+
+    def test_missing_plugins_dir_silent(self, tmp_path: Path) -> None:
+        cd = tmp_path / ".claude"
+        cd.mkdir()  # no plugins/ subdir
+        assert list(_emit_plugin_state(cd)) == []
+
+    def test_malformed_plugin_json_skipped(self, tmp_path: Path) -> None:
+        cd = tmp_path / ".claude"
+        pd = cd / "plugins"
+        pd.mkdir(parents=True)
+        (pd / "installed_plugins.json").write_text("{not-json", encoding="utf-8")
+        (pd / "config.json").write_text(
+            json.dumps({"repositories": {}}), encoding="utf-8",
+        )
+        recs = list(_emit_plugin_state(cd))
+        # Malformed file is skipped; the well-formed one still yields.
+        assert len(recs) == 1
+        assert recs[0].body_json["filename"] == "config.json"
+
+
+class TestP21E2E:
+    """End-to-end: P2.1 walker → ChromiumStateObserver → raw_captures."""
+
+    def test_pid_session_capture_path_and_join_key(self, tmp_path: Path) -> None:
+        cd = tmp_path / ".claude"
+        sd = cd / "sessions"
+        sd.mkdir(parents=True)
+        sess_id = "11111111-2222-3333-4444-555555555555"
+        (sd / "11316.json").write_text(
+            json.dumps({
+                "pid": 11316,
+                "sessionId": sess_id,
+                "cwd": "/p/a",
+                "startedAt": 1700000000000,
+                "version": "2.1.128",
+                "entrypoint": "claude-desktop",
+            }),
+            encoding="utf-8",
+        )
+
+        obs, db_path = _make_observer(tmp_path)
+        for rec in iter_claude_user_state_records(cd):
+            obs.observe_agent_session(rec)
+
+        rows = _query_captures(
+            db_path, "/claude-desktop/user-state/user_state_pid_session/%"
+        )
+        assert len(rows) == 1
+        r = rows[0]
+        assert r["host"] == "local-config"
+        # Path includes the filename so multiple PID files stay distinct.
+        assert r["path"].endswith("/11316.json")
+        # session_hint propagates the body's sessionId so the dashboard
+        # can JOIN this PID snapshot to the actual session row.
+        assert r["session_hint"] == sess_id
+
+    def test_user_agents_capture_preserves_prompt(self, tmp_path: Path) -> None:
+        cd = tmp_path / ".claude"
+        ad = cd / "agents"
+        ad.mkdir(parents=True)
+        (ad / "forge.md").write_text(
+            "---\nname: forge\nmodel: opus\n---\n"
+            "You are Forge. Engineering only.",
+            encoding="utf-8",
+        )
+
+        obs, db_path = _make_observer(tmp_path)
+        for rec in iter_claude_user_state_records(cd):
+            obs.observe_agent_session(rec)
+
+        rows = _query_captures(
+            db_path, "/claude-desktop/user-state/user_state_agents/%"
+        )
+        assert len(rows) == 1
+        r = rows[0]
+        assert r["host"] == "local-config"
+        assert r["path"].endswith("/forge.md")
+        body = json.loads(r["body_text_or_json"])
+        # System prompt content survives round-trip through raw_captures.
+        assert "Forge" in body["system_prompt"]
+        assert body["frontmatter"]["model"] == "opus"
+
+    def test_plugin_state_capture_is_per_file(self, tmp_path: Path) -> None:
+        cd = tmp_path / ".claude"
+        pd = cd / "plugins"
+        pd.mkdir(parents=True)
+        (pd / "installed_plugins.json").write_text(
+            json.dumps({"version": 2, "plugins": {}}), encoding="utf-8",
+        )
+        (pd / "blocklist.json").write_text(
+            json.dumps({"plugins": []}), encoding="utf-8",
+        )
+
+        obs, db_path = _make_observer(tmp_path)
+        for rec in iter_claude_user_state_records(cd):
+            obs.observe_agent_session(rec)
+
+        rows = _query_captures(
+            db_path, "/claude-desktop/user-state/user_state_plugins/%"
+        )
+        # One row per file (path differs by filename suffix).
+        assert len(rows) == 2
+        paths = sorted(r["path"] for r in rows)
+        assert paths[0].endswith("/blocklist.json")
+        assert paths[1].endswith("/installed_plugins.json")
