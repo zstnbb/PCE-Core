@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: Apache-2.0
+# Zhipu / Z.AI (chat.z.ai) — P5.C.5.2 YAML manifest.
+
+schema_version: 1
+name: zhipu
+provider: zhipu
+url: "https://chat.z.ai/"
+display_name: "Zhipu Z.AI"
+
+selectors:
+  input:
+    - '[class*="chat-input"] textarea'
+    - '[class*="input-box"] textarea'
+    - '[contenteditable="true"]'
+    - "textarea"
+  send_button:
+    - 'button[class*="send"]'
+    - '[class*="send-btn"]'
+    - 'button[type="submit"]'
+  stop_button:
+    - 'button[aria-label*="Stop" i]'
+    - 'button[class*="stop" i]'
+  response_container:
+    - '[class*="message"][class*="assistant"]'
+    - '[class*="bot-message"]'
+    - '[class*="answer"]'
+    - '[class*="markdown"]'
+  login_wall:
+    - 'a[href*="/login"]'
+    - 'button[class*="login" i]'
+
+timeouts_ms:
+  response: 90000
+
+tier: S2
+plane:
+  - N
+  - H

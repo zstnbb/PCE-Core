@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: Apache-2.0
+# DeepSeek (chat.deepseek.com) — P5.C.5.2 YAML manifest.
+
+schema_version: 1
+name: deepseek
+provider: deepseek
+url: "https://chat.deepseek.com/"
+display_name: "DeepSeek"
+
+selectors:
+  input:
+    - "textarea#chat-input"
+    - 'textarea[placeholder*="message" i]'
+    - "textarea"
+  send_button:
+    - 'div[role="button"][class*="send" i]'
+    - 'button[class*="send" i]'
+  stop_button:
+    - 'button[aria-label*="Stop" i]'
+    - 'div[role="button"][class*="stop" i]'
+  response_container:
+    - ".ds-markdown"
+    - '[class*="assistant-message"]'
+    - '[class*="markdown-body"]'
+  login_wall:
+    - 'a[href*="/login"]'
+    - 'button[class*="login" i]'
+
+timeouts_ms:
+  response: 90000
+
+tier: S1
+plane:
+  - N
+  - H

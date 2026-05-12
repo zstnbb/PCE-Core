@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: Apache-2.0
+# Manus (manus.im) — P5.C.5.2 YAML manifest.
+
+schema_version: 1
+name: manus
+provider: manus
+url: "https://manus.im/app"
+display_name: "Manus"
+
+selectors:
+  input:
+    - 'div.tiptap.ProseMirror[contenteditable="true"]'
+    - '[contenteditable="true"]'
+  # Send affordance is non-standard; rely on Enter via dom.type submit=True.
+  send_button: []
+  stop_button:
+    - 'button[aria-label*="Stop" i]'
+  response_container:
+    - '[class*="message"]'
+    - '[class*="task"]'
+    - '[class*="answer"]'
+    - ".prose"
+  login_wall:
+    - 'a[href*="/login"]'
+    - 'button[class*="login" i]'
+
+timeouts_ms:
+  response: 120000     # Manus runs long-form tasks
+
+tier: S2
+plane:
+  - N
+  - H

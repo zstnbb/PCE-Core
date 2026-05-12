@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: Apache-2.0
+# HuggingChat (huggingface.co/chat) — P5.C.5.2 YAML manifest.
+
+schema_version: 1
+name: huggingface
+provider: huggingface
+url: "https://huggingface.co/chat/"
+display_name: "HuggingChat"
+
+selectors:
+  input:
+    - 'textarea[placeholder*="message" i]'
+    - 'textarea[placeholder*="ask" i]'
+    - "textarea"
+  send_button:
+    - 'button[type="submit"]'
+    - 'button[aria-label*="send" i]'
+    - "form button:last-child"
+  stop_button:
+    - 'button[aria-label*="Stop" i]'
+    - 'button[type="button"][class*="stop" i]'
+  response_container:
+    - '[data-message-role="assistant"]'
+    - '[class*="chat-message"]'
+    - '[class*="message"] .prose'
+  login_wall:
+    - 'a[href*="/login"]'
+    - 'button[class*="login" i]'
+
+timeouts_ms:
+  response: 90000
+
+tier: S2
+plane:
+  - N
+  - H

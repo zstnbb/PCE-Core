@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: Apache-2.0
+# Microsoft Copilot (copilot.microsoft.com) — P5.C.5.2 YAML manifest.
+#
+# The WXT extractor (entrypoints/copilot.content.ts) emits
+# provider="microsoft". Keep the adapter in lockstep so the matrix's
+# provider filter on the PCE Core sessions API actually matches.
+
+schema_version: 1
+name: copilot
+provider: microsoft
+url: "https://copilot.microsoft.com/"
+display_name: "Microsoft Copilot"
+
+selectors:
+  input:
+    - 'textarea[data-testid="composer-input"]'
+    - 'textarea[placeholder*="message" i]'
+    - 'textarea[placeholder*="ask" i]'
+    - '[contenteditable="true"]'
+    - "textarea"
+  send_button:
+    - 'button[data-testid="submit-button"]'
+    - 'button[aria-label*="Send" i]'
+    - 'button[aria-label*="Submit" i]'
+    - 'button[type="submit"]'
+  stop_button:
+    - 'button[data-testid="stop-button"]'
+    - 'button[aria-label*="Stop" i]'
+  response_container:
+    - '[data-testid*="message"]'
+    - '[class*="response" i]'
+    - ".prose"
+  login_wall:
+    - 'a[href*="login.microsoftonline"]'
+    - 'a[href*="login.live.com"]'
+
+timeouts_ms:
+  response: 90000
+
+tier: S1
+plane:
+  - N
+  - H

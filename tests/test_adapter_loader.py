@@ -406,3 +406,128 @@ def test_gemini_yaml_covers_branch_creation_mode_override() -> None:
     assert GeminiAdapter.branch_creation_mode == cfg.flag_for("branch_creation_mode")
     assert GeminiAdapter.regenerate_prefer_dom_click == cfg.flag_for("regenerate_prefer_dom_click")
     assert GeminiAdapter.image_gen_invocation == cfg.flag_for("image_gen_invocation")
+
+
+# ---------------------------------------------------------------------------
+# P5.C.5.2: parity for the 11 secondary site adapters
+# ---------------------------------------------------------------------------
+
+# Each tuple: (yaml_name, python_module, class_name, expected_provider).
+# yaml_name is the manifest stem under ``pce_core/adapters/``;
+# python_module is the dotted path under ``tests.e2e_probe.sites``.
+_P5C52_SITES = [
+    ("copilot", "copilot", "CopilotAdapter", "microsoft"),
+    ("deepseek", "deepseek", "DeepSeekAdapter", "deepseek"),
+    ("grok", "grok", "GrokAdapter", "xai"),
+    ("huggingface", "huggingface", "HuggingFaceAdapter", "huggingface"),
+    ("kimi", "kimi", "KimiAdapter", "moonshot"),
+    ("manus", "manus", "ManusAdapter", "manus"),
+    ("mistral", "mistral", "MistralAdapter", "mistral"),
+    ("perplexity", "perplexity", "PerplexityAdapter", "perplexity"),
+    ("poe", "poe", "PoeAdapter", "poe"),
+    ("zhipu", "zhipu", "ZhiPuAdapter", "zhipu"),
+    ("googleaistudio", "google_ai_studio", "GoogleAIStudioAdapter", "google"),
+]
+
+
+@pytest.mark.parametrize(
+    "yaml_name,module_name,class_name,expected_provider", _P5C52_SITES
+)
+def test_p5c52_site_class_mirrors_yaml(
+    yaml_name: str,
+    module_name: str,
+    class_name: str,
+    expected_provider: str,
+) -> None:
+    """Each of the 11 P5.C.5.2 sites: Python class attrs == YAML values."""
+    import importlib
+
+    module = importlib.import_module(f"tests.e2e_probe.sites.{module_name}")
+    cls = getattr(module, class_name)
+    cfg = load_adapter(yaml_name)
+
+    # Identity contract
+    assert cls.name == cfg.name == yaml_name
+    assert cls.provider == cfg.provider == expected_provider
+    assert cls.url == cfg.url
+
+    # Universal selectors: every site has these in YAML
+    for group in ("input", "send_button", "stop_button", "response_container", "login_wall"):
+        yaml_tuple = tuple(cfg.selectors_for(group))
+        attr = SELECTOR_GROUP_TO_ATTR[group]
+        py_tuple = getattr(cls, attr, ())
+        assert py_tuple == yaml_tuple, f"{class_name}.{attr} != YAML selectors.{group}"
+
+    # Response timeout (every site sets one)
+    assert cls.response_timeout_ms == cfg.timeout_ms("response")
+
+
+def test_p5c52_load_all_adapters_returns_14() -> None:
+    """After P5.C.5.2 every site has a YAML manifest — exactly 14 total."""
+    configs = load_all_adapters()
+    assert len(configs) == 14, f"expected 14 manifests, got {len(configs)}"
+    expected = {
+        # P5.C.4.2 (S0)
+        "chatgpt", "claude", "gemini",
+        # P5.C.5.2 (S1 + S2)
+        "copilot", "deepseek", "grok", "huggingface", "kimi",
+        "manus", "mistral", "perplexity", "poe", "zhipu",
+        "googleaistudio",
+    }
+    actual = {c.name for c in configs}
+    assert actual == expected, f"manifest set mismatch: missing={expected - actual}, extra={actual - expected}"
+
+
+def test_p5c52_grok_quirks_from_yaml() -> None:
+    """Grok-specific YAML keys (blocking_state_keywords / inter_cell_pacing_s) reach the class."""
+    from tests.e2e_probe.sites.grok import GrokAdapter
+
+    cfg = load_adapter("grok")
+    assert GrokAdapter.blocking_state_keywords == tuple(cfg.labels_for("blocking_state"))
+    assert "message limit reached" in GrokAdapter.blocking_state_keywords
+    assert GrokAdapter.inter_cell_pacing_s == cfg.flag_for("inter_cell_pacing_s") == 20.0
+    assert GrokAdapter.branch_creation_mode == "regenerate"
+    assert GrokAdapter.branch_surface_supported is True
+    # The 3 method overrides must remain in the Python file
+    assert hasattr(GrokAdapter, "_submit_via")
+    assert callable(GrokAdapter.upload_file_via_paste)
+    assert callable(GrokAdapter.upload_file_via_input)
+
+
+def test_p5c52_gas_quirks_from_yaml() -> None:
+    """Google AI Studio's preferred_model + branch_from_here YAML keys reach the class."""
+    from tests.e2e_probe.sites.google_ai_studio import (
+        GoogleAIStudioAdapter,
+        _ensure_model_js,
+    )
+
+    cfg = load_adapter("googleaistudio")
+    assert GoogleAIStudioAdapter.preferred_model_labels == tuple(cfg.labels_for("preferred_model"))
+    assert "Gemini 2.5 Flash" in GoogleAIStudioAdapter.preferred_model_labels
+    assert GoogleAIStudioAdapter.branch_from_here_selectors == tuple(cfg.selectors_for("branch_from_here"))
+    assert GoogleAIStudioAdapter.branch_from_here_menu_labels == tuple(cfg.labels_for("branch_from_here_menu"))
+    assert "Branch from here" in GoogleAIStudioAdapter.branch_from_here_menu_labels
+    assert GoogleAIStudioAdapter.branch_creation_mode == "branch_from_here"
+    # The 6 method overrides + module-level JS helper must remain
+    assert callable(GoogleAIStudioAdapter.send_prompt)
+    assert callable(GoogleAIStudioAdapter.ensure_preferred_model)
+    assert callable(GoogleAIStudioAdapter.upload_file_via_paste)
+    assert callable(GoogleAIStudioAdapter.upload_file_via_input)
+    assert callable(GoogleAIStudioAdapter._uploaded_chip_present)
+    assert callable(GoogleAIStudioAdapter._selector_exists)
+    # _ensure_model_js produces a non-trivial JS string for the picker
+    js = _ensure_model_js(["Gemini 2.5 Flash", "gemini-2.5-flash"])
+    assert "setInterval" in js and "Gemini 2.5 Flash" in js
+
+
+def test_p5c52_perplexity_session_url_pattern_loaded() -> None:
+    """Perplexity's session_url_pattern YAML key compiles to a usable regex."""
+    from tests.e2e_probe.sites.perplexity import PerplexityAdapter
+
+    cfg = load_adapter("perplexity")
+    assert PerplexityAdapter.session_url_pattern == cfg.session_url_pattern
+    # The regex must match a real-looking thread URL
+    pat = PerplexityAdapter.session_url_pattern
+    assert pat is not None
+    m = pat.search("https://www.perplexity.ai/search/abc-DEF_123")
+    assert m is not None and m.group(1) == "abc-DEF_123"

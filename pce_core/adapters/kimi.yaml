@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: Apache-2.0
+# Kimi (kimi.com) — P5.C.5.2 YAML manifest.
+#
+# Kimi uses a div.chat-input-editor contenteditable with no standard
+# send button (the send icon is a non-standard SVG that doesn't expose
+# a testid). Use Enter key for submit — send_button is intentionally
+# empty so the base class falls back to dom.type submit=True.
+
+schema_version: 1
+name: kimi
+provider: moonshot
+url: "https://kimi.com/?chat_enter_method=new_chat"
+display_name: "Kimi (Moonshot)"
+
+selectors:
+  input:
+    - 'div.chat-input-editor[contenteditable="true"]'
+    - 'div[role="textbox"][contenteditable="true"]'
+    - '[contenteditable="true"]'
+  send_button: []
+  stop_button:
+    - 'div[class*="stop" i]'
+    - 'button[class*="stop" i]'
+  response_container:
+    - '[class*="assistant"]'
+    - '[class*="markdown"]'
+  login_wall:
+    - 'a[href*="/login"]'
+    - 'button[class*="login" i]'
+
+timeouts_ms:
+  response: 90000
+
+tier: S2
+plane:
+  - N
+  - H

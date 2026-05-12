@@ -104,6 +104,9 @@ SELECTOR_GROUP_TO_ATTR: dict[str, str] = {
     "branch_prev": "branch_prev_selectors",
     "branch_next": "branch_next_selectors",
     "error_banner": "error_banner_selectors",
+    # P5.C.5.2 additions — covering Grok / Google AI Studio / other sites.
+    "regenerate_root": "regenerate_root_selectors",
+    "branch_from_here": "branch_from_here_selectors",
 }
 
 #: Mapping from YAML labels key -> class attribute name. Same convention
@@ -115,6 +118,15 @@ LABEL_GROUP_TO_ATTR: dict[str, str] = {
     "code_interpreter_menu": "code_interpreter_menu_labels",
     "canvas_menu": "canvas_menu_labels",
     "image_gen_menu": "image_gen_menu_labels",
+    # P5.C.5.2 additions.
+    "preferred_model": "preferred_model_labels",
+    "branch_from_here_menu": "branch_from_here_menu_labels",
+    # ``blocking_state`` is an exception to the ``<group>_labels``
+    # convention: the BaseProbeSiteAdapter class attribute is
+    # ``blocking_state_keywords`` (matches against page text content,
+    # not selector matching), so we map it explicitly here. Grok uses
+    # this surface to detect rate-limit / quota banners.
+    "blocking_state": "blocking_state_keywords",
 }
 
 #: Mapping from YAML prompts key -> class attribute name. Convention
@@ -134,6 +146,9 @@ FLAG_KEY_TO_ATTR: dict[str, str] = {
     "regenerate_prefer_dom_click": "regenerate_prefer_dom_click",
     "branch_creation_mode": "branch_creation_mode",
     "image_gen_invocation": "image_gen_invocation",
+    # P5.C.5.2 additions.
+    "branch_surface_supported": "branch_surface_supported",
+    "inter_cell_pacing_s": "inter_cell_pacing_s",
 }
 
 TIMEOUT_KEY_TO_ATTR: dict[str, str] = {

@@ -1,36 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
-"""DeepSeek (chat.deepseek.com) — probe site adapter."""
+"""DeepSeek (chat.deepseek.com) — probe site adapter.
+
+P5.C.5.2 refactor: configuration in ``pce_core/adapters/deepseek.yaml``.
+"""
 from __future__ import annotations
+
+from pce_core.adapter_loader import apply_to_class, load_adapter
 
 from .base import BaseProbeSiteAdapter
 
 
 class DeepSeekAdapter(BaseProbeSiteAdapter):
-    name = "deepseek"
-    provider = "deepseek"
-    url = "https://chat.deepseek.com/"
+    """DeepSeek probe adapter. Configured via ``adapters/deepseek.yaml``."""
 
-    input_selectors = (
-        "textarea#chat-input",
-        'textarea[placeholder*="message" i]',
-        "textarea",
-    )
-    send_button_selectors = (
-        'div[role="button"][class*="send" i]',
-        'button[class*="send" i]',
-    )
-    stop_button_selectors = (
-        'button[aria-label*="Stop" i]',
-        'div[role="button"][class*="stop" i]',
-    )
-    response_container_selectors = (
-        ".ds-markdown",
-        '[class*="assistant-message"]',
-        '[class*="markdown-body"]',
-    )
-    login_wall_selectors = (
-        'a[href*="/login"]',
-        'button[class*="login" i]',
-    )
 
-    response_timeout_ms = 90_000
+apply_to_class(DeepSeekAdapter, load_adapter("deepseek"))

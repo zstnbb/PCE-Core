@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: Apache-2.0
+# Poe (poe.com) — P5.C.5.2 YAML manifest.
+
+schema_version: 1
+name: poe
+provider: poe
+url: "https://poe.com/"
+display_name: "Poe (Quora)"
+
+selectors:
+  input:
+    - "textarea.GrowingTextArea_textArea__ZWQbP"
+    - 'textarea[placeholder*="chat" i]'
+    - 'textarea[placeholder*="聊天" i]'
+    - "textarea"
+  send_button:
+    - 'button[aria-label="Send message"]'
+    - 'button[aria-label="发送信息"]'
+  stop_button:
+    - 'button[aria-label*="Stop" i]'
+  response_container:
+    - '[class*="Message_botMessage"]'
+    - '[class*="ChatMessage"]'
+  login_wall:
+    - 'a[href*="/login"]'
+    - 'button[class*="login" i]'
+
+timeouts_ms:
+  response: 90000
+
+tier: S2
+plane:
+  - N
+  - H

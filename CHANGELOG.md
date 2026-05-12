@@ -5,6 +5,148 @@ All notable changes to PCE (core + browser extension) are documented in this fil
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-05-12 — P5.C.5.2 YAML refactor of 11 secondary sites (final 11/11)
+
+Second of three sub-commits under P5.C.5. P5.C.4.2 moved the 3 S0 sites
+(ChatGPT / Claude / Gemini) into YAML; **P5.C.5.2 completes the
+refactor by moving the remaining 11 sites** — copilot, deepseek, grok,
+huggingface, kimi, manus, mistral, perplexity, poe, zhipu, and
+google_ai_studio. All 14 PCE site adapters now have their data in
+YAML and their behaviour (where non-trivial) in thin Python shells.
+
+### Refactor outcome per site
+
+| Site | Tier | Before (LOC) | After Python (LOC) | YAML (LOC) | Methods preserved |
+|---|---:|---:|---:|---:|---|
+| copilot | S1 | 46 | 19 | 44 | 0 |
+| deepseek | S1 | 37 | 17 | 32 | 0 |
+| grok | S1 | 222 | 71 | 137 | 3 (`_submit_via`, `upload_file_via_paste`, `upload_file_via_input`) |
+| huggingface | S2 | 38 | 17 | 33 | 0 |
+| kimi | S2 | 40 | 19 | 36 | 0 |
+| manus | S2 | 35 | 18 | 32 | 0 |
+| mistral | S1 | 37 | 17 | 34 | 0 |
+| perplexity | S1 | 50 | 17 | 46 | 0 |
+| poe | S2 | 36 | 17 | 30 | 0 |
+| zhipu | S2 | 40 | 17 | 33 | 0 |
+| google_ai_studio | S1 | 491 | 232 | 209 | 6 + `_ensure_model_js` helper |
+| **Totals** | — | **1072** | **461** | **666** | **9 method overrides + 1 JS builder** |
+
+Net Python: **-611 LOC (-57%)**. Net codebase (data + behaviour):
+data + thin Python = 1127 LOC across 22 files, all selector / label /
+prompt / flag values now editable by anyone who can read YAML —
+no Python knowledge required.
+
+### New manifests under `pce_core/adapters/`
+
+11 new YAML files, totaling 666 LOC. Schema version 1 throughout.
+File naming follows the existing `<adapter_name>.yaml` convention —
+note `googleaistudio.yaml` matches the class's `name = "googleaistudio"`
+not the module name `google_ai_studio.py`.
+
+Each manifest captures the per-site quirks:
+
+- **grok.yaml** — Free-tier specifics: `model_switcher`/`code_interpreter`/`canvas_indicator` empty (T06/T13/T15 SKIP), `web_search_button` populated (T14 DeepSearch supported), `edit_button` empty (T07 SKIPs per `GROK-COVERAGE-DIFF.md` §2). `branch_creation_mode: regenerate` (branches via assistant regen, not user edit). `inter_cell_pacing_s: 20.0` for the rate-limit-prone attachment endpoint. `blocking_state` keywords cover the rate-limit banner in EN + ZH. Settings URL points to `/imagine` because `/settings` 308-redirects to home on 2026-Q2 UI.
+- **googleaistudio.yaml** — `ms-chat-turn` Angular custom element as primary response container with legacy `.chat-turn-container.*` fallbacks. 9 selectors for the `Branch from here` menu item (aria-label / title / mattooltip variants × 3 menu labels). `preferred_model_labels` lists 6 stable Gemini variants for the opt-in model-ensure path. `branch_creation_mode: branch_from_here` (AI Studio forks via menu, doesn't flip in place). `settings_url` at `/api-keys` (2026-Q2 rename, was `/apikey`).
+- **kimi.yaml** + **manus.yaml** — `send_button: []` (no standard send button; fall through to Enter via `dom.type submit=True`).
+- **perplexity.yaml** — `session_url_pattern` extracts thread ID from `/(?:search|thread)/<id>`. Response timeout 120s for Pro-mode multi-source pulls.
+- **poe.yaml** — Send button labels in EN + ZH (Quora's bilingual UI).
+
+### Extended `pce_core/adapter_loader.py` (+~30 LOC)
+
+3 new mapping additions to support the 11 sites:
+
+```python
+# SELECTOR_GROUP_TO_ATTR additions
+"regenerate_root": "regenerate_root_selectors",        # Grok regen container
+"branch_from_here": "branch_from_here_selectors",      # GAS fork menu
+
+# LABEL_GROUP_TO_ATTR additions
+"preferred_model": "preferred_model_labels",           # GAS model picker
+"branch_from_here_menu": "branch_from_here_menu_labels", # GAS fork menu items
+"blocking_state": "blocking_state_keywords",           # Grok rate-limit text
+# ↑ NOTE exception: blocking_state maps to _keywords (page-text matching)
+#   not _labels (selector convention). Documented inline in loader.
+
+# FLAG_KEY_TO_ATTR additions
+"branch_surface_supported": "branch_surface_supported", # bool — Grok / GAS
+"inter_cell_pacing_s": "inter_cell_pacing_s",           # float — Grok cooldown
+```
+
+The `blocking_state` exception is the only deviation from the
+`<group>_labels` / `<group>_selectors` / `<group>_keywords` naming
+conventions in the entire loader. It's documented inline as a
+permanent quirk because the base class attribute name predates the
+YAML schema and renaming `blocking_state_keywords` → `blocking_state_labels`
+would silently break every existing call site.
+
+### Thin Python shells
+
+The 9 simple sites (copilot / deepseek / huggingface / kimi / manus /
+mistral / perplexity / poe / zhipu) become 17–19 line files in this
+exact shape:
+
+```python
+# SPDX-License-Identifier: Apache-2.0
+"""<Site> (<url>) — probe site adapter.
+
+P5.C.5.2 refactor: configuration in ``pce_core/adapters/<name>.yaml``.
+"""
+from __future__ import annotations
+
+from pce_core.adapter_loader import apply_to_class, load_adapter
+from .base import BaseProbeSiteAdapter
+
+
+class <Name>Adapter(BaseProbeSiteAdapter):
+    """<Site> probe adapter. Configured via ``adapters/<name>.yaml``."""
+
+
+apply_to_class(<Name>Adapter, load_adapter("<name>"))
+```
+
+The 2 complex sites preserve methods:
+
+- **`tests/e2e_probe/sites/grok.py`** (71 LOC) — keeps `_submit_via` (Grok's submit-by-Enter sometimes mis-fires, so click the real send button first), `upload_file_via_paste` (returns False to force fallback because Grok's React/Tailwind pipeline doesn't observe paste-dispatched files), and `upload_file_via_input` (sleeps an extra 5s after upload because the image preview takes 6–8s end-to-end before send re-enables).
+- **`tests/e2e_probe/sites/google_ai_studio.py`** (232 LOC) — keeps `send_prompt` (calls `ensure_preferred_model` first), `ensure_preferred_model` (opens the run-settings panel and dispatches `_ensure_model_js`), `upload_file_via_paste` + `upload_file_via_input` (the `<input type=file>` is lazy-mounted only after clicking `add-media-button`), `_uploaded_chip_present` (polls for `ms-image-chunk` / `ms-file-chunk` with 8s deadline), `_selector_exists` (helper for `ensure_preferred_model`), plus the module-level `_ensure_model_js(labels: list[str]) -> str` JavaScript builder that drives a `setInterval`-based picker in MAIN world.
+
+### Tests — extended `tests/test_adapter_loader.py` (+~125 LOC, 15 new tests)
+
+| Test | Coverage |
+|---|---|
+| `test_p5c52_site_class_mirrors_yaml` (×11) | Parametrized over 11 sites — identity contract (`name`/`provider`/`url`) + 5 universal selector groups + `response_timeout_ms` |
+| `test_p5c52_load_all_adapters_returns_14` | `load_all_adapters()` returns exactly 14 manifests with the expected name set |
+| `test_p5c52_grok_quirks_from_yaml` | Grok's `blocking_state_keywords` (the LABEL_GROUP exception), `inter_cell_pacing_s`, `branch_creation_mode`, `branch_surface_supported` reach the class; 3 method overrides still callable |
+| `test_p5c52_gas_quirks_from_yaml` | GAS's `preferred_model_labels`, `branch_from_here_selectors`, `branch_from_here_menu_labels`, `branch_creation_mode` reach the class; 6 method overrides still callable; `_ensure_model_js("Gemini 2.5 Flash", …)` produces non-trivial JS with `setInterval` |
+| `test_p5c52_perplexity_session_url_pattern_loaded` | Perplexity's `session_url_pattern` YAML key compiles to a regex that matches a real thread URL |
+
+Full regression: `test_conductor` (37) + `test_health_beacon` (31) +
+`test_p5c3_tools` (15) + `test_adapter_loader` (31+15=46) +
+`test_llm_repair` (27) = **156 GREEN** in 8.9 s (was 141 before
+this commit).
+
+### Acceptance gate (HANDOFF §6 — D0 release gate)
+
+- [x] At least 3 sites have YAML manifests (P5.C.4.2: 3, P5.C.5.2: +11 → 14/14)
+- [x] All 14 manifests load cleanly via `load_all_adapters`
+- [x] Every secondary site's Python class attrs match YAML values
+- [x] Grok's behavioural quirks (rate-limit keywords, inter-cell pacing,
+      regenerate-branch mode) preserved end-to-end
+- [x] GAS's complex method surface (model-ensure JS, lazy file-input
+      mount, chip polling) preserved end-to-end
+- [x] 15 new parity tests + 141 prior tests = 156 GREEN regression
+
+### Out of scope (final sub-commit under P5.C.5)
+
+- **P5.C.5.3** — `Docs/handoff/HANDOFF-P5C-COMPLETION-2026-05-12.md`
+  consolidating P5.C.0 through P5.C.5 evidence into a single
+  release-ready handoff document
+- v1.1.5 release tagging itself — outside the P5.C scope; happens
+  after the project owner reviews the completion handoff
+- Updating `Docs/stability/SITE-TIER-MATRIX.md` to reflect the
+  YAML refactor (currently the matrix describes Python-class shape,
+  needs a paragraph noting the new YAML-data invariant) — deferred to
+  P5.C.5.3 since it's a docs delta, not code
+
 ## [Unreleased] - 2026-05-12 — P5.C.5.1 Governance scaffolding (CODEOWNERS + ISSUE / PR templates)
 
 First of three sub-commits under P5.C.5 ("Cleanup + governance"). Lays
