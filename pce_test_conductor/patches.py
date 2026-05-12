@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""pce_test_conductor.patches — 3 patch templates (per ADR-017 §3.5).
+"""pce_test_conductor.patches — patch templates (per ADR-017 §3.5).
 
 Each template returns a ``PatchProposal`` containing a ``unified_diff``
 string + ``rationale`` + ``confidence``. The conductor **never applies
@@ -14,12 +14,17 @@ Templates:
 | ``add_content_block_type`` | CONTENT_BLOCK_UNKNOWN (soft) | ``pce_core/normalizer/<provider>.py`` elif chain |
 | ``add_url_path``           | URL_PATTERN_DRIFT (hard)     | ``pce_core/normalizer/<provider>.py`` ``_PATHS`` set |
 | ``widen_schema_field``     | SCHEMA_DRIFT (soft)          | ``pce_core/models.py`` field annotation |
+| ``widen_yaml_selectors``   | UI_SELECTOR_MISS (hard)      | ``pce_core/adapters/<site>.yaml`` selector list (P5.C.4.3) |
 
 The diffs are deliberately **template-shaped** (not regex-edited
 directly into the live source) — agents review the rationale + the
 diff before mutating a live file, and the conductor's role is to
-produce structured proposals that a downstream LLM call (P5.C.4) can
-either bless directly or refine into something more specific.
+produce structured proposals. The UI_SELECTOR_MISS template emits a
+**YAML diff** (not Python) since P5.C.4.2 moved selectors out of the
+Python adapter classes into ``pce_core/adapters/*.yaml``; that
+template returns a low-confidence stub on its own + delegates to
+``llm_repair`` for any real refinement (which is opt-in and
+caller-controlled).
 """
 
 from __future__ import annotations
@@ -189,6 +194,66 @@ def widen_schema_field(
 
 
 # ---------------------------------------------------------------------------
+# Template 4 — widen_yaml_selectors (P5.C.4.3)
+# ---------------------------------------------------------------------------
+
+def widen_yaml_selectors(
+    *,
+    site: str,
+    group: str = "input",
+    suggested_selectors: Optional[list[str]] = None,
+    target_case: Optional[str] = None,
+) -> PatchProposal:
+    """Generate a YAML diff that appends new selectors to a selectors.<group> list.
+
+    Used for ``UI_SELECTOR_MISS`` (hard severity). After P5.C.4.2
+    selectors live in ``pce_core/adapters/<site>.yaml``, so the diff
+    targets the YAML — not the Python class. The template inserts
+    1-2 placeholder selector lines and a comment indicating they
+    are auto-suggested; the agent reviewer (or ``llm_repair`` opt-in
+    call) refines them to match the live DOM.
+    """
+    file_path = f"pce_core/adapters/{site}.yaml"
+    suggestions = list(suggested_selectors or [])
+    if not suggestions:
+        suggestions = [
+            '[data-testid*="composer"]',
+            '[contenteditable="true"]',
+        ]
+    diff_lines = [
+        f"--- a/{file_path}\n",
+        f"+++ b/{file_path}\n",
+        f"@@ selectors.{group} @@\n",
+        f"   {group}:\n",
+        f"     - '<existing first selector>'\n",
+        f"     # ... existing entries ...\n",
+    ]
+    for sel in suggestions:
+        diff_lines.append(f"+    - '{sel}'   # P5.C.4.3 placeholder — agent reviewer to verify against live DOM\n")
+    diff = "".join(diff_lines)
+    rationale = (
+        f"Selector group {group!r} for site {site!r} failed to resolve "
+        f"a live DOM element. Adding {len(suggestions)} candidate "
+        f"alternative(s) is the minimal additive fix (existing selectors "
+        f"keep their slot, fallback order preserved). The suggestions "
+        f"here are HEURISTIC placeholders — for higher-quality candidates "
+        f"call `tools/repair_adapter.py --target browser_{site} --no-dry-run` "
+        f"which routes the failure evidence through Anthropic/OpenAI for "
+        f"DOM-informed candidates."
+    )
+    return PatchProposal(
+        patch_id=f"widen_yaml_selectors-{site}-{group}",
+        kind="widen_yaml_selectors",
+        files=[file_path],
+        unified_diff=diff,
+        rationale=rationale,
+        confidence=0.35,  # low — template-only; LLM refinement available via llm_repair
+        test_targets=[target_case] if target_case else [],
+        notes={"site": site, "group": group, "suggested_count": len(suggestions)},
+    )
+
+
+# ---------------------------------------------------------------------------
 # Dispatch — pick the right template based on FailureRecord
 # ---------------------------------------------------------------------------
 
@@ -232,7 +297,58 @@ def propose_patches_for_failure(
             field_name=field_name,
             target_case=target_case,
         )]
+    if failure_kind == "UI_SELECTOR_MISS":
+        # field_path may be "<site>:<group>" or just "<group>"; default
+        # site comes from the provider_hint when target_case is shaped
+        # like "browser_chatgpt:T01".
+        site = _site_from_target_case(target_case) or _site_from_provider(provider_hint)
+        group = _selector_group_from_field_path(field_path) or "input"
+        return [widen_yaml_selectors(
+            site=site,
+            group=group,
+            target_case=target_case,
+        )]
     return []
+
+
+def _site_from_target_case(target_case: Optional[str]) -> Optional[str]:
+    """Extract ``chatgpt`` from ``browser_chatgpt:T01`` etc."""
+    if not target_case:
+        return None
+    head = target_case.split(":", 1)[0]
+    # browser_chatgpt -> chatgpt
+    if "_" in head:
+        return head.split("_", 1)[1]
+    return head
+
+
+def _site_from_provider(provider_hint: str) -> str:
+    """Map provider hint to the most likely site key for YAML lookup."""
+    p = (provider_hint or "").lower()
+    if p in ("openai", "chatgpt"):
+        return "chatgpt"
+    if p in ("anthropic", "claude"):
+        return "claude"
+    if p in ("google", "gemini"):
+        return "gemini"
+    return p or "chatgpt"
+
+
+def _selector_group_from_field_path(field_path: Optional[str]) -> Optional[str]:
+    """``selectors.send_button`` / ``input`` / ``button[...]`` → group name."""
+    if not field_path:
+        return None
+    # Strip leading "selectors." or "$.selectors." prefixes.
+    s = field_path.lstrip("$. ")
+    if s.startswith("selectors."):
+        s = s[len("selectors."):]
+    # If it's a CSS selector (starts with ./#/[), we don't know the group —
+    # let the caller fall back to "input".
+    if s and s[0] in ".#[":
+        return None
+    # Strip trailing brackets / wildcards.
+    s = s.split("[", 1)[0].split(".", 1)[0].strip()
+    return s or None
 
 
 def _extract_new_value(actual: Any, expected: Any) -> Optional[str]:

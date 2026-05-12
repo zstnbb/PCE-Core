@@ -5,6 +5,164 @@ All notable changes to PCE (core + browser extension) are documented in this fil
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-05-12 — P5.C.4.3 LLM-refined selector repair (ADR-011 G9 closed)
+
+Third + final P5.C.4 sub-commit. P5.C.4.1 shipped the YAML loader,
+P5.C.4.2 moved selectors out of Python into YAML, and **P5.C.4.3
+closes the loop**: when nightly probe + `classify_failure` reports
+`UI_SELECTOR_MISS`, the conductor can now ask an LLM (Anthropic or
+OpenAI, opt-in) for refined YAML patch candidates — without violating
+ADR-019's "patches as data, never auto-applied" contract.
+
+### New module — `pce_test_conductor/llm_repair.py` (~420 LOC, stdlib only)
+
+| Public API | Purpose |
+|---|---|
+| `LLMProvider` enum | `ANTHROPIC` / `OPENAI` / `MOCK` / `AUTO` |
+| `LLMRepairResult` dataclass | `proposed_yaml_diff` + `rationale` + `confidence` + `provider` + `model` + `error` |
+| `select_provider_for_target(target_id)` | Heuristic dispatcher: `*chatgpt*` → OPENAI, `*claude*` → ANTHROPIC, `*gemini*`/ambiguous → MOCK |
+| `build_repair_prompt(...)` | Composes user-side prompt with stderr tail (≤1500 chars) + YAML manifest (≤6 KB) |
+| `parse_repair_response(text)` | Extracts `(diff, confidence, rationale)` from `RATIONALE: / CONFIDENCE: / ```diff` shape |
+| `repair_selector(...)` | Top-level entry; defaults to `dry_run=True` (mock provider) |
+
+**Hard safety constraints** (ADR-019 §3.1.D):
+
+1. **Opt-in only** — `dry_run=True` is the default. The mock provider
+   returns a deterministic stub with `confidence=0.25` so the human
+   reviewer treats it as a starting hint, never a finished patch.
+2. **No patch application** — the module returns a `LLMRepairResult`;
+   the agent (Cascade / Claude Code) applies the YAML diff manually
+   via their own edit tool, then runs `verify_patch`.
+3. **No API key persistence** — keys come from `ANTHROPIC_API_KEY` /
+   `OPENAI_API_KEY` env vars or kwargs; never logged, never written
+   to disk, never sent to telemetry.
+4. **Stdlib HTTP only** — `urllib.request` + `json`, no `requests` /
+   `httpx` dep. Tests monkeypatch `_post_json` for full mock coverage.
+5. **Graceful fallback** — missing API key → MOCK (no HTTP attempt).
+   HTTP 4xx/5xx → MOCK with `error` field populated. Caller always
+   gets a `LLMRepairResult`, never an unhandled exception.
+
+Default models:
+  - Anthropic: `claude-sonnet-4-5`
+  - OpenAI: `gpt-5-mini`
+
+Both overridable via `--model` CLI flag or `model=` kwarg.
+
+### New CLI — `tools/repair_adapter.py` (~250 LOC)
+
+Turnkey entry for the repair workflow:
+
+```powershell
+# Dry-run (default) — uses mock provider, exit code 0, prints proposed YAML diff
+python -m tools.repair_adapter --target browser_chatgpt
+python -m tools.repair_adapter --target browser_claude --case T01
+
+# Real API call — requires ANTHROPIC_API_KEY or OPENAI_API_KEY in env
+python -m tools.repair_adapter --target browser_chatgpt --no-dry-run --provider openai
+```
+
+Exit codes:
+  - **0**: proposal produced (including mock fallback)
+  - **1**: no failed run found for the target within `--hours-back` window (default 7 d)
+  - **2**: manifest YAML missing or unreadable
+  - **3**: `repair_selector` returned a populated `error` field
+
+The CLI **never writes to disk**. After reviewing the diff the user
+applies it themselves; `--json` flag emits machine-readable output
+for piping into a downstream agent.
+
+### Extended `pce_test_conductor/patches.py` (+~90 LOC)
+
+New template **`widen_yaml_selectors`** (4th template, brings total to 4):
+
+| Template | FailureKind | Target file |
+|---|---|---|
+| `add_content_block_type` | `CONTENT_BLOCK_UNKNOWN` (soft) | `pce_core/normalizer/<provider>.py` |
+| `add_url_path` | `URL_PATTERN_DRIFT` (hard) | `pce_core/normalizer/<provider>.py` |
+| `widen_schema_field` | `SCHEMA_DRIFT` (soft) | `pce_core/models.py` |
+| **`widen_yaml_selectors`** (new) | `UI_SELECTOR_MISS` (hard) | **`pce_core/adapters/<site>.yaml`** |
+
+Confidence 0.35 — deliberately low, so the rationale text directs
+the reviewer to `tools/repair_adapter.py --no-dry-run` for higher-
+quality LLM-refined candidates.
+
+3 new helpers (`_site_from_target_case` / `_site_from_provider` /
+`_selector_group_from_field_path`) parse the failure record's
+context to populate the YAML diff's `site` + `group` fields.
+
+### Tests — `tests/test_llm_repair.py` (27 tests, all PASS)
+
+- Provider selection heuristic: 4 (chatgpt→openai / claude→anthropic /
+  gemini→mock / ambiguous→mock)
+- Prompt construction: 2 (all fields present / long stderr truncated to ≤1500)
+- Mock provider: 1 (deterministic output for same target_id)
+- Response parsing: 3 (well-formed / missing confidence falls back /
+  missing diff returns empty)
+- Provider response unwrap: 2 (anthropic `content[0].text` / openai
+  `choices[0].message.content`)
+- `repair_selector` paths: 5 (dry-run never hits network / anthropic
+  monkeypatched / openai monkeypatched / HTTP 503 → mock with error /
+  missing API key → mock without error)
+- `widen_yaml_selectors`: 3 (default suggestions / custom suggestions /
+  dispatcher routes UI_SELECTOR_MISS → YAML diff)
+- `tools.repair_adapter`: 7 (`find_latest_failed_run` filters target+case +
+  empty / `derive_yaml_path` with+without lane prefix / CLI exit codes
+  for no-run + missing-yaml + dry-run JSON success)
+
+**Network safety**: every HTTP path in tests monkeypatches
+`llm_repair._post_json` — zero real network calls. The fixture
+`test_repair_selector_dry_run_never_hits_network` raises if
+`_post_json` is called at all during dry-run, locking the safety
+contract.
+
+Regression: `test_conductor` (37) + `test_health_beacon` (31) +
+`test_p5c3_tools` (15) + `test_adapter_loader` (31) +
+`test_llm_repair` (27) = **141 GREEN** in 11.1 s.
+
+### Acceptance gate (HANDOFF-META-PIPELINE-KICKOFF §4.P5.C.4 step 3)
+
+- [x] LLM provider abstraction supports Anthropic + OpenAI with shared
+      prompt + response parser
+- [x] Default is opt-in (`dry_run=True`); real API call requires
+      explicit flag + env-var API key
+- [x] Repair output is a YAML diff (not Python), targeting
+      `pce_core/adapters/<site>.yaml`
+- [x] Conductor's `propose_patch` for `UI_SELECTOR_MISS` now
+      dispatches to the YAML template
+- [x] CLI tool exposes the workflow end-to-end without writing to disk
+- [x] 27 unit tests cover all branches; no test makes a real HTTP call
+- [x] Graceful fallback on HTTP error + missing API key — caller
+      always gets a `LLMRepairResult`, never an unhandled exception
+
+### ADR-011 G9 — LLM auto-fix proposal: CLOSED
+
+G9 ("LLM auto-fix proposal") was the last open gap from the
+ADR-011 9-gap registry that the conductor + nightly probe needed
+to address. The closure shape per the ADR contract:
+
+- **Conductor never applies patches** — `propose_patch` + this
+  new LLM path both return data (`PatchProposal` / `LLMRepairResult`),
+  callers apply via their own edit tool. ✅
+- **LLM is the agent's responsibility, not the plugin's** — the
+  conductor's role ends at proposing structured candidates; an
+  agent (Cascade / Claude Code) drives the actual repair loop. ✅
+- **Opt-in, never automatic** — `dry_run=True` default + explicit
+  `--no-dry-run` flag + API key from env vars only. ✅
+
+ADR-011 G9 may now move from "open" to "addressed" in the next
+ADR-011 status patch.
+
+### Out of scope (P5.C.5 cleanup phase)
+
+- 11 remaining site adapters (`copilot.py` / `deepseek.py` / etc.) —
+  same YAML refactor pattern as P5.C.4.2, deferred to P5.C.5
+- Real-world end-to-end repair test (would require a live broken
+  site + paid API budget) — covered manually during next P5.B
+  matrix run, not in unit tests
+- Multi-LLM ensemble proposals (call both Anthropic + OpenAI, merge
+  candidates) — possible v1.2 enhancement; P5.C.4.3 ships single-
+  provider only
+
 ## [Unreleased] - 2026-05-12 — P5.C.4.2 YAML refactor of 3 site adapters (932→90 LOC, -842)
 
 Second of three sub-commits under P5.C.4. P5.C.4.1 landed the loader
