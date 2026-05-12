@@ -74,3 +74,13 @@ node_modules/
 # conversation content; never commit (only the .py / .md tooling
 # itself is tracked).
 /tests/manual/recon_*/
+
+# Harvest session ephemeral artifacts (S1 2026-05-13 onwards).
+# Scratch diagnostics, captured logs, state files at repo root.
+# Scripts that produce these live under scripts/harvest/.
+/_harvest_*.log
+/_harvest_*.txt
+/_harvest_state.json
+/_harvest_mitm_*.log
+/_diag*.py
+/_diag*.txt

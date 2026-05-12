@@ -303,11 +303,25 @@ def pick_port(preferred: int) -> int:
 # ---------------------------------------------------------------------------
 
 
-def spawn_app(exe: Path, debug_port: int) -> subprocess.Popen:
+def spawn_app(exe: Path, debug_port: int, proxy_server: Optional[str] = None) -> subprocess.Popen:
     cmd = [str(exe), f"--remote-debugging-port={debug_port}"]
+    if proxy_server:
+        # Force all Electron / Chromium / Node.js networking through mitmdump.
+        # `--proxy-server` covers Chromium renderer; HTTPS_PROXY env var
+        # covers any Node http(s).request the main process might use that
+        # bypasses Chromium net stack.
+        cmd.append(f"--proxy-server={proxy_server}")
+        cmd.append("--proxy-bypass-list=<-loopback>")
+        # Some Electron builds set NODE_TLS_REJECT_UNAUTHORIZED=0 internally;
+        # ours doesn't. Trust mitmproxy's CA system-wide if it's installed.
+    env = dict(os.environ)
+    if proxy_server:
+        env.setdefault("HTTPS_PROXY", f"http://{proxy_server}")
+        env.setdefault("HTTP_PROXY", f"http://{proxy_server}")
     logger.info("spawning: %s", " ".join(cmd))
     return subprocess.Popen(
         cmd,
+        env=env,
         creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
         if os.name == "nt"
         else 0,
@@ -572,6 +586,13 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Terminate the spawned app when the harvest ends (default leaves it running so you can keep using it).",
     )
+    p.add_argument(
+        "--proxy-server",
+        default="127.0.0.1:8080",
+        help="HTTPS proxy to force the spawned app through. Pass empty string to skip "
+             "(default 127.0.0.1:8080 = mitmdump). Critical for Cursor / Windsurf because their main "
+             "process Node networking otherwise bypasses the system proxy via Clash fake-IP.",
+    )
     return p.parse_args()
 
 
@@ -602,8 +623,12 @@ def main() -> int:
     debug_port = pick_port(debug_port)
 
     # --- spawn ---
-    proc = spawn_app(exe, debug_port)
-    logger.info("spawned PID=%d, debug_port=%d", proc.pid, debug_port)
+    proxy_server = args.proxy_server.strip() or None
+    proc = spawn_app(exe, debug_port, proxy_server=proxy_server)
+    logger.info(
+        "spawned PID=%d, debug_port=%d, proxy_server=%s",
+        proc.pid, debug_port, proxy_server or "(none)",
+    )
     time.sleep(0.5)  # let process init
 
     # --- wait CDP ready ---

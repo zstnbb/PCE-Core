@@ -99,7 +99,7 @@ $logStdout = Join-Path $WorkingDirectory "_harvest_mitm_stdout.log"
 $logStderr = Join-Path $WorkingDirectory "_harvest_mitm_stderr.log"
 
 $mitmArgs = @(
-    "-s", $runProxyPath,
+    "-s", "`"$runProxyPath`"",
     "-p", "$MitmPort",
     "--mode", "upstream:http://$origProxyServer",
     "--set", "flow_detail=1"
