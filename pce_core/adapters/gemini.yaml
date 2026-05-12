@@ -1,0 +1,89 @@
+# SPDX-License-Identifier: Apache-2.0
+# Gemini (gemini.google.com) site adapter — P5.C.4.1 YAML manifest.
+#
+# Gemini uses Quill (.ql-editor) inside an Angular rich-textarea.
+# The probe's dom.type handles contenteditable correctly. Send is
+# either via button[aria-label*="Send"] or the matTooltip fallback
+# when the page localizes to Chinese.
+
+schema_version: 1
+name: gemini
+provider: google
+url: "https://gemini.google.com/app"
+display_name: "Gemini (web)"
+
+selectors:
+  input:
+    - ".ql-editor"
+    - 'rich-textarea [contenteditable="true"]'
+    - '[contenteditable="true"]'
+
+  # Ordering matters: the runner clicks the FIRST selector that resolves
+  # and stops once a click succeeds. Gemini renders several buttons whose
+  # aria-label contains "Send" — not all of them are the chat send (e.g.
+  # "Send feedback" in the help menu). The send-button class is unique
+  # to the chat composer across both English and Chinese locales, so it
+  # leads. Substring fallbacks remain in case class names change in a
+  # future Gemini revision.
+  send_button:
+    - 'button.send-button'
+    - 'button[data-test-id*="send" i]'
+    - 'button[aria-label="Send message"]'
+    - 'button[mattooltip="Send message"]'
+    - 'button[aria-label*="发送"]'
+    - 'button[mattooltip*="发送"]'
+    - 'button[aria-label*="Send" i]'
+    - 'button[mattooltip*="Send" i]'
+
+  stop_button:
+    - 'button[aria-label*="Stop" i]'
+    - 'button[mattooltip*="Stop" i]'
+    - 'mat-icon[fonticon="stop"]'
+
+  response_container:
+    - ".response-container"
+    - ".model-response-text"
+    - "model-response"
+    - "message-content"
+
+  login_wall:
+    - 'a[href*="accounts.google.com/ServiceLogin"]'
+    - 'a[data-action="sign in"]'
+
+timeouts_ms:
+  page_load: 30000
+  input_appear: 15000
+  # Gemini deep research can be slow.
+  response: 120000
+  # Gemini's first-token latency on a fresh /app tab is normally ~2s
+  # but flakes up to ~12s under load (likely server-side warm-up after
+  # history sync). The default 8s submit-verify budget hits exactly
+  # that flake window — bump to 15s.
+  submit_verify: 15000
+  response_stability: 3000
+  type_settle: 250
+  post_send_settle: 800
+
+session_url_pattern: "/(?:app|chat)/([a-f0-9]+)"
+session_url_pattern_flags:
+  - IGNORECASE
+
+# T20: Gemini's Activity page (/app/activity) is a guaranteed non-chat
+# surface (Surface 19 of GEMINI-FULL-COVERAGE.md). Settings proper
+# sometimes redirects to a generic Google account page that does emit
+# noise — Activity is the safer T20 anchor.
+settings_url: "https://gemini.google.com/app/activity"
+
+temporary_chat_url: null
+
+tier: S0
+plane:
+  - N
+  - H
+
+regenerate_menu_labels:
+  - "Try again"
+  - "Regenerate response"
+  - "重新生成"
+
+canary_endpoint: "/_/BardChatUi/data"

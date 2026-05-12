@@ -1,0 +1,116 @@
+# SPDX-License-Identifier: Apache-2.0
+# ChatGPT (chatgpt.com) site adapter — P5.C.4.1 YAML manifest.
+#
+# Authority: this YAML is the canonical configuration source. The
+# Python adapter class at tests/e2e_probe/sites/chatgpt.py mirrors
+# these values for now (P5.C.4.1 backward compat); P5.C.4.2 will
+# delete the Python attributes and load from this file at import.
+#
+# Schema version 1 — see pce_core/adapter_loader.py for fields.
+
+schema_version: 1
+name: chatgpt
+provider: openai
+url: "https://chatgpt.com/"
+display_name: "ChatGPT (web)"
+
+selectors:
+  input:
+    - "#prompt-textarea"
+    - '[contenteditable="true"][id="prompt-textarea"]'
+    - '[contenteditable="true"][data-virtualkeyboard="true"]'
+    - '[contenteditable="true"][data-testid*="prompt"]'
+
+  send_button:
+    - 'button[data-testid="send-button"]'
+    - 'button[aria-label*="Send" i]'
+
+  stop_button:
+    - 'button[data-testid="stop-button"]'
+    - 'button[aria-label*="Stop" i]'
+    - 'button[aria-label*="停止"]'
+
+  response_container:
+    - '[data-message-author-role="assistant"]'
+    - '[data-testid^="conversation-turn"][data-turn="assistant"]'
+
+  login_wall:
+    - 'button[data-testid="login-button"]'
+    - '[data-testid="auth-login-button"]'
+    - 'a[href*="/auth/login"]'
+
+  edit_button:
+    - 'button[aria-label*="Edit message" i]'
+    - 'button[aria-label*="Edit" i]'
+    - 'button[aria-label*="编辑"]'
+    - 'button[aria-label*="編輯"]'
+
+  regenerate_button:
+    - 'button[data-testid*="regenerate"]'
+    - 'button[data-testid*="retry"]'
+    - 'button[aria-label="Try again"]'
+    - 'button[aria-label*="Try again" i]'
+    - 'button[aria-label*="Retry" i]'
+    - 'button[aria-label*="Regenerate" i]'
+    - 'button[aria-label*="重新生成"]'
+    - 'button[aria-label*="重新回答"]'
+
+  more_actions_button:
+    - 'button[aria-label*="More actions" i]'
+    - 'button[aria-label*="More" i]'
+    - 'button[aria-label*="更多"]'
+    - 'button[aria-label*="更多操作"]'
+
+  file_input:
+    - 'input[type="file"]:not([accept*="image"])'
+    - 'input[type="file"]'
+
+timeouts_ms:
+  # ProseMirror needs 5-8s on cold cache to mount; default 15s spread across
+  # 4 input selectors gives only 3.75s/selector. Bump input_appear to 30s.
+  # NOTE: chatgpt.py declares page_load_timeout_ms twice (30s then 25s) —
+  # the second declaration wins. We mirror the effective live value (25s)
+  # here per the P5.C.4.1 parity contract; revisit in P5.C.4.2 once the
+  # double-declaration is cleaned up.
+  page_load: 25000
+  input_appear: 30000
+  # 120s vs default 90s — first prompt SSE handshake is measurably slower
+  # than warm subsequent cells per CHATGPT-FULL-COVERAGE T01 evidence.
+  response: 120000
+  submit_verify: 8000
+  response_stability: 3000
+  type_settle: 250
+  post_send_settle: 800
+
+# Conversation UUID extraction pattern. The regex captures the conversation
+# id from the URL so PCE Core can join browser captures to the right session.
+session_url_pattern: "/c/([a-z0-9-]+)"
+session_url_pattern_flags:
+  - IGNORECASE
+
+# T20 silent-route URL: ChatGPT settings live on a hash route which renders
+# a modal over the chat shell — clean non-chat surface for capture-silence assertion.
+settings_url: "https://chatgpt.com/#settings/data-controls"
+
+# T18 temporary chat: query-param switch (no UI toggle).
+temporary_chat_url: "https://chatgpt.com/?temporary-chat=true"
+
+# Tier of this target in the PCE coverage matrix (per SITE-TIER-MATRIX.md).
+tier: S0
+plane:
+  - N
+  - H
+
+# T08 fallback menu labels — picked when direct regenerate button can't be located.
+regenerate_menu_labels:
+  - "Regenerate"
+  - "Try again"
+  - "Retry"
+  - "Rerun"
+  - "重新生成"
+  - "重新回答"
+  - "重试"
+  - "重做"
+
+# Per-product canary endpoint hint for the conductor (P5.C.2 §3.4).
+canary_endpoint: "/backend-api/conversation"

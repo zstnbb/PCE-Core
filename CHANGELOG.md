@@ -5,6 +5,118 @@ All notable changes to PCE (core + browser extension) are documented in this fil
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-05-12 — P5.C.4.1 YAML adapter loader (foundation, backward-compat)
+
+First of three sub-commits that move per-site selector configuration
+from Python class attributes into declarative YAML manifests. P5.C.4.1
+ships the **loader + 3 manifests + 22 tests** without yet refactoring
+the live site adapters — the YAML files mirror the Python class
+attribute values 1:1 and a dedicated parity test asserts equality, so
+P5.C.4.2 can confidently delete the Python attributes in a follow-up
+commit without behavioural change.
+
+### Why split into 3 sub-commits
+
+The HANDOFF spec budgeted 2 weeks for P5.C.4. Shipping the loader,
+the refactor, and the LLM-repair pipeline in a single commit is the
+mistake P5.B.7 P2.1 audit-gap exposed (walker + new cases landed
+together; audit found 3 missing surfaces because nothing forced a
+review pause between mechanism + consumers). Splitting:
+
+- **P5.C.4.1 (this commit)**: load mechanism, manifests, tests.
+  Existing site adapters unchanged — fully backward-compat.
+- **P5.C.4.2 (next commit)**: refactor `tests/e2e_probe/sites/{chatgpt,claude,gemini}.py`
+  to call `apply_to_class(cls, "<site>")` instead of declaring class
+  attributes. Bar: every existing `tests/e2e_probe` test stays GREEN.
+- **P5.C.4.3 (next commit)**: `pce_test_conductor/llm_repair.py` +
+  `tools/repair_adapter.py` — opt-in Anthropic / OpenAI API calls
+  refine `propose_patch` output for selector drift, emitting YAML
+  diffs (not Python diffs).
+
+### New package — `pce_core/adapters/`
+
+| File | Role |
+|---|---|
+| `__init__.py` | Marker + phase-ladder doc |
+| `chatgpt.yaml` | ChatGPT (`openai`) — S0, N+H plane, 9 selector groups + 7 timeouts |
+| `claude.yaml`  | Claude (`anthropic`) — S0, N+H plane, 7 selector groups + 7 timeouts |
+| `gemini.yaml`  | Gemini (`google`) — S0, N+H plane, 5 selector groups + 7 timeouts |
+
+YAML schema v1 keys: `schema_version` / `name` / `provider` / `url` /
+`display_name` / `selectors.<group>` (list) / `timeouts_ms.<key>` /
+`session_url_pattern` + `session_url_pattern_flags` / `settings_url` /
+`temporary_chat_url` / `tier` / `plane` / `regenerate_menu_labels` /
+`canary_endpoint`. Strict validation — bad regex / non-positive
+timeouts / empty selector strings raise `AdapterValidationError`
+with the offending YAML key in the message.
+
+### New module — `pce_core/adapter_loader.py` (~360 LOC, stdlib + pyyaml only)
+
+| Public API | Returns |
+|---|---|
+| `load_adapter(name, *, adapters_dir=None)` | `AdapterConfig` |
+| `list_adapter_names(*, adapters_dir=None)` | sorted `[str]` |
+| `load_all_adapters(*, adapters_dir=None)`  | `[AdapterConfig]` (skips malformed + logs) |
+| `apply_to_class(cls, config)`              | `cls` (mutates: selectors → tuples on `<group>_selectors` attrs, timeouts → `<key>_<suffix>_ms` ints, regex → compiled `re.Pattern` on `session_url_pattern`) |
+
+`SELECTOR_GROUP_TO_ATTR` maps 15 YAML group keys to the canonical
+`BaseProbeSiteAdapter` class-attribute names. `TIMEOUT_KEY_TO_ATTR`
+maps 7 timeout keys. Unknown groups still apply (with a warning)
+under the convention `<group>_selectors` so forward-compat is
+preserved when a future site introduces a new affordance.
+
+### Discovered drift in `chatgpt.py`
+
+While building the parity test, found that
+`tests/e2e_probe/sites/chatgpt.py` declares `page_load_timeout_ms`
+**twice** (line 29 = 30000, line 57 = 25000 — the second wins per
+Python class-attribute redefinition order). The YAML mirrors the
+**effective** value (25000) with an inline comment flagging the
+double declaration for cleanup in P5.C.4.2.
+
+### Tests — `tests/test_adapter_loader.py` (22 tests, all PASS)
+
+- Defaults load: 3 (every shipped manifest parses, count ≥ 3, all v1)
+- AdapterConfig shape: 3 (`selectors_for` / `timeout_ms` / `to_dict`
+  round-trips regex pattern)
+- **Parity gate**: 3 (`chatgpt` / `claude` / `gemini` YAML values
+  match the existing `tests/e2e_probe/sites/*.py` class attrs 1:1 —
+  this is the backward-compat lock for P5.C.4.2)
+- Validation errors: 9 (missing key / too-new schema / non-list
+  selectors / empty selector string / negative timeout / bad regex /
+  unknown flag / missing file / load_all skips malformed)
+- `apply_to_class`: 3 (selectors mirror / timeouts + session_pattern
+  mirror / unknown group warns + still applies)
+- Selector-group coverage: 1 (every YAML group key has a Python attr
+  mapping in `SELECTOR_GROUP_TO_ATTR` — catches future YAML drift
+  before P5.C.4.2 silently no-ops a group)
+
+Regression: `test_conductor` (37) + `test_health_beacon` (31) +
+`test_p5c3_tools` (15) + `test_adapter_loader` (22) = **105 GREEN**
+in 10.4 s. No site adapter behaviour changed.
+
+### Acceptance gate (HANDOFF-META-PIPELINE-KICKOFF §4.P5.C.4 step 1)
+
+- [x] YAML manifests load + validate for 3 reference sites
+- [x] Schema strictly validates required keys + selector list shape
+      + timeout positivity + regex syntax
+- [x] Parity test asserts every YAML field equals the live Python
+      class attribute (backward-compat lock)
+- [x] `apply_to_class` correctly mirrors selectors / timeouts /
+      session URL pattern onto a stub class
+- [x] No existing test regresses (105 GREEN)
+- [x] Foundation ready for P5.C.4.2 to refactor 3 sites without
+      changing behaviour
+
+### Out of scope (next sub-commits)
+
+- Refactor `tests/e2e_probe/sites/{chatgpt,claude,gemini}.py` to
+  load from YAML → P5.C.4.2
+- Cleanup of `chatgpt.py` double-declared `page_load_timeout_ms`
+  → P5.C.4.2 (atomic with the refactor)
+- 11 remaining sites (`copilot.py` etc.) → P5.C.5 cleanup phase
+- Anthropic / OpenAI API calls for LLM-refined patches → P5.C.4.3
+
 ## [Unreleased] - 2026-05-12 — P5.C.3 Nightly CI + auto-issue (ADR-011 G3 / G7 active)
 
 Closes the second half of the auto-eyes loop from ADR-019: now that
