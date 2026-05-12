@@ -1,0 +1,138 @@
+# SPDX-License-Identifier: Apache-2.0
+# .github/ISSUE_TEMPLATE/broken-adapter.yml
+#
+# GitHub Issue Form for reporting a broken adapter — i.e. a previously-
+# working site / desktop / CLI / MCP target that has stopped capturing
+# correctly due to upstream UI / endpoint / schema drift.
+#
+# This template is automatically used by `tools/auto_issue_on_fail.py`
+# (P5.C.3) when the nightly probe detects a non-pass conductor run.
+# Human contributors filling this in by hand should follow the same
+# structure so triage cost is uniform.
+
+name: Broken Adapter (selector / endpoint / schema drift)
+description: A previously-working PCE adapter stopped working after upstream changed
+title: "[broken-adapter] <lane>/<target>: <one-line symptom>"
+labels:
+  - broken-adapter
+  - needs-triage
+assignees:
+  - zstnbb
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting drift! Before filling this out, please:
+        1. Run `python -m pytest <test_path>::<test_name>` locally to confirm the failure is reproducible.
+        2. Check `Docs/stability/HEALTH-MATRIX.svg` (auto-rendered nightly) to see whether the matrix has already flagged this lane / target as degraded.
+        3. If you can capture a stderr tail, paste it below — `tools/auto_issue_on_fail.py` already includes one when this issue was auto-generated.
+
+  - type: dropdown
+    id: lane
+    attributes:
+      label: Lane
+      description: Which capture lane is affected?
+      options:
+        - browser
+        - desktop
+        - cli
+        - mcp
+        - cross-lane (compare_runs)
+    validations:
+      required: true
+
+  - type: input
+    id: target
+    attributes:
+      label: Target ID
+      description: Conductor target ID — see `pce_test_conductor/targets/*.yaml`
+      placeholder: e.g. `browser_chatgpt`, `desktop_claude_chat`, `cli_claude_code`, `mcp_filesystem`
+    validations:
+      required: true
+
+  - type: input
+    id: case
+    attributes:
+      label: Case ID
+      description: T01-T20 / C00-C16 / E00-E25 etc. — leave blank if multiple cases fail.
+      placeholder: e.g. T03
+
+  - type: dropdown
+    id: classification
+    attributes:
+      label: FailureKind (best guess)
+      description: From `pce_test_conductor.classifier.FailureKind` — leave UNKNOWN if you can't tell.
+      options:
+        - LOGIN_WALL
+        - UI_SELECTOR_MISS
+        - NETWORK_NOISE_MISS
+        - SCHEMA_DRIFT
+        - URL_PATTERN_DRIFT
+        - CONTENT_BLOCK_UNKNOWN
+        - RACE_TIMEOUT
+        - INFRA
+        - UNKNOWN
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: Per ADR-017 §3.3 — hard breaks the lane / target; soft degrades fidelity; info is fyi-only.
+      options:
+        - hard
+        - soft
+        - info
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Exact command(s) that produce the failure on a clean checkout.
+      value: |
+        ```powershell
+        # On Windows:
+        python -m pytest tests/e2e_probe/sites/<site>.py -v
+        # Or via the conductor:
+        python -m pce_test_conductor --tool run_case --args '{"target_id":"<id>","case_id":"<case>"}'
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: stderr
+    attributes:
+      label: Stderr tail (last 50 lines)
+      description: Output from the failing run — wrap in ``` for readability.
+      render: shell
+
+  - type: textarea
+    id: canary_diff
+    attributes:
+      label: Canary diff (if applicable)
+      description: Output of `python -m pce_test_conductor --tool diff_canary` for the failing case. Skip if N/A.
+      render: shell
+
+  - type: textarea
+    id: proposed_fix
+    attributes:
+      label: Proposed fix (optional)
+      description: If you already know the YAML selector / Python normalizer change needed, paste the unified diff here. `tools/repair_adapter.py --target <id>` produces machine-suggested candidates.
+      render: diff
+
+  - type: checkboxes
+    id: triage
+    attributes:
+      label: Triage checklist
+      description: Confirm before submitting — improves triage speed.
+      options:
+        - label: I ran the failing test locally and reproduced the failure
+          required: true
+        - label: I checked Docs/stability/HEALTH-MATRIX.svg for prior reports on this lane / target
+          required: false
+        - label: I included a stderr excerpt above
+          required: false

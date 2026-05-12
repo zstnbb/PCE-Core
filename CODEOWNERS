@@ -1,0 +1,94 @@
+# PCE Core — Code Owners
+#
+# Per HANDOFF-META-PIPELINE-KICKOFF-2026-05-12.md §4.P5.C.5 deliverable.
+# Owners are auto-requested for review on any PR that touches files
+# matching the corresponding pattern. Even though every owner is
+# currently @zstnbb, declaring them explicitly per lane / target makes
+# the social contract visible and lets external contributors see who
+# "owns" each surface — which is what HANDOFF §4.P5.C.5 acceptance
+# point #3 calls for ("CODEOWNERS covers all D0/S0 targets").
+#
+# GitHub treats the LAST matching rule as authoritative — narrower
+# patterns at the bottom override broader patterns at the top.
+
+# ---------------------------------------------------------------------
+# Catch-all: anything not matched by a more specific rule below.
+# ---------------------------------------------------------------------
+*                                                                   @zstnbb
+
+# ---------------------------------------------------------------------
+# Documentation + governance
+# ---------------------------------------------------------------------
+/Docs/                                                              @zstnbb
+/Docs/docs/engineering/adr/                                         @zstnbb
+/Docs/handoff/                                                      @zstnbb
+/Docs/stability/                                                    @zstnbb
+/Docs/legal/                                                        @zstnbb
+/CHANGELOG.md                                                       @zstnbb
+/CONTRIBUTING.md                                                    @zstnbb
+/README.md                                                          @zstnbb
+/PRIVACY.md                                                         @zstnbb
+/CODEOWNERS                                                         @zstnbb
+
+# ---------------------------------------------------------------------
+# Core platform (D0)
+# ---------------------------------------------------------------------
+/pce_core/                                                          @zstnbb
+/pce_core/health.py                                                 @zstnbb
+/pce_core/server.py                                                 @zstnbb
+/pce_core/normalizer/                                               @zstnbb
+/pce_core/adapters/                                                 @zstnbb
+/pce_core/adapter_loader.py                                         @zstnbb
+
+# ---------------------------------------------------------------------
+# Test Conductor (ADR-017, OSS Apache-2.0)
+# ---------------------------------------------------------------------
+/pce_test_conductor/                                                @zstnbb
+/pce_test_conductor/targets/                                        @zstnbb
+/pce_test_conductor/llm_repair.py                                   @zstnbb
+/pce_test_conductor/patches.py                                      @zstnbb
+
+# ---------------------------------------------------------------------
+# Lane: browser (L3a — N+H plane)
+# ---------------------------------------------------------------------
+/pce_browser_extension_wxt/                                         @zstnbb
+/tests/e2e_probe/                                                   @zstnbb
+/tests/e2e_probe/sites/                                             @zstnbb
+
+# ---------------------------------------------------------------------
+# Lane: desktop (L3g — N+M plane, D0 target Claude Desktop)
+# ---------------------------------------------------------------------
+/tests/e2e_desktop_ui/                                              @zstnbb
+/tests/e2e_desktop_ui/cases/                                        @zstnbb
+/tests/e2e_desktop_ui/drivers/                                      @zstnbb
+/tests/e2e_desktop_ui/run_p1_code_sweep.py                          @zstnbb
+/tests/e2e_desktop_ui/run_p2_cowork_sweep.py                        @zstnbb
+
+# ---------------------------------------------------------------------
+# Lane: cli (L3h — H plane, D0 target Claude Code)
+# ---------------------------------------------------------------------
+/pce_cli_wrapper/                                                   @zstnbb
+/tests/e2e_cli/                                                     @zstnbb
+
+# ---------------------------------------------------------------------
+# Lane: mcp (L3f — M plane, D1 reference target filesystem MCP)
+# ---------------------------------------------------------------------
+/pce_mcp_proxy/                                                     @zstnbb
+/tests/e2e_mcp/                                                     @zstnbb
+
+# ---------------------------------------------------------------------
+# CI + governance scaffolding
+# ---------------------------------------------------------------------
+/.github/                                                           @zstnbb
+/.github/workflows/                                                 @zstnbb
+/.github/workflows/nightly-probe.yml                                @zstnbb
+/.github/ISSUE_TEMPLATE/                                            @zstnbb
+/.github/PULL_REQUEST_TEMPLATE.md                                   @zstnbb
+
+# ---------------------------------------------------------------------
+# Tooling
+# ---------------------------------------------------------------------
+/tools/                                                             @zstnbb
+/tools/render_health_matrix.py                                      @zstnbb
+/tools/auto_issue_on_fail.py                                        @zstnbb
+/tools/repair_adapter.py                                            @zstnbb

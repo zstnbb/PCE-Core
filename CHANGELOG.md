@@ -5,6 +5,88 @@ All notable changes to PCE (core + browser extension) are documented in this fil
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-05-12 — P5.C.5.1 Governance scaffolding (CODEOWNERS + ISSUE / PR templates)
+
+First of three sub-commits under P5.C.5 ("Cleanup + governance"). Lays
+down the mechanical governance artefacts so external contributors have
+a clear surface to file against — without touching the higher-level
+docs (`CONTRIBUTING.md` / `PRIVACY.md` / `README.md`) which the project
+owner is editing in parallel.
+
+### New file — `CODEOWNERS`
+
+Per HANDOFF §4.P5.C.5 acceptance #3 ("CODEOWNERS covers all D0/S0
+targets"). Every lane + every D0/S0 target + every governance surface
+is mapped to `@zstnbb` (single-maintainer reality). 21 rules total —
+1 catch-all + 11 module rules + 6 lane rules + 3 CI/template rules.
+
+The declaration is explicit per-lane (not collapsed to `* @zstnbb`)
+so the social contract is visible: external contributors see who
+"owns" each surface, and the `auto_issue_on_fail.py` workflow's
+`--assignee @CODEOWNERS` flag from P5.C.3 now resolves to a real
+human for every issue it opens.
+
+### New directory — `.github/ISSUE_TEMPLATE/`
+
+3 YAML form templates (GitHub's modern Issue Forms shape):
+
+| Template | Trigger | Auto-applied labels |
+|---|---|---|
+| `broken-adapter.yml` | Hard failure: test fails outright | `broken-adapter`, `needs-triage` |
+| `new-site-request.yml` | Request to add a new target | `new-site-request`, `needs-tiering` |
+| `health-degradation.yml` | Soft drift: test passes but fidelity dropped | `health-degradation`, `needs-investigation` |
+
+The `broken-adapter.yml` shape matches the body produced by
+`tools/auto_issue_on_fail.py` (P5.C.3) so automated + human issue
+filings look uniform in triage — same lane / target / FailureKind /
+severity dropdowns, same reproduction-command code block.
+
+The `new-site-request.yml` walks the reporter through the S0–S3
+tiering framework from `Docs/stability/SITE-TIER-MATRIX.md` and asks
+"how can you help?" up-front so we don't accept S3 requests without
+a willing maintainer.
+
+The `health-degradation.yml` covers the gap between "test passes"
+and "capture is correct" — the 7 fidelity axes (attachments /
+sessions / order / shape / timestamps / provider / tool-calls)
+match the categories from `HEALTH-MATRIX-RUNBOOK.md` §5.1.
+
+### New file — `.github/PULL_REQUEST_TEMPLATE.md`
+
+Strict 8-item author checklist enforcing the P5.C invariants:
+
+1. Tests pass locally + summary line pasted
+2. **Adapter changes touch YAML, not Python** (locks the P5.C.4.2 contract)
+3. Canary updated if shape changed (locks ADR-011 G3)
+4. Health beacons still emit (locks P5.C.1)
+5. Conductor tests pass (locks P5.C.2)
+6. No new dep without an ADR amendment (locks ADR-013 + ADR-019)
+7. CHANGELOG entry under `[Unreleased]` with phase tag
+8. CODEOWNERS reviewer auto-requested matches the surface
+
+Plus a 5-item reviewer checklist + an explicit "out-of-scope follow-ups"
+section so PRs don't expand mid-review.
+
+### Acceptance gate (HANDOFF §4.P5.C.5 — partial, for sub-commit 1)
+
+- [x] CODEOWNERS file exists + covers every D0/S0 target / lane / governance surface
+- [x] 3 issue templates (broken-adapter / new-site-request / health-degradation) load + parse as valid YAML
+- [x] Pull request template enforces the P5.C invariants explicitly
+- [x] No conflict with the owner's parallel edits to `CONTRIBUTING.md` / `PRIVACY.md` / `README.md` (those are
+      not touched by this commit)
+
+### Out of scope (next sub-commits under P5.C.5)
+
+- **P5.C.5.2** — refactor the remaining 11 site adapters (`copilot.py` /
+  `deepseek.py` / `grok.py` / `huggingface.py` / `kimi.py` / `manus.py` /
+  `mistral.py` / `perplexity.py` / `poe.py` / `zhipu.py` / `google_ai_studio.py`)
+  to use the same YAML loader pattern as P5.C.4.2
+- **P5.C.5.3** — `Docs/handoff/HANDOFF-P5C-COMPLETION-2026-05-12.md`
+  rolling up P5.C.0 through .5 evidence
+- Diagnostic file archival (`.diag_*.py` / `.pytest_*.log` /
+  `.triage_*.txt`) — already covered by the project owner's `.gitignore`
+  additions before this kickoff; no further work needed
+
 ## [Unreleased] - 2026-05-12 — P5.C.4.3 LLM-refined selector repair (ADR-011 G9 closed)
 
 Third + final P5.C.4 sub-commit. P5.C.4.1 shipped the YAML loader,

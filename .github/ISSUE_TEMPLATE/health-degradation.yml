@@ -1,0 +1,113 @@
+# SPDX-License-Identifier: Apache-2.0
+# .github/ISSUE_TEMPLATE/health-degradation.yml
+#
+# GitHub Issue Form for reporting that a lane / target is silently
+# degraded — passes don't fail outright, but capture fidelity has
+# dropped (e.g. attachments missing, sessions split, timestamps drift).
+#
+# Distinct from broken-adapter.yml: that one is for HARD failures with
+# clear stderr / canary signals. This template covers SOFT degradations
+# that the nightly probe's pass/fail axis doesn't pick up because the
+# headline assertion still succeeds.
+
+name: Health Degradation (soft drift / fidelity loss)
+description: Lane / target nominally passes but capture fidelity is degraded
+title: "[health-degraded] <lane>/<target>: <observed symptom>"
+labels:
+  - health-degradation
+  - needs-investigation
+assignees:
+  - zstnbb
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this when a capture **looks superficially correct** but is dropping data — attachments missing, sessions split, content order wrong, timestamps off, etc.
+
+        For hard failures (test fails outright, stderr explodes), use **Broken Adapter** instead.
+
+  - type: dropdown
+    id: lane
+    attributes:
+      label: Lane
+      options:
+        - browser
+        - desktop
+        - cli
+        - mcp
+    validations:
+      required: true
+
+  - type: input
+    id: target
+    attributes:
+      label: Target ID
+      placeholder: e.g. browser_chatgpt
+    validations:
+      required: true
+
+  - type: dropdown
+    id: fidelity_axis
+    attributes:
+      label: Which fidelity axis is affected?
+      options:
+        - Attachments (images / files / canvas / artifact missing or partial)
+        - Sessions (split, merged, mis-keyed by session_hint)
+        - Content order (assistant message out of sequence / interleaved)
+        - Content shape (raw JSON instead of clean text / parts not assembled)
+        - Timestamps (wrong timezone / off by N hours)
+        - Provider attribution (provider=unknown, mis-classified)
+        - Tool calls / tool results (lost, partially captured)
+        - Other / unsure
+    validations:
+      required: true
+
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behaviour
+      description: What did the capture produce? Sample a session ID / capture ID from `GET /api/v1/captures`.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What SHOULD the capture have produced? Reference HEALTH-MATRIX.md §5.1 if applicable.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: |
+        Step-by-step to reproduce on a clean checkout. If reproducing requires a particular account state (logged-in, paid tier), please note that.
+      value: |
+        1. ...
+        2. ...
+        3. Inspect `GET /api/v1/sessions/<id>/messages` — observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: capture_dump
+    attributes:
+      label: Capture payload dump (optional)
+      description: |
+        Output of `curl http://127.0.0.1:9800/api/v1/captures?provider=<p>&limit=5` for the affected capture(s). Redact any PII first.
+      render: json
+
+  - type: checkboxes
+    id: triage
+    attributes:
+      label: Triage checklist
+      options:
+        - label: I confirmed the test still nominally passes (this is NOT a hard failure)
+          required: true
+        - label: I have at least one specific session / capture ID demonstrating the issue
+          required: true
+        - label: I've checked whether this is already tracked in HEALTH-MATRIX-RUNBOOK.md
+          required: false

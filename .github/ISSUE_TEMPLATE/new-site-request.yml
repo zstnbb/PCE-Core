@@ -1,0 +1,108 @@
+# SPDX-License-Identifier: Apache-2.0
+# .github/ISSUE_TEMPLATE/new-site-request.yml
+#
+# GitHub Issue Form for requesting that PCE add support for a new AI
+# chat site / desktop app / CLI / MCP server. Triage flow:
+#
+#   1. Reporter fills this in.
+#   2. Maintainer (@zstnbb per CODEOWNERS) classifies the request as
+#      S0/S1/S2/S3 (per SITE-TIER-MATRIX.md) within 1 week.
+#   3. S0 + S1 requests move to the active backlog. S2 stays as a
+#      tracked-deferred issue. S3 is closed with a polite "we can't
+#      commit, but PRs welcome" reply.
+#
+# This template is NOT used by automation — it's purely for human
+# contributors / external users.
+
+name: New Site / Target Request
+description: Request PCE add capture support for a new AI site, desktop app, CLI, or MCP server.
+title: "[new-site] <site / product name>"
+labels:
+  - new-site-request
+  - needs-tiering
+assignees:
+  - zstnbb
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the request! Tiering reference:
+        - **S0** (3-week SLA): ChatGPT / Claude / Gemini. Always-supported.
+        - **S1** (best-effort): Other major hyperscalers + open-weight chat UIs.
+        - **S2** (deferred): Niche / region-specific sites; we track but don't commit.
+        - **S3** (PR-welcome): Long tail; we'll review a maintained PR but won't drive the work.
+
+        Before submitting, please check `Docs/stability/SITE-TIER-MATRIX.md` to see whether this target is already tracked.
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface type
+      options:
+        - Web chat site (browser lane)
+        - Desktop app (desktop lane)
+        - CLI tool (cli lane)
+        - MCP server (mcp lane)
+        - Other / unsure
+    validations:
+      required: true
+
+  - type: input
+    id: product_name
+    attributes:
+      label: Product name
+      placeholder: e.g. Mistral Le Chat, Cursor, GitHub Copilot CLI, mcp-filesystem
+    validations:
+      required: true
+
+  - type: input
+    id: vendor
+    attributes:
+      label: Vendor / provider
+      placeholder: e.g. mistralai, anysphere, github, anthropic
+
+  - type: input
+    id: url
+    attributes:
+      label: Entry URL / install command
+      description: "For web: https URL. For desktop / CLI / MCP: install / launch command."
+      placeholder: e.g. https://chat.mistral.ai/ — or — `npm i -g some-cli`
+
+  - type: dropdown
+    id: tier_self_rated
+    attributes:
+      label: Self-rated tier
+      description: Your honest assessment — maintainer may adjust.
+      options:
+        - S0 (must-have, high user demand)
+        - S1 (would-be-nice, growing community)
+        - S2 (niche, infrequent use)
+        - S3 (very narrow / experimental)
+    validations:
+      required: true
+
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Use case
+      description: What would you / your users do with PCE capture on this surface?
+    validations:
+      required: true
+
+  - type: textarea
+    id: technical_notes
+    attributes:
+      label: Technical notes (optional)
+      description: |
+        Anything that would speed up a PR — DOM structure, API endpoints, auth model, etc.
+        Especially useful: a 30-second screen recording of a chat session, captured DOM tree, or a sample network trace.
+
+  - type: checkboxes
+    id: willing_to_help
+    attributes:
+      label: How can you help?
+      options:
+        - label: I can test PR drafts on this target on my account
+        - label: I can submit a draft PR (selectors / adapter stub)
+        - label: I'm just reporting demand; can't commit to implementation
