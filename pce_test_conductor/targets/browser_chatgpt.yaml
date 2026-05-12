@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: Apache-2.0
+# pce_test_conductor target manifest — Browser lane / ChatGPT (S0).
+# Per ADR-017 §3.6 + META-PIPELINE-FRAMEWORK.md §5.2.
+
+target_id: browser_chatgpt
+display_name: ChatGPT (web)
+
+lane: browser
+tier: S0
+plane: [N, H]            # multi-channel redundancy: N (L1 mitmproxy) + H (L3a extension)
+primary_layer: L3a
+fallback_layers: [L1]
+
+# Adapter class — imported via importlib at run_case dispatch.
+# May be None if the case set lives in the runner (current state).
+adapter_class: tests.e2e_probe.sites.chatgpt.ChatGPTAdapter
+
+# Pytest invocation — args extend the base command. ``marker_filter``
+# is folded into the `-k` expression alongside the case_id (e.g.
+# ``-k "chatgpt and T01"``).
+runner:
+  type: pytest
+  args:
+    - tests/e2e_probe/test_matrix.py
+  marker_filter: chatgpt
+  timeout_s: 600
+
+# Where to import CASE_STANDARDS from (ADR-017 §3.10 test obligation).
+case_standard_module: tests.e2e_probe.execution_standard
+
+# Canary store (relative to repo root). git-tracked per ADR-017 §3.4.
+canary_dir: pce_test_conductor/canaries/browser_chatgpt/
+
+# Health beacon filter for `list_targets` colour rollup (HEALTH-MATRIX §4.2).
+health_beacon_filter:
+  lane: browser
+  target: chatgpt
+
+ownership:
+  codeowner: "@zstnbb"
+  fallback_owner: "@zstnbb"
+
+adapter_provider: oss

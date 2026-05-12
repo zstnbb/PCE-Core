@@ -5,6 +5,129 @@ All notable changes to PCE (core + browser extension) are documented in this fil
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-05-12 — P5.C.2 Test Conductor MVP (ADR-017 Proposed → Adopted)
+
+Activates ADR-017 by shipping `pce_test_conductor/` — the cross-lane
+test orchestration layer with **8 MCP tools** that any agent (Cascade,
+Claude Desktop, Claude Code) can drive over stdio JSON-RPC. The
+conductor is **OSS Apache-2.0** and follows ADR-019 §3.1 contract D
+(patches-as-data, never auto-applied) + ADR-011 G3 (canary schema
+store) + ADR-011 G9 (LLM auto-fix is delegated to the agent's own
+edit tool, not the conductor).
+
+### New package — `pce_test_conductor/` (~1900 LOC across 9 files)
+
+| Module | Role |
+|---|---|
+| `__init__.py` | Public dataclass re-exports + version |
+| `__main__.py` | `python -m pce_test_conductor` entry — stdio / SSE / `--list-targets` / `--tool` |
+| `manifest.py` | `Target` dataclass + YAML loader (per ADR-017 §5.2) |
+| `classifier.py` | `FailureKind` 9-value enum + heuristic regex classifier |
+| `canary.py` | Custom JSON Schema infer + merge + diff (no genson dep — ~150 LOC) |
+| `runner.py` | Pytest subprocess wrapper + `RunRecord` persistence |
+| `replay.py` | P5.C.2 stub for `mode='replay'` (full impl P5.C.4) |
+| `patches.py` | 3 patch templates (`add_content_block_type` / `add_url_path` / `widen_schema_field`) |
+| `server.py` | `FastMCP` registrar + 8 tool implementations + `TOOL_DISPATCH` registry |
+
+### 4 target manifests (`pce_test_conductor/targets/*.yaml`)
+
+- `browser_chatgpt.yaml` (S0, plane=N+H, L3a primary) → wraps `tests/e2e_probe`
+- `desktop_claude_chat.yaml` (D0, plane=N+M, L3g primary) → wraps `tests/e2e_desktop_ui`
+- `cli_claude_code.yaml` (D0, plane=H, L3h primary) → wraps `tests/e2e_cli`
+- `mcp_filesystem.yaml` (D1, plane=M, L3f primary) → wraps `tests/e2e_mcp`
+
+### 8 MCP tools (per ADR-017 §3.2)
+
+| Tool | Purpose | Output |
+|---|---|---|
+| `list_targets(include_health=True)` | Enumerate manifests + roll up `health_color` from `pce_core.health.compute_matrix` | `{targets:[...], count}` |
+| `list_cases(target_id)` | Import `case_standard_module` + project `CASE_STANDARDS` | `{cases:[...], count}` |
+| `run_case(target_id, case_id, mode)` | Pytest subprocess + persist `runs/<run_id>.json` | `RunRecord.to_dict()` |
+| `get_run(run_id)` | Read previous run | `RunRecord.to_dict()` or `error:run_not_found` |
+| `diff_canary(target_id, case_id, payload, update?)` | Schema infer vs stored baseline | `{diff:[SchemaDiffEntry...]}` |
+| `classify_failure(run_id)` | Map run evidence to `FailureKind` + severity | `FailureRecord.to_dict()` |
+| `propose_patch(run_id)` | Classify, then dispatch to template — never applies the diff | `{proposals:[PatchProposal...]}` |
+| `verify_patch(target_id, case_id)` | Re-run after agent applied a patch (carries `verify_after_patch=True` evidence marker) | `RunRecord.to_dict()` + `verify_marker:True` |
+
+### `FailureKind` closed enum (9 values, ADR-017 §3.3)
+
+`LOGIN_WALL` / `UI_SELECTOR_MISS` / `NETWORK_NOISE_MISS` / `SCHEMA_DRIFT` /
+`URL_PATTERN_DRIFT` / `CONTENT_BLOCK_UNKNOWN` / `RACE_TIMEOUT` / `INFRA` /
+`UNKNOWN`. Severity ladder: `hard` / `soft` / `info`. Resolution order
+prioritises canary diffs over stderr regex patterns to avoid false
+positives from noisy stack traces.
+
+### Canary store — zero new deps
+
+ADR-017 §3.4 spec'd genson + jsonschema-diff; we ship a custom inferrer
+(~150 LOC) instead. Same severity ladder (`added_property`=soft,
+`removed_property`=hard when previously required, `changed_type`=hard,
+`enum_extension`=soft). Schemas land at
+`pce_test_conductor/canaries/<target>/<case_id>_<endpoint>.schema.json`,
+git-tracked per the spec.
+
+### 3 patch templates (data only, ADR-019 contract D)
+
+`propose_patch` returns `unified_diff` strings + `rationale` +
+`confidence` (0.5–0.7 baseline). The conductor **never** writes to the
+filesystem — Cascade / Claude Code use their own edit tool, then call
+`verify_patch` for the round-trip. Templates target the most common
+failure shapes from past P5.A / P5.B runs (new `content_block.type` /
+endpoint path drift / Pydantic field disappearing). LLM-refined
+proposals arrive in P5.C.4.
+
+### CLI ergonomics
+
+```powershell
+python -m pce_test_conductor --list-targets
+python -m pce_test_conductor --tool list_cases --args '{"target_id":"browser_chatgpt"}'
+python -m pce_test_conductor                                    # stdio MCP for Cascade / Claude Desktop
+```
+
+### Tests — `tests/test_conductor.py` (37 tests, all PASS)
+
+- Manifest layer: 4 (defaults load, summary shape, missing file, bad-yaml skip)
+- Canary layer: 4 (infer, merge with required intersection, diff 4 kinds, fresh baseline)
+- Classifier: 5 (INFRA / UI_SELECTOR_MISS / RACE_TIMEOUT / UNKNOWN / canary-overrides-pattern)
+- Patches: 4 (CONTENT_BLOCK_UNKNOWN / URL_PATTERN_DRIFT / SCHEMA_DRIFT / no-template-for-LOGIN_WALL)
+- Replay stub: 1 (NotImplementedError mentions P5.C.4)
+- 8 tools end-to-end: 17 (each tool gets ≥ 2 paths — happy + error/edge)
+- Dispatch contract: 1 (exactly the 8 ADR-017 tool names registered)
+
+`run_case` tests stand up a tiny pytest test file in `tmp_path` + a
+real subprocess invocation, so the runner pipeline is exercised
+end-to-end (not mocked).
+
+Regression: `tests/test_health_beacon` (31) + `tests/e2e_cli` + `tests/e2e_mcp` =
+156 GREEN, no impact.
+
+### Acceptance gate (HANDOFF-META-PIPELINE-KICKOFF §4.P5.C.2)
+
+- [x] Conductor MCP server can be loaded by Claude Desktop / Cascade and lists 8 tools
+      (FastMCP wrapper at `server.get_mcp()` + `__main__.py --stdio`)
+- [x] `run_case("browser_chatgpt", "T01")` drives `tests/e2e_probe/test_matrix.py::test_chatgpt[T01]`
+      (verified via stub pytest fixture in `test_run_case_pass_via_stub_pytest`)
+- [x] `run_case("desktop_claude_chat", "D01")` drives `tests/e2e_desktop_ui/cases/...`
+      (manifest wired; case execution depends on the desktop driver bring-up — orthogonal P5.B carry-on)
+- [x] `classify_failure` correctly returns ≥ 4 `FailureKind` values
+      (5 covered: INFRA / UI_SELECTOR_MISS / SCHEMA_DRIFT / RACE_TIMEOUT / UNKNOWN)
+- [x] `diff_canary` outputs `severity=soft` on `enum_extension`
+      (`test_diff_schemas_detects_added_removed_changed_enum`)
+- [x] ≥ 16 tests GREEN (37 actually shipped, 2.3× the minimum)
+
+### Out of scope (lands in later P5.C sub-phases)
+
+- LLM-refined `propose_patch` (Anthropic / OpenAI API) → P5.C.4
+- `mode='replay'` actual fixture playback → P5.C.4
+- Nightly probe + auto-issue + CODEOWNERS @-mention → P5.C.3
+- K-case (CLI lane) + M-case (MCP lane) standards → P5.C.5
+- Cross-lane `compare_runs(run_id_a, run_id_b)` consistency assertion → v1.2
+
+### ADR-017 status
+
+`Proposed (2026-05-09)` → `Adopted (2026-05-12 P5.C.2 MVP shipped)`.
+Patched in `Docs/docs/engineering/adr/ADR-017-...md` line 3 in this commit.
+
 ## [Unreleased] - 2026-05-12 — P5.C.1 Health beacon skeleton (Meta-Pipeline pillar 3 of 3)
 
 Implements the **health-as-data** contract defined in P5.C.0

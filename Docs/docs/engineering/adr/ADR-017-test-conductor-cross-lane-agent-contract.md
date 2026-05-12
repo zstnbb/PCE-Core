@@ -1,6 +1,6 @@
 # ADR-017: 跨 lane 测试编排与 Agent 可调用契约（Test Conductor）
 
-- Status: Proposed (drafted 2026-05-09；实施在 Phase 4.D.1–6)
+- Status: Adopted (drafted 2026-05-09; MVP shipped 2026-05-12 in P5.C.2 — `pce_test_conductor/` 8 MCP tools + 9 FailureKind + canary store + 3 patch templates)
 - Date: 2026-05-09
 - Phase: P5.B.4（proposed；follows ADR-016 Phase 3 收尾）
 - Related: ADR-009（UCS canonical 层枚举）、ADR-010（Open Core 边界）、ADR-011（PCE Probe 远程化与 agent 自治测试通道，本 ADR 接续其 local 部分；远程 VPS 部分仍延期）、ADR-013（OSS 归属论据）、ADR-015（UCS L3f）、ADR-016（CDP launcher + `.mcpb` 打包）

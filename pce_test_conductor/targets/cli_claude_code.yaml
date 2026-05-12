@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: Apache-2.0
+# pce_test_conductor target manifest — CLI lane / Claude Code (D0).
+# Per ADR-018 §3.5 (L3h CLI wrap PATH-priority shim).
+
+target_id: cli_claude_code
+display_name: Claude Code (CLI)
+
+lane: cli
+tier: D0
+plane: [H]               # H1 (PATH-priority shim) — N (L1) is fallback when proxy is up
+primary_layer: L3h
+fallback_layers: [L1]
+
+# CLI lane adapters live inside pce_cli_wrapper today; the conductor
+# discovers test cases via the test runner rather than instantiating
+# an adapter class directly.
+adapter_class: null
+
+runner:
+  type: pytest
+  args:
+    - tests/e2e_cli
+  marker_filter: e2e_cli
+  timeout_s: 600
+
+# K-case standard not yet implemented — P5.C.5 deliverable per
+# META-PIPELINE-FRAMEWORK.md §2.2 table.
+case_standard_module: null
+
+canary_dir: pce_test_conductor/canaries/cli_claude_code/
+
+health_beacon_filter:
+  lane: cli
+  target: claude_code
+
+ownership:
+  codeowner: "@zstnbb"
+  fallback_owner: "@zstnbb"
+
+adapter_provider: oss

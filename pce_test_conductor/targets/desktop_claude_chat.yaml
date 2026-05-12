@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: Apache-2.0
+# pce_test_conductor target manifest — Desktop lane / Claude Desktop chat-region (D0).
+# Per ADR-018 (three-axis MSIX) + DESKTOP-PRODUCT-MATRIX.md §3 (D0 release gate).
+
+target_id: desktop_claude_chat
+display_name: Claude Desktop — Chat region
+
+lane: desktop
+tier: D0
+plane: [N, M]            # N (L1 mitmproxy) + M (L3f MCP middleware) + L3g (persistence)
+primary_layer: L3g       # persistence-first per chat-region D0 sweep evidence
+fallback_layers: [L1, L3f]
+
+adapter_class: tests.e2e_desktop_ui.drivers.claude_desktop.ClaudeDesktopDriver
+
+runner:
+  type: pytest
+  args:
+    - tests/e2e_desktop_ui/cases
+  marker_filter: p1_chat
+  timeout_s: 1800        # desktop sweeps drive UIA so allow longer
+
+case_standard_module: tests.e2e_desktop_ui.execution_standard
+# Note: tests/e2e_desktop_ui/execution_standard.py — P5.C.5 deliverable
+# per DESKTOP-D-CASE-EXECUTION-STANDARD.md §4. Until then, list_cases
+# returns an empty list with a "module_not_found" notice.
+
+canary_dir: pce_test_conductor/canaries/desktop_claude_chat/
+
+health_beacon_filter:
+  lane: desktop
+  target: claude_desktop
+
+ownership:
+  codeowner: "@zstnbb"
+  fallback_owner: "@zstnbb"
+
+adapter_provider: oss

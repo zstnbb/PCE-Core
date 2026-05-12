@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: Apache-2.0
+# pce_test_conductor target manifest — MCP lane / filesystem reference server.
+# Per ADR-015 (UCS L3f MCP middleware) + ADR-016 (.mcpb packaging).
+
+target_id: mcp_filesystem
+display_name: MCP — filesystem (reference upstream)
+
+lane: mcp
+tier: D1
+plane: [M]               # MCP frame relay only
+primary_layer: L3f
+fallback_layers: []
+
+# MCP relay adapter is host-driven (the upstream filesystem server is
+# the reference target — capture comes from JSON-RPC frames, not from
+# an adapter class).
+adapter_class: null
+
+runner:
+  type: pytest
+  args:
+    - tests/e2e_mcp
+  marker_filter: e2e_mcp
+  timeout_s: 300
+
+# M-case standard not yet implemented — P5.C.5 deliverable.
+case_standard_module: null
+
+canary_dir: pce_test_conductor/canaries/mcp_filesystem/
+
+health_beacon_filter:
+  lane: mcp
+  target: filesystem
+
+ownership:
+  codeowner: "@zstnbb"
+  fallback_owner: "@zstnbb"
+
+adapter_provider: oss
