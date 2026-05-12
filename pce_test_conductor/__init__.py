@@ -43,7 +43,7 @@ Entry points:
 - ``python -m pce_test_conductor --list-targets`` # CLI introspection
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 # Re-export the most common dataclasses for ergonomics in tests
 # and embedding scripts. The 8 MCP tool entry points live in
