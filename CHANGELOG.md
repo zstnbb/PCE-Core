@@ -5,6 +5,249 @@ All notable changes to PCE (core + browser extension) are documented in this fil
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-05-12 — P5.B.7 P2.1 Code-region audit-gap closure (sessions/<pid>.json + custom agents/*.md + plugins/*.json)
+
+Direct continuation of P5.B.7 P2 (commit `e8fd137`, tag
+`v1.1.0-alpha.13-code-p2`). A full `Get-ChildItem ~/.claude` walk on
+the reference machine after the P2 tag surfaced three on-disk
+surfaces the original P5.B.7 standard-alignment RECON had missed.
+This sub-run closes the audit gap with a single walker module
+extension plus three new E-cases.
+
+Tag: **`v1.1.0-alpha.14-code-p2.1`** (commit `2a71407`).
+
+### New surfaces
+
+| Surface | Path | Role |
+|---|---|---|
+| **sessions/<pid>.json** | `~/.claude/sessions/<pid>.json` | The PID ↔ sessionId Rosetta Stone — ~228 B JSON per recently-active session: `{pid, sessionId, cwd, startedAt, procStart, version, peerProtocol, kind, entrypoint}`. The `entrypoint` field directly discriminates `claude-desktop` vs `cli`, so the dashboard can JOIN OS-level process state to Claude-level session state without guessing. |
+| **agents/*.md** | `~/.claude/agents/<name>.md` | User-authored sub-agent definitions: YAML frontmatter (`{name, description, model, color, tools}`) + body as the system prompt. The bedrock of the `Task()` tool's behaviour — without capturing these, the dashboard can show a sub-agent ran but not what instructions it received. |
+| **plugins/*.json** | `~/.claude/plugins/{installed_plugins,blocklist,known_marketplaces,config}.json` | Plugin install state (per-project installed list, blocklist with reasons, marketplace catalog, active repo config). Allow-listed file set; everything under `cache/` / `repos/` / `marketplaces/` is excluded (3 MB low-signal noise). |
+
+### P5.B.7.P2.1 walker — `pce_persistence_watcher/sources/claude_user_state.py`
+
+- **`_emit_pid_sessions`** — walks `~/.claude/sessions/*.json`, propagates each file's `sessionId` into the row's `session_hint` so the dashboard's session JOIN works automatically.
+- **`_emit_user_agents`** — walks `~/.claude/agents/*.md`, parses YAML frontmatter via a defensive 2-pass scanner (closes on `---` or end of file; falls back to `frontmatter={}` for malformed files), wraps the body as `system_prompt`.
+- **`_emit_plugin_state`** — walks an allow-list (`_PLUGIN_STATE_FILES`) of 4 JSON filenames at the `plugins/` root; ignores all subdirectories; skips malformed JSON files while still yielding siblings.
+- **Subroutine integration**: `iter_claude_user_state_records` orchestrates the three new emitters after the existing 5 surfaces (global / settings / settings_local / todos / history); `__main__._scan_install` reuses the same observer write path with kind `transcript_line` for path routing.
+
+### P5.B.7.P2.1 sweep — `tests/e2e_desktop_ui/run_p1_code_sweep.py`
+
+Three new STATIC-eligible E-cases (full spec in `Docs/stability/DESKTOP-PRODUCT-MATRIX.md` §5.C):
+
+- **E23** sessions/<pid>.json captured — **REQUIRED** for static gate (these files persist across sessions and are populated on any install used at least once); body must have both `pid` (int) and `sessionId` (str); `session_hint` must propagate.
+- **E24** custom agents/*.md captured — SKIP-eligible (most installs lack custom agents until the user runs `/agents create`); body envelope must have all four keys (`name`, `filename`, `frontmatter`, `system_prompt`).
+- **E25** plugins/*.json install state captured — SKIP-eligible (plugins feature is optional); filenames must intersect the expected allow-list.
+
+`static_required` grows from 15 → 16 cases by adding E23.
+
+### Tests
+
+- **`tests/e2e_l3g/test_p2_user_state_and_subagent.py`** gains 3 new test classes:
+  - `TestPidSessionsWalker` (~10 tests): `sessionId` propagated to `session_hint`; non-`.json` files ignored; missing directory yields silently; malformed JSON skipped without breaking siblings; defensive `session_id=None` fallback when body lacks `sessionId`.
+  - `TestUserAgentsWalker` (~5 tests): one record per `.md`; frontmatter parser correctly extracts `{name, description, model, color}`; body becomes `system_prompt`; `.txt` / `.json` files ignored; malformed-frontmatter file falls through with `frontmatter={}` and `name=<filename-stem>`.
+  - `TestPluginStateWalker` (~5 tests): one record per allow-listed file; partial-presence (only some files exist) works; `cache/` / `repos/` / `marketplaces/` subdirs NOT walked; malformed JSON in one file doesn't break siblings.
+  - `TestP21E2E` (3 tests): end-to-end walker → observer → `raw_captures` path-routing — `sessions/<pid>.json` → `/<app>/user-state/user_state_pid_session/<pid>.json`; `agents/*.md` → `/<app>/user-state/user_state_agents/<name>.md`; `plugins/*.json` → per-filename rows.
+- **Test count**: `e2e_l3g/` grows **142 → 168** (+26 tests).
+
+### Verification (reference machine)
+
+```
+python tests\e2e_desktop_ui\run_p1_code_sweep.py --mode static
+```
+
+- E00–E22: same verdicts as the P2 tag (21 PASS / 2 SKIP / 0 FAIL).
+- **E23 PASS** — sessions/<pid>.json: 19 records; sample pid=11316 entrypoint=`'claude-desktop'`.
+- **E24 PASS** — user_state_agents: 1 agent file; sample name=`'forge-engineering-executor'`, prompt_len=8275.
+- **E25 PASS** — plugin state: 4 records; filenames=`['blocklist.json', 'config.json', 'installed_plugins.json', 'known_marketplaces.json']`.
+- **DONE 24 PASS / 2 SKIP / 0 FAIL** (target ≥16 required / ≤10 optional / 0 FAIL). Gate: PASS.
+- `e2e_l3g` regression: 168/168.
+
+### Live-sweep projection
+
+E23-E25 are static-only by design — they verify DB-side state the watcher populates deterministically. Live mode falls through to the same static checks. Combined with P1's empirical 15 PASS / 1 SKIP / 0 FAIL (commit `a69d303`), the projected live verdict is **25 PASS / 1 SKIP / 0 FAIL** (only E10 default-mode permission-dialog SKIP carries through, per §5.C.2 Q2).
+
+### Repo cleanup (incidental)
+
+The 2026-05-11 Code-tab RECON drive left ~16 scratch files at the repo root (`_code_*`, `_h1_*`, `_inspect*`, `_inventory.py`). Six of these are referenced by `Docs/research/2026-05-11-code-tab-recon-findings.md` as empirical anchors and have been **archived in-tree** under `Docs/research/2026-05-11-code-recon-artefacts/` (citations in the findings doc rewritten to the new paths). The ten one-shot RECON scripts (per the doc's own recommendation) plus four H1-probe artefacts have been **deleted**. `.gitignore` now reserves `/_code_*`, `/_h1_*`, `/_inspect*` to keep future RECON drives from leaking into the repo root.
+
+---
+
+## [Unreleased] - 2026-05-12 — P5.B.7 P2 Code-region sub-agents + user-home state surfaces (E16-E22)
+
+Builds on P5.B.7 P1 (`v1.1.0-alpha.12-code-p1`). Two architectural concerns surfaced during P1 implementation: (1) `~/.claude/projects/<encoded-cwd>/<sessionId>/subagents/<agent-uuid>.jsonl` subdirectories — sub-agent transcripts that the P1 walker deliberately did NOT descend into to avoid uncharted shape risk; (2) `~/.claude/` itself contains four high-signal surfaces (`.claude.json`, `settings.json`, `todos/*.json`, `history.jsonl`) that govern the user's MCP servers, secret env vars, agent products, and slash-command history — none of which were captured.
+
+This sub-run closes both gaps with one walker module extension plus 7 new E-cases.
+
+Tag: **`v1.1.0-alpha.13-code-p2`** (commit `e8fd137`).
+
+### Backend — `pce_persistence_watcher/sources/claude_user_state.py` (NEW)
+
+- **`_looks_like_secret_key(key)`** — predicate matching common credential suffixes (`*_TOKEN`, `*_API_KEY`, `*_SECRET`, `Authorization`, etc.) plus the well-known `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY` literals.
+- **`_redact_env_block(env_dict)`** — replaces matching values with the `_REDACTED` marker while preserving clean keys (URLs, timeouts, debug flags).
+- **`_redact_global_state(body)`** — top-level scrub of `~/.claude.json`: drops PII fields (`userID`, `oauthAccount.email`, `oauthAccount.accountUuid`), redacts every `mcpServers[*].env` block.
+- **`_redact_settings(body)`** — applies `_redact_env_block` to `settings.json::env` while preserving `permissions` (the allow/deny rules), `model`, and other clean fields.
+- **5 new walker emitters** wired into `iter_claude_user_state_records`:
+  - `_emit_global` — `~/.claude.json` (redacted as above), surfaces both `mcpServers` and per-project state.
+  - `_emit_settings` (+ `_emit_settings_local`) — `~/.claude/settings.json` and `.local.json` with the redaction pass applied.
+  - `_emit_todos` — `~/.claude/todos/<sessId>-agent-<agentId>.json`; filename-parses out `session_id` + `agent_id`; skips empty `[]` files.
+  - `_emit_history` — `~/.claude/history.jsonl` line-by-line with `line_index` as the dedup key (handles multi-MB files without buffering); skips malformed lines.
+
+### Backend — sub-agent walker
+
+- **`iter_code_tab_subagent_records()`** in `pce_persistence_watcher/sources/code_tab.py` — descends into `~/.claude/projects/<encoded-cwd>/<sessionId>/subagents/<agent-uuid>.jsonl` only (does NOT recurse into other subdirectories). Each record's `session_key` is a **composite** of `<sessionId>:<agent-uuid>` to prevent collision with the parent transcript's `messages` rows; `meta_json` carries `parent_session_id` + `agent_id` + `is_subagent=True` for back-attribution.
+- **Non-UUID-shape session dirs** are skipped (RECON found `local-agent-mode-sessions/<non-uuid>` artefacts that are not session-related).
+- **Flat `<sessId>.jsonl` at cwd level** (the P1 main transcript) is NOT picked up by this walker — that file is the responsibility of `iter_code_tab_transcript_records`.
+
+### Sweep — `tests/e2e_desktop_ui/run_p1_code_sweep.py`
+
+Seven new STATIC-eligible E-cases (full spec in `Docs/stability/DESKTOP-PRODUCT-MATRIX.md` §5.C):
+
+- **E16** sub-agent JSONL walker — required, closes §5.C.2 Q1.
+- **E17** sub-agent parent linkage — required.
+- **E18** `~/.claude.json` captured + `mcpServers` visible — required.
+- **E19** `settings.json` captured AND secret-scrubbed — required; predicate explicitly rejects any `"sk-[A-Za-z0-9_-]{12,}"` literal in the body AND verifies clean keys (URLs, model, permissions) survive.
+- **E20** `todos/*.json` TodoWrite products — required; envelope `{session_id, agent_id, todos[]}` checked.
+- **E21** `history.jsonl` slash-command history — required; per-line shape `{display, timestamp, project}` checked.
+- **E22** `toolUsage` palette completeness — required; ≥6 of the 8 well-known Code-tab tools (`Bash`/`Read`/`Write`/`Edit`/`Glob`/`Grep`/`Task`/`TodoWrite`) must appear as keys in the captured map.
+
+### Tests
+
+- **`tests/e2e_l3g/test_p2_user_state_and_subagent.py`** (NEW, ~55 tests):
+  - `TestSecretKeyDetection` (~10 tests): suffix matches (`API_KEY`, `TOKEN`, `SECRET`, case-insensitive); clean keys pass through (`URL`, `MODEL`, `TIMEOUT`, etc.); non-string inputs rejected.
+  - `TestRedactEnvBlock` (~5 tests): scrub-keep mix; immutability (returns new dict); non-dict pass-through.
+  - `TestRedactGlobalState` (~6 tests): drops PII; redacts all `mcpServers[*].env`; handles `mcpServers` entries without `env` block.
+  - `TestRedactSettings` (~5 tests): scrubs `env`; preserves `permissions` + `model`; no-`env` body passes through unchanged.
+  - `TestUserStateWalker` (~10 tests): all 5 surfaces yielded; global state redacted in walker output; settings token redacted; todos session/agent IDs derived from filename; empty todos file skipped; history `line_index` correct; missing claude_home yields nothing; one-file partial directory works; malformed history line skipped without breaking later lines; counts helper matches iter helper.
+  - `TestSubagentWalker` (~10 tests): 4-level dir layout works; composite `session_key=<sessionId>:<agent-uuid>` confirmed; non-UUID session dirs skipped; missing subagents/ dir skipped; main transcript at cwd level NOT picked up; non-`<agent-uuid>.jsonl` files ignored; lines without `sessionId` are not rewritten.
+- **Test count**: `e2e_l3g/` grows **87 → 142** (+55 tests).
+- All `static_required` grows from 8 → 15 (adding E16-E22) — every new case is mandatory for the static gate.
+
+### Verification (reference machine)
+
+```
+python tests\e2e_desktop_ui\run_p1_code_sweep.py --mode static
+```
+
+- E00–E15: same verdicts as P1 (8 PASS / 8 SKIP / 0 FAIL).
+- E16 PASS — sub-agent walker has at least one row.
+- E17 PASS — sub-agent rows have valid `parent_session_id` + `agent_id` strings.
+- E18 PASS — `mcpServers` dict visible; per-machine count varies.
+- E19 PASS — settings body has zero `sk-*` literals; both redacted and clean keys present.
+- E20 PASS — todos file ingested with shape envelope.
+- E21 PASS — history line shape `{display, timestamp}` confirmed.
+- E22 PASS — toolUsage map covers all 8 expected tools.
+- **DONE 21 PASS / 2 SKIP / 0 FAIL** (target ≥15 / ≤7 / 0). Gate: PASS.
+
+---
+
+## [Unreleased] - 2026-05-11 — P5.B.7 P1 Code-region (inline) implementation (RECON + watcher + driver + sweep)
+
+Direct continuation of the P5.B.5.5c cowork sub-run (`v1.1.0-alpha.11-cowork-p1`). The third inline-tab inside Claude Desktop (Chat / Cowork / **Code**) is implemented end-to-end across one architectural finding doc, one MATRIX spec extension, one driver helper batch, one walker source, and one 16-case sweep runner.
+
+Tag: **`v1.1.0-alpha.12-code-p1`** (commit `a69d303`).
+
+### Architectural finding (RECON Phase 0 misconception reconciled) — the Code tab is **host-native**, not a Linux VM
+
+The initial Phase-0 hypothesis was that the Code tab runs in the same `vm_bundles/claudevm.bundle/` Linux microVM that cowork uses. **Empirical RECON drive on 2026-05-11 disproved this**: drove a `cat /etc/os-release` prompt, Claude responded "This isn't a Linux VM — you're running Windows 11 Pro (build 10.0.26200). The `/etc/os-release` file only exists on Linux systems." The captured JSONL line had `version: "2.1.128"` matching the Desktop-embedded `claude-code\<ver>\claude.exe` exactly, `cwd: "F:\test"` (a real Windows drive path), and `entrypoint: "claude-desktop"`.
+
+So the Code tab spawns the bundled `claude.exe` as a **Windows-native child process** that operates on the real host filesystem — **same Node.js agent, same `claude.exe`, same `~/.claude/` data directory, same JSONL transcript schema** as the standalone Claude Code CLI. The `entrypoint` field discriminates `claude-desktop` (this) vs `cli` (P6 standalone). Full empirical breakdown in `Docs/research/2026-05-11-code-tab-recon-findings.md`.
+
+This realignment means three things:
+- **`vm_bundles/`** is NOT a Code-tab capture surface (still cowork's).
+- **No `local-agent-mode-sessions/...` writes** during a Code-tab drive (delta confirmed via `_code_snap_after.json`).
+- **L3g is the primary content channel** for Code-region (not a fallback) — the L1 mitmproxy axis sees only `/v1/sessions/watch` SSE handshakes + endpoint heartbeats + the auto-title endpoint (which carries the prompt original once, useful as a detection signal but not as the conversation channel).
+
+### Three-axis re-evaluation (ADR-018 axes in Code-region)
+
+| Axis | Code-region role | Status |
+|---|---|---|
+| **H1** (PATH CLI shim, `pce_cli_wrapper/`) | ❌ NOT applicable — Desktop spawns embedded `claude.exe` via absolute path; PATH shim cannot intercept. Annotated in `pce_cli_wrapper/discovery.py:17-21`. | This axis remains P6-standalone-only. |
+| **L1** (mitmproxy, `pce_proxy/`) | ⚠️ partial — captures heartbeats / settings probes / GitHub auth / title generation / telemetry. Does NOT capture conversation content; the SSE long-poll on `/v1/sessions/watch` keeps the body open without body rows. | Defence-in-depth only. |
+| **L3g** (persistence watcher, `pce_persistence_watcher/`) | ✅ **production path** — full JSONL transcript at `~/.claude/projects/<encoded-cwd>/<cliSessionId>.jsonl`, identical schema to cowork's `local-agent-mode-sessions/.../<sess>.jsonl`. `entrypoint:"claude-desktop"` field discriminates Desktop Code tab from standalone CLI in the same file tree. | Primary. |
+| **M** (`pce_mcp_proxy/` + `pce_mcp` `.mcpb`) | ✅ works — Code tab exposes user-installed MCP servers via `enabledMcpTools` in the session pointer; PCE's 6 tools are visible. **Opposite of cowork** (which rejects user `.mcpb` packs). | Production. |
+
+### Watcher — `pce_persistence_watcher/sources/code_tab.py` (NEW, M2+M3)
+
+- **`iter_code_tab_transcript_records()`** — walks `~/.claude/projects/<encoded-cwd>/<cliSessionId>.jsonl`, yields one record per JSONL line (six `type` values: `user`, `assistant`, `summary`, `tool_use`, `tool_result`, `mode-change`).
+- **`iter_code_pointer_records()`** — walks `<app_profile>/claude-code-sessions/<user_uuid>/<org_uuid>/local_<sessId>.json` (pointer index file with `enabledMcpTools` + `sessionPermissionUpdates[]` + auto-generated title).
+- **Normaliser hook** — `pce_core/normalizer/local_persistence.py` gains entrypoint-keyed `tool_family` discriminator (`_TOOL_FAMILY_BY_ENTRYPOINT`): `claude-desktop` → `'claude-desktop-code'`, with `'cli'` deliberately unmapped (falls through to default — reserved for P6 work).
+- **Hermetic regression**: `tests/e2e_l3g/` covers transcript + pointer parse, schema-version round-trip, `entrypoint` discriminator coverage — **87 / 87 pass**.
+
+### Driver — `tests/e2e_desktop_ui/drivers/claude_desktop.py` (M4)
+
+5 new methods + 1 internal helper:
+
+- **`open_code_tab()`** — clicks the top-bar Code tab via shared SPA route (`claude.ai/epitaxy`); reuses cowork's tab-switch UIA pattern.
+- **`new_code_session(cwd: Optional[Path])`** — clicks "+ New session" in the sidebar; if `cwd` given, drives the UIA file-picker to select the directory.
+- **`send_code_prompt(text: str)`** — reuses the chat composer's paste + Enter logic (the Code-tab composer is the same UIA element).
+- **`wait_for_code_response(timeout=120)`** — polls the active session's JSONL file for an `assistant` line with `stop_reason="end_turn"`. Empirically validates 5–15 s first-token latency.
+- **`accept_permission_dialog(rule_substring: str)`** — clicks "Allow once" on the Read / Bash / Edit permission dialog when `permissionMode=default`. (E10 only — when `permissionMode=acceptEdits` no dialog appears.)
+- **Internal `_active_session_pointer_path()`** — locates the most-recently-modified `local_<sess>.json` pointer to identify the current session for cross-axis correlation.
+
+### Sweep — `tests/e2e_desktop_ui/run_p1_code_sweep.py` (M5+M6+M7, NEW, ~1300 lines)
+
+Mirror of `run_p1_cowork_sweep.py` (cowork's 17-case aggregator) — **16 E-cases (E00-E15)** in one file, each returning `{verdict, reason, evidence, elapsed_s}`. Two modes:
+
+- `--mode static` — ~10 s, verifies from existing DB rows + filesystem state. CI smoke that catches L3g pipeline regressions.
+- `--mode live` — ~12–15 min wall-clock; drives Claude Desktop UI via the new helpers, sends real prompts, waits via `wait_for_code_response`, then verifies via DB + filesystem.
+
+Per-run output: `tests/e2e_desktop_ui/reports/p1_code/<ts>_mode-<m>/` with `summary.json` + per-case `case_E*.json` (gitignored, mirrors cowork convention).
+
+### Bugs found & fixed during the M7 live-sweep iterations
+
+- **walker entrypoint-hoist** — `_TOOL_FAMILY_BY_ENTRYPOINT` lookup happened **before** the JSONL record's `entrypoint` field was hoisted out of the body envelope. The first L3g pass therefore mis-routed Code-tab records to the cowork tool family. Fix: hoist `entrypoint` from body during normalisation, before the family lookup. Caught by P1 first-pass live sweep failing all transcript-based cases.
+- **session activation race** — `wait_for_code_response` poll loop checked `mtime` on the pre-driven JSONL path. After "New session", a different JSONL gets activated; the old file's mtime is no longer updating, so the case waits forever and FAILs with `outcome=no_growth` after 30 s. Fix: poll for up to 30 s for an active session whose `jsonl_path` is *different from* `pre_jsonl`. Hit E04–E08 + E12 in lockstep on M7 run-3.
+- **E09 audit-trail scan** — §5.C contract is "the audit-trail feature *exists*", not "the *latest* session has it". Fresh sessions with no tool_use yet legitimately have empty `sessionPermissionUpdates[]`. Fix: walk every Code-tab pointer row in `raw_captures` (DB primary) then fall back to scanning every pointer JSON on disk (MSIX + Squirrel) via `_iter_code_pointer_bodies_fs()`. PASS as soon as ANY pointer has a non-empty list.
+- **`tool_use` detection in messages** — the PCE normaliser emits tool_use two ways: `content_text` carries `"[Tool call: <name>]"` (deterministic), AND `content_json.attachments[].name` carries the structured name. The old query used the no-space pattern `%"name":"Bash"%` and silently missed every real capture because `json.dumps` defaults to `separators=(', ', ': ')`. Fix: primary match on `content_text LIKE '%[Tool call: <name>]%'` plus two whitespace-tolerant JSON fallbacks.
+- **sys.path bootstrap for script-form invocation** — running the sweep as `python tests\e2e_desktop_ui\run_p1_code_sweep.py` (rather than `-m`) failed to lazy-import the driver. Fix: `sys.path.insert(0, str(REPO_ROOT))` at module top.
+
+### Verification — live sweep on developer machine
+
+```
+python tests\e2e_desktop_ui\run_p1_code_sweep.py --mode live
+```
+
+- **E00 PASS** code-tab footprint: 20 pointer / 201 transcript / 20 sessions.
+- **E01 PASS** new session created with 3 new messages (18.4 s).
+- **E02 PASS** assistant message has 544 chars of captured text.
+- **E03 PASS** multi-turn session has 6 messages.
+- **E04–E08 PASS** tool_use names captured (Bash / Read / Write / Edit / Glob).
+- **E09 PASS** audit trail present: 1 of 12 pointer(s) has 1 entry.
+- **E10 SKIP** permission-dialog UIA names need follow-up RECON.
+- **E11 PASS** pointer has 6 PCE MCP tools enabled.
+- **E12 PASS** pce_capture invocation present.
+- **E13 PASS** pointer has all 9 required fields.
+- **E14 PASS** 60 s live idle window: 0 rows (true silence verified).
+- **E15 PASS** pointer write-through confirmed (4250 ms after creation).
+- **DONE 15 PASS / 1 SKIP / 0 FAIL** (target ≥12 / ≤4 / 0). Gate: PASS — exceeds the §4.1.C ≥75% bar.
+- Static-mode regression: 8 PASS / 8 SKIP / 0 FAIL. `e2e_l3g` regression: 87/87.
+
+### Operational note — `pce_persistence_watcher watch` is REQUIRED for live mode
+
+The live sweep verifies signals from the PCE DB; without a running watcher the new JSONLs are written to disk but never ingested into the DB, and every live-only case skips/fails on "no recent code-tab session". Cowork's `_preflight.py` already asserts the watcher is running; the Code-tab sweep currently relies on the operator starting it manually before launch:
+
+```
+python -m pce_persistence_watcher watch --app claude-desktop --poll-interval 3.0 &
+```
+
+A Code-tab-specific preflight that asserts the watcher state is left as a follow-up sub-task.
+
+### Documentation
+
+- **`Docs/research/2026-05-11-code-tab-recon-findings.md`** (NEW, ~600 lines) — RECON full record: TL;DR axis verdict table, Phase 0 misconception reconciliation, 8 architectural Qs (Q1-Q8) each with empirical resolution, evidence file index (archived under `Docs/research/2026-05-11-code-recon-artefacts/` per the P2.1 cleanup), Phase 1-4 phasing roadmap.
+- **`Docs/stability/DESKTOP-PRODUCT-MATRIX.md` §4.1.C** (NEW) — Code-region (inline) field card: product positioning, three-axis re-evaluation, observed endpoints, tooling status, acceptance gate.
+- **`Docs/stability/DESKTOP-PRODUCT-MATRIX.md` §5.C** (NEW) — 16 E-cases with detailed acceptance signals; §5.C.1 per-product applicability (P1=16, P6=9 best-effort, P7/P8=2 each); §5.C.2 6 RECON-resolvable open questions (4 closed by this sub-run, 2 deferred); §5.C entries are independent from chat-region D-cases and cowork-region C-cases.
+- **`Docs/stability/DESKTOP-PRODUCT-MATRIX.md` §7.7** (NEW) — P5.B.7 sub-phase phasing: builds on `alpha.11-cowork-p1`, adds 1 watcher module + 5 driver helpers + 1 sweep runner + 16 E-case files.
+
+### What stays unchanged
+
+- Chat-region D-case closures (19/22 PASS) remain canonical.
+- Cowork-region C-case closures (12/17 PASS) remain canonical.
+- ADR-018 three-axis model unchanged; Code-region inherits H1 deactivation as documented in §4.1.C.
+- `pce_core/server.py` HTTP capture path unchanged.
+- Browser-extension capture path unchanged.
+
 ## [Unreleased] - 2026-05-11 — P5.B.5 cowork-region implementation (L3g JSONL normaliser + cowork driver helpers + C-case sweep)
 
 Direct upstream of the 2026-05-10 standard-alignment sub-run. With the

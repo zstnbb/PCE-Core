@@ -1,0 +1,80 @@
+﻿python : F:\INVENTION\You.Inc\PCE Core\_code_fs_scan.py:1: SyntaxWarning: invalid escape sequence '\R'
+所在位置 行:1 字符: 1
++ python _code_fs_scan.py 2>&1 | Out-File -FilePath _code_fs_scan.out - ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (F:\INVENTION\Yo...e sequence '\R':String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  """Scan LocalCache\Roaming\Claude for files modified during the Code-tab drive.
+FLOOR_TS = 1778495671 (18:34:30)
+ROOT = C:\Users\ZST\AppData\Local\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude
+NOW   = 1778496439 (18:47:18)
+
+=== 22 files modified since FLOOR (0 stat errors) ===
+  mt=18:47:18 age=   1s  size=     18226  sentry\scope_v3.json
+  mt=18:47:17 age=   2s  size=    632661  logs\main.log
+  mt=18:46:44 age=  35s  size=    396799  logs\cowork_vm_node.log
+  mt=18:46:44 age=  35s  size=  37748736  vm_bundles\claudevm.bundle\smol-bin.vhdx
+  mt=18:46:43 age=  35s  size=         7  claude-code-vm\.sdk-version
+  mt=18:46:41 age=  38s  size=       266  sentry\session.json
+  mt=18:46:33 age=  46s  size=         0  Network\Cookies-journal
+  mt=18:46:33 age=  46s  size=     28672  Network\Cookies
+  mt=18:46:15 age=  64s  size=         0  WebStorage\QuotaManager-journal
+  mt=18:46:15 age=  64s  size=     40960  WebStorage\QuotaManager
+  mt=18:46:09 age=  70s  size=   1365194  IndexedDB\https_claude.ai_0.indexeddb.leveldb\000004.log
+  mt=18:46:09 age=  70s  size=    973276  IndexedDB\https_claude.ai_0.indexeddb.blob\1\09\92c
+  mt=18:46:05 age=  74s  size=      3623  config.json
+  mt=18:42:13 age= 305s  size=      4698  Network\TransportSecurity
+  mt=18:37:59 age= 559s  size=       233  Preferences
+  mt=18:37:47 age= 571s  size=      8958  Network\Network Persistent State
+  mt=18:36:56 age= 623s  size=        67  buddy-tokens.json
+  mt=18:36:44 age= 635s  size=    280192  DIPS-wal
+  mt=18:36:44 age= 635s  size=       946  claude-code-sessions\e323c763-c6b3-4761-a126-8d80870ee7c3\8a522742-17e5-43c6-b1aa-b28bf3d7ad32\local_69b85915-deab-488c-97cc-65f372c7ebb8.json
+  mt=18:35:52 age= 686s  size=       475  Partitions\cowork-file-preview\Network\Network Persistent State
+  mt=18:35:44 age= 694s  size=     91503  logs\claude.ai-web.log
+  mt=18:35:43 age= 695s  size=       476  claude_desktop_config.json
+
+=== Interesting subset (json/jsonl/log/db extensions) ===
+  mt=18:47:18 size=     18226  sentry\scope_v3.json
+  mt=18:47:17 size=    632661  logs\main.log
+  mt=18:46:44 size=    396799  logs\cowork_vm_node.log
+  mt=18:46:41 size=       266  sentry\session.json
+  mt=18:46:09 size=   1365194  IndexedDB\https_claude.ai_0.indexeddb.leveldb\000004.log
+  mt=18:46:05 size=      3623  config.json
+  mt=18:36:56 size=        67  buddy-tokens.json
+  mt=18:36:44 size=       946  claude-code-sessions\e323c763-c6b3-4761-a126-8d80870ee7c3\8a522742-17e5-43c6-b1aa-b28bf3d7ad32\local_69b85915-deab-488c-97cc-65f372c7ebb8.json
+  mt=18:35:44 size=     91503  logs\claude.ai-web.log
+  mt=18:35:43 size=       476  claude_desktop_config.json
+
+=== claude-code-vm/ full tree ===
+  size=         7  mt=2026-05-11 18:46:43  claude-code-vm\.sdk-version
+  size=         0  mt=2026-05-10 09:33:56  claude-code-vm\2.1.128\.verified
+  size= 248789632  mt=2026-05-10 09:33:56  claude-code-vm\2.1.128\claude
+
+=== Files with 'session' / 'epitaxy' / 'transcript' / 'history' / 'code' in name (any mtime) ===
+  size=      5218  age=  0.5d  Claude Extensions\local.mcpb.pce-contributors.pce-mcp\node_modules\accepts\HISTORY.md
+  size=      1775  age=  0.5d  Claude Extensions\local.mcpb.pce-contributors.pce-mcp\node_modules\bytes\History.md
+  size=       523  age=  0.5d  Claude Extensions\local.mcpb.pce-contributors.pce-mcp\node_modules\content-type\HISTORY.md
+  size=      1481  age=  0.5d  Claude Extensions\local.mcpb.pce-contributors.pce-mcp\node_modules\cookie-signature\History.md
+  size=      2256  age=  0.5d  Claude Extensions\local.mcpb.pce-contributors.pce-mcp\node_modules\depd\History.md
+  size=      1732  age=  0.5d  Claude Extensions\local.mcpb.pce-contributors.pce-mcp\node_modules\etag\HISTORY.md
+  size=      5469  age=  0.5d  Claude Extensions\local.mcpb.pce-contributors.pce-mcp\node_modules\finalhandler\HISTORY.md
+  size=       400  age=  0.5d  Claude Extensions\local.mcpb.pce-contributors.pce-mcp\node_modules\forwarded\HISTORY.md
+  size=      1844  age=  0.5d  Claude Extensions\local.mcpb.pce-contributors.pce-mcp\node_modules\fresh\HISTORY.md
+  size=      4094  age=  0.5d  Claude Extensions\local.mcpb.pce-contributors.pce-mcp\node_modules\http-errors\HISTORY.md
+  size=      1155  age=  0.5d  Claude Extensions\local.mcpb.pce-contributors.pce-mcp\node_modules\media-typer\HISTORY.md
+  size=     13886  age=  0.5d  Claude Extensions\local.mcpb.pce-contributors.pce-mcp\node_modules\mime-db\HISTORY.md
+  size=      9923  age=  0.5d  Claude Extensions\local.mcpb.pce-contributors.pce-mcp\node_modules\mime-types\HISTORY.md
+  size=      2619  age=  0.5d  Claude Extensions\local.mcpb.pce-contributors.pce-mcp\node_modules\negotiator\HISTORY.md
+  size=      1865  age=  0.5d  Claude Extensions\local.mcpb.pce-contributors.pce-mcp\node_modules\on-finished\HISTORY.md
+  size=      1043  age=  0.5d  Claude Extensions\local.mcpb.pce-contributors.pce-mcp\node_modules\parseurl\HISTORY.md
+  size=      2991  age=  0.5d  Claude Extensions\local.mcpb.pce-contributors.pce-mcp\node_modules\proxy-addr\HISTORY.md
+  size=       917  age=  0.5d  Claude Extensions\local.mcpb.pce-contributors.pce-mcp\node_modules\range-parser\HISTORY.md
+  size=      6571  age=  0.5d  Claude Extensions\local.mcpb.pce-contributors.pce-mcp\node_modules\router\HISTORY.md
+  size=      1628  age=  0.5d  Claude Extensions\local.mcpb.pce-contributors.pce-mcp\node_modules\statuses\HISTORY.md
+  size=       128  age=  0.5d  Claude Extensions\local.mcpb.pce-contributors.pce-mcp\node_modules\toidentifier\HISTORY.md
+  size=      6864  age=  0.5d  Claude Extensions\local.mcpb.pce-contributors.pce-mcp\node_modules\type-is\HISTORY.md
+  size=        59  age=  0.5d  Claude Extensions\local.mcpb.pce-contributors.pce-mcp\node_modules\unpipe\HISTORY.md
+  size=       792  age=  0.5d  Claude Extensions\local.mcpb.pce-contributors.pce-mcp\node_modules\vary\HISTORY.md
+  size=       266  age=  0.0d  sentry\session.json
+  size=   4194304  age=  1.4d  vm_bundles\claudevm.bundle\sessiondata.vhdx

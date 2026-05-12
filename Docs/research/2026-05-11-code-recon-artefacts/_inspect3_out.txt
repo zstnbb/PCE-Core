@@ -1,0 +1,62 @@
+=== WebSocket activity? ===
+  direction=             request  method=     GET  cnt=43
+  direction=            response  method=     GET  cnt=42
+  direction=        conversation  method=     GET  cnt=23
+  direction=             request  method=    POST  cnt=6
+  direction=            response  method=    POST  cnt=6
+
+=== dust/generate_title_and_branch bodies ===
+  id=69df56452385 t=1778495769.75 POST   dir=request body_len=133
+    body:
+    {"first_session_message":"Run `cat /etc/os-release` and tell me what Linux distribution this VM is running.","title_style":"default"}
+  id=b7f8de25340f t=1778495770.82 POST   dir=response body_len=90
+    body:
+    {"title":"Identify Linux distribution on VM","branch_name":"claude/identify-linux-distro"}
+  id=60d557414e92 t=1778495785.59 POST   dir=request body_len=132
+    body:
+    {"first_session_message":"Run `cat /etc/os-release` and tell me what Linux distribution this VM is running","title_style":"default"}
+  id=1720fa428d82 t=1778495786.50 POST   dir=response body_len=90
+    body:
+    {"title":"Identify Linux distribution on VM","branch_name":"claude/identify-linux-distro"}
+
+=== /code/repos response body ===
+  id=efaf7ae80acc t=1778495744.34 GET    dir=request body_len=0
+  id=7f7b56a1f313 t=1778495744.85 GET    dir=response body_len=237
+    body[:1500]:
+    {"type":"error","error":{"type":"authentication_error","message":"You must authenticate with GitHub.","details":{"type":"github","error_visibility":"user_facing","error_code":"auth_required"}},"request_id":"req_011Cavdh1iw3cDij8mknHGjX"}
+
+=== /v1/sessions/watch (long-poll or SSE?) ===
+  id=6a6763147b74 t=1778495744.38 GET    dir=request body_len=0 latency_ms=None
+    headers: {"accept": "text/event-stream, text/event-stream", "accept-encoding": "gzip, deflate, br, zstd", "accept-language": "zh-CN", "anthropic-beta": "ccr-byoc-2025-07-29", "anthropic-client-app": "com.anthropic.claudefordesktop", "anthropic-client-feature": "ccr", "anthropic-client-os-platform": "win32", "anthropic-client-os-version": "10.0.26200", "anthropic-client-platform": "desktop_app", "anthropic-
+
+=== chromium-indexeddb deltas (Electron L3g writes) ===
+  t=1778495744.81 body_len=2845  /claude-desktop/indexeddb-summary/https://claude.ai
+  t=1778495750.21 body_len=2845  /claude-desktop/indexeddb-summary/https://claude.ai
+  t=1778495760.95 body_len=2845  /claude-desktop/indexeddb-summary/https://claude.ai
+  t=1778495771.92 body_len=2845  /claude-desktop/indexeddb-summary/https://claude.ai
+  t=1778495777.28 body_len=2845  /claude-desktop/indexeddb-summary/https://claude.ai
+  t=1778495782.66 body_len=2845  /claude-desktop/indexeddb-summary/https://claude.ai
+  t=1778495788.00 body_len=2845  /claude-desktop/indexeddb-summary/https://claude.ai
+  t=1778495793.26 body_len=2845  /claude-desktop/indexeddb-summary/https://claude.ai
+  t=1778495798.64 body_len=2845  /claude-desktop/indexeddb-summary/https://claude.ai
+  t=1778495804.07 body_len=2845  /claude-desktop/indexeddb-summary/https://claude.ai
+  t=1778495809.65 body_len=2845  /claude-desktop/indexeddb-summary/https://claude.ai
+  t=1778495820.63 body_len=2845  /claude-desktop/indexeddb-summary/https://claude.ai
+  t=1778495836.77 body_len=2845  /claude-desktop/indexeddb-summary/https://claude.ai
+  t=1778495842.18 body_len=2845  /claude-desktop/indexeddb-summary/https://claude.ai
+  t=1778495847.57 body_len=2845  /claude-desktop/indexeddb-summary/https://claude.ai
+  t=1778495858.17 body_len=2845  /claude-desktop/indexeddb-summary/https://claude.ai
+  t=1778495863.69 body_len=2845  /claude-desktop/indexeddb-summary/https://claude.ai
+  t=1778495868.95 body_len=2845  /claude-desktop/indexeddb-summary/https://claude.ai
+  t=1778495874.17 body_len=2845  /claude-desktop/indexeddb-summary/https://claude.ai
+  t=1778496050.80 body_len=2845  /claude-desktop/indexeddb-summary/https://claude.ai
+  t=1778496072.34 body_len=2845  /claude-desktop/indexeddb-summary/https://claude.ai
+  t=1778496088.10 body_len=2845  /claude-desktop/indexeddb-summary/https://claude.ai
+  t=1778496093.30 body_len=2845  /claude-desktop/indexeddb-summary/https://claude.ai
+
+=== Sample chromium-indexeddb body (biggest one) ===
+  id=6f2b1bf9a0ec4224a350d6f52ae7e81b method=GET path=/claude-desktop/indexeddb-summary/https://claude.ai
+  body (len=2845):
+    {"composer_draft_count":76,"composer_drafts_redacted":true,"db_name_hints":["claude-notifications","keyval-store"],"json_blob_count":76,"json_blob_examples":[{"state":{"attachments":[],"files":[],"syncSourceUuids":[],"tipTapEditorState":{"content":[{"content":[{"text":"[redacted]","type":"text"}],"type":"paragraph"}],"type":"doc"}},"updatedAt":1778453164612,"version":1},{"state":{"attachments":[],"files":[],"syncSourceUuids":[],"tipTapEditorState":{"content":[{"content":[{"text":"[redacted]","type":"text"}],"type":"paragraph"}],"type":"doc"}},"updatedAt":1778453164612,"version":1},{"state":{"attachments":[],"files":[],"syncSourceUuids":[],"tipTapEditorState":{"content":[{"content":[{"text":"[redacted]","type":"text"}],"type":"paragraph"}],"type":"doc"}},"updatedAt":1778453170280,"version":1},{"state":{"attachments":[],"files":[],"syncSourceUuids":[],"tipTapEditorState":{"content":[{"content":[{"text":"[redacted]","type":"text"}],"type":"paragraph"}],"type":"doc"}},"updatedAt":1778453168733,"version":1},{"state":{"attachments":[],"files":[],"syncSourceUuids":[],"tipTapEditorState":{"content":[{"content":[{"text":"[redacted]","type":"text"}],"type":"paragraph"}],"type":"doc"}},"updatedAt":1778453190728,"version":1},{"state":{"attachments":[],"files":[],"syncSourceUuids":[],"tipTapEditorState":{"content":[{"content":[{"text":"[redacted]","type":"text"}],"type":"paragraph"}],"type":"doc"}},"updatedAt":1778453264349,"version":1},{"state":{"attachments":[],"files":[],"syncSourceUuids":[],"tipTapEditorState":{"content":[{"content":[{"text":"[redacted]","type":"text"}],"type":"paragraph"},{"content":[{"text":"[redacted]","type":"text"}],"type":"paragraph"},{"content":[{"text":"[redacted]","type":"text"}],"type":"paragraph"},{"content":[{"text":"[redacted]","type":"text"}],"type":"paragraph"},{"content":[{"text":"[redacted]","type":"text"}],"type":"paragraph"},{"content":[{"text":"[redacted]","type":"text"}],"type":"paragraph"},{"content":[{"text":"[redacted]","type":"text"}],"type":"paragraph"}],"type":"doc"}},"updatedAt":1778453696549,"version":1},{"state":{"attachments":[],"files":[],"syncSourceUuids":[],"tipTapEditorState":{"content":[{"content":[{"text":"[redacted]","type":"text"}],"type":"paragraph"}],"type":"doc"}},"updatedAt":1778470366775,"version":1},{"state":{"attachments":[],"files":[],"syncSourceUuids":[],"tipTapEditorState":{"content":[{"content":[{"text":"[redacted]","type":"text"}],"type":"paragraph"}],"type":"doc"}},"updatedAt":1778470368776,"version":1},{"state":{"attachments":[],"files":[],"syncSourceUuids":[],"tipTapEditorState":{"content":[{"content":[{"text":"[redacted]","type":"text"}],"type":"paragraph"}],"type":"doc"}},"updatedAt":1778470366775,"version":1}],"log_size_bytes":1305204,"object_store_hints":["composer-drafts"],"total_strings":1304,"uuid_count":86,"uuid_v7_count":24}
+
+=== Looking for 'Upgrade: websocket' (WS handshake) ===

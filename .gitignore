@@ -48,6 +48,11 @@ Thumbs.db
 /tests/e2e/tmp_*
 /scripts/_diag_*.py
 /scripts/_dump_*.py
+# RECON one-shot scratch at repo root (P5.B.7 cleanup, 2026-05-12).
+# Long-form RECON evidence belongs under Docs/research/<date>-*-artefacts/.
+/_code_*
+/_h1_*
+/_inspect*
 
 # Desktop UI sweep ephemeral state (tests/e2e_desktop_ui/* per-window logs +
 # proxy runtime files + debug body dumps; the cases re-create these on every

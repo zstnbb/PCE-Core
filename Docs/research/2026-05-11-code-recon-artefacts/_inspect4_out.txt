@@ -1,0 +1,52 @@
+=== /v1/sessions/watch request pair_id=a58c514fe0554d80 ===
+  id=6a6763147b7446a597e8f767b9ce2cdd method=GET
+  path=/v1/sessions/watch
+  FULL headers (1287 chars):
+    accept: text/event-stream, text/event-stream
+    accept-encoding: gzip, deflate, br, zstd
+    accept-language: zh-CN
+    anthropic-beta: ccr-byoc-2025-07-29
+    anthropic-client-app: com.anthropic.claudefordesktop
+    anthropic-client-feature: ccr
+    anthropic-client-os-platform: win32
+    anthropic-client-os-version: 10.0.26200
+    anthropic-client-platform: desktop_app
+    anthropic-client-version: 1.6608.2
+    anthropic-desktop-topbar: 1
+    anthropic-version: 2023-06-01
+    cookie: REDACTED
+    referer: https://claude.ai/epitaxy
+    sec-ch-ua: "Not-A.Brand";v="24", "Chromium";v="146"
+    sec-ch-ua-mobile: ?0
+    sec-ch-ua-platform: "Windows"
+    sec-fetch-dest: empty
+    sec-fetch-mode: cors
+    sec-fetch-site: same-origin
+    traceparent: 00-0000000000000000d90b52ec88aa3dec-2a9b4394b63adcb7-01
+    tracestate: dd=s:1;o:rum
+    user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Claude/1.6608.2 Chrome/146.0.7680.216 Electron/41.5.0 Safari/537.36 MSIX
+    x-datadog-origin: rum
+    x-datadog-parent-id: 3070121876974656695
+    x-datadog-sampling-priority: 1
+    x-datadog-trace-id: 15639685306832797164
+    x-organization-uuid: 8a522742-17e5-43c6-b1aa-b28bf3d7ad32
+    priority: u=1, i
+
+=== paired rows by pair_id=a58c514fe0554d80 ===
+  id=6a6763147b74 t=1778495744.38 dir=   request GET st=None body_len=0 hdr_len=1287
+
+=== All distinct /v1/sessions* paths (entire DB, all-time) ===
+  cnt= 174  /v1/sessions
+  cnt=  13  /v1/sessions/watch
+
+=== /v1/sessions* responses with body > 100 bytes (any time) ===
+
+=== Bodies that contain SSE markers ('event:' or 'data:') since drive ===
+
+=== Raw body of /v1/sessions/watch response (if any captured) ===
+  id=6fc996d63e15 t=1778470371.39 dir=request st=None body_len=0 latency_ms=None
+  id=c8404da49bd9 t=1778472166.96 dir=request st=None body_len=0 latency_ms=None
+  id=60d0ccb73209 t=1778473049.37 dir=request st=None body_len=0 latency_ms=None
+
+=== /v1/sessions/<something> paths (with non-empty suffix) ===
+  cnt= 13  /v1/sessions/watch

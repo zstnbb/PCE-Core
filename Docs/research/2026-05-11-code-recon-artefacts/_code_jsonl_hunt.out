@@ -1,0 +1,20 @@
+﻿ROOT=C:\Users\ZST\AppData\Local\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\claude-code-sessions
+exists=True
+
+=== Full recursive tree under claude-code-sessions/ ===
+  DIR   size=         -  mt=2026-05-11 18:36:33  e323c763-c6b3-4761-a126-8d80870ee7c3
+  DIR   size=         -  mt=2026-05-11 18:36:44  e323c763-c6b3-4761-a126-8d80870ee7c3\8a522742-17e5-43c6-b1aa-b28bf3d7ad32
+  FILE  size=       946  mt=2026-05-11 18:36:44  e323c763-c6b3-4761-a126-8d80870ee7c3\8a522742-17e5-43c6-b1aa-b28bf3d7ad32\local_69b85915-deab-488c-97cc-65f372c7ebb8.json
+
+  total: 3
+
+=== JSONL files anywhere under claude-code-sessions/ ===
+
+=== JSON files anywhere ===
+  size=       946  mt=2026-05-11 18:36:44  e323c763-c6b3-4761-a126-8d80870ee7c3\8a522742-17e5-43c6-b1aa-b28bf3d7ad32\local_69b85915-deab-488c-97cc-65f372c7ebb8.json
+
+=== Try sniffing the FIRST JSONL found ===
+  NO JSONL FOUND
+
+=== Files containing cliSessionId 'f4cb2964' ===
+  HIT  e323c763-c6b3-4761-a126-8d80870ee7c3\8a522742-17e5-43c6-b1aa-b28bf3d7ad32\local_69b85915-deab-488c-97cc-65f372c7ebb8.json

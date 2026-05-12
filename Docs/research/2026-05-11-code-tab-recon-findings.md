@@ -51,7 +51,7 @@ This realignment means three things:
 
 - **`vm_bundles/`** is NOT a Code-tab capture surface (still cowork's)
 - **No `local-agent-mode-sessions/...` writes** during a Code-tab drive
-  (delta confirmed: `local_agent_mode: +0` in `_code_snap_after.json`)
+  (delta confirmed: `local_agent_mode: +0` in `Docs/research/2026-05-11-code-recon-artefacts/_code_snap_after.json`)
 - **The Code tab IS Claude Code CLI** — just spawned with a Desktop UI
   instead of a terminal. Same Node.js agent, same `claude.exe`, same
   `~/.claude/` data directory, same JSONL transcript schema.
@@ -65,7 +65,7 @@ request body where you'd expect it (no `POST /completion`, no `POST
 /v1/sessions`, no `POST /v1/code/*`). It IS sent — once — to the
 auto-title endpoint:
 
-`@/f:/INVENTION/You.Inc/PCE Core/_inspect3_out.txt:9-20`:
+`@/f:/INVENTION/You.Inc/PCE Core/Docs/research/2026-05-11-code-recon-artefacts/_inspect3_out.txt:9-20`:
 ```
 POST /api/organizations/<org>/dust/generate_title_and_branch
   request body 133 bytes:
@@ -354,7 +354,7 @@ C16-cowork which is documented SKIP.
 
 Full catalog of NEW endpoint families seen during the
 2026-05-11T10:34-10:36 UTC drive (FLOOR_TS = 1778495670.7,
-`@/f:/INVENTION/You.Inc/PCE Core/_inspect3_out.txt`):
+`@/f:/INVENTION/You.Inc/PCE Core/Docs/research/2026-05-11-code-recon-artefacts/_inspect3_out.txt`):
 
 ### `claude.ai` (+65 rows total)
 
@@ -592,17 +592,23 @@ once the sweep passes ≥12/16 with 0 FAIL.
 
 ---
 
-## Evidence files (gitignored ephemera, regenerate via the scripts)
+## Evidence files (archived in-tree under `Docs/research/2026-05-11-code-recon-artefacts/`)
 
 | File | Role |
 |------|------|
-| `@/f:/INVENTION/You.Inc/PCE Core/_code_snap_before.json` | Pre-drive DB+FS snapshot, FLOOR_TS for diffs |
-| `@/f:/INVENTION/You.Inc/PCE Core/_code_snap_after.json` | Post-drive snapshot |
-| `@/f:/INVENTION/You.Inc/PCE Core/_inspect3_out.txt` | Endpoint catalog + body samples for the drive window |
-| `@/f:/INVENTION/You.Inc/PCE Core/_inspect4_out.txt` | `/v1/sessions/watch` header dump + paired-row check |
-| `@/f:/INVENTION/You.Inc/PCE Core/_code_fs_scan.out` | Filesystem delta scan during drive |
-| `@/f:/INVENTION/You.Inc/PCE Core/_code_jsonl_hunt.out` | Discovery of `~/.claude/projects/F--test/<sess>.jsonl` |
+| `@/f:/INVENTION/You.Inc/PCE Core/Docs/research/2026-05-11-code-recon-artefacts/_code_snap_before.json` | Pre-drive DB+FS snapshot, FLOOR_TS for diffs |
+| `@/f:/INVENTION/You.Inc/PCE Core/Docs/research/2026-05-11-code-recon-artefacts/_code_snap_after.json` | Post-drive snapshot |
+| `@/f:/INVENTION/You.Inc/PCE Core/Docs/research/2026-05-11-code-recon-artefacts/_inspect3_out.txt` | Endpoint catalog + body samples for the drive window |
+| `@/f:/INVENTION/You.Inc/PCE Core/Docs/research/2026-05-11-code-recon-artefacts/_inspect4_out.txt` | `/v1/sessions/watch` header dump + paired-row check |
+| `@/f:/INVENTION/You.Inc/PCE Core/Docs/research/2026-05-11-code-recon-artefacts/_code_fs_scan.out` | Filesystem delta scan during drive |
+| `@/f:/INVENTION/You.Inc/PCE Core/Docs/research/2026-05-11-code-recon-artefacts/_code_jsonl_hunt.out` | Discovery of `~/.claude/projects/F--test/<sess>.jsonl` |
 
-These scripts (`_code_phase1_snap.py`, `_code_drive_inspect{2,3,4}.py`,
-`_code_fs_scan.py`, `_code_jsonl_hunt.py`) are RECON-only and should
-be removed before tag (mirror cowork's cleanup discipline).
+The RECON scripts that produced these (`_code_phase1_snap.py`,
+`_code_drive_inspect{,2,3,4}.py`, `_code_fs_scan.py`,
+`_code_jsonl_hunt.py`, `_code_tab_recon.py`) were one-shots and were
+removed at P5.B.7 P2.1 cleanup (mirroring cowork's discipline). The
+six data artefacts above are kept in-tree because they are the
+empirical anchors cited throughout this findings doc; future Code-tab
+RECON drives should write into a new dated `code-recon-artefacts/`
+subdirectory rather than reviving repo-root scratch files
+(`/_code_*` is now in `.gitignore`).

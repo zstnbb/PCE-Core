@@ -1,0 +1,121 @@
+{
+  "label": "pre_drive",
+  "ts": 1778495670.7099214,
+  "db": {
+    "raw_captures_total": 16752,
+    "claude_ai_total": 5748,
+    "api_anthropic_total": 108,
+    "v1_code": 6,
+    "v1_sessions": 174,
+    "v1_env_providers": 352,
+    "local_agent_mode": 402,
+    "chromium_indexeddb": 297,
+    "sessions_total": 1183,
+    "messages_total": 3184,
+    "max_row_id_proxy": 1778495631.758659
+  },
+  "fs": {
+    "vm_root_exists": true,
+    "vm_bundles/claudevm.bundle": [
+      {
+        "rel": "vm_bundles/claudevm.bundle/smol-bin.vhdx",
+        "size": 37748736,
+        "mtime": 1778495601.5879312
+      },
+      {
+        "rel": "vm_bundles/claudevm.bundle/sessiondata.vhdx",
+        "size": 4194304,
+        "mtime": 1778376837.1126308
+      },
+      {
+        "rel": "vm_bundles/claudevm.bundle/.initrd.zst.origin",
+        "size": 40,
+        "mtime": 1778347474.3109002
+      },
+      {
+        "rel": "vm_bundles/claudevm.bundle/.initrd.origin",
+        "size": 40,
+        "mtime": 1778347474.3098078
+      },
+      {
+        "rel": "vm_bundles/claudevm.bundle/initrd",
+        "size": 177303315,
+        "mtime": 1778347474.3049335
+      },
+      {
+        "rel": "vm_bundles/claudevm.bundle/initrd.zst",
+        "size": 173703871,
+        "mtime": 1778347474.3039176
+      },
+      {
+        "rel": "vm_bundles/claudevm.bundle/.vmlinuz.zst.origin",
+        "size": 40,
+        "mtime": 1778347455.754607
+      },
+      {
+        "rel": "vm_bundles/claudevm.bundle/.vmlinuz.origin",
+        "size": 40,
+        "mtime": 1778347455.746728
+      },
+      {
+        "rel": "vm_bundles/claudevm.bundle/vmlinuz",
+        "size": 14993800,
+        "mtime": 1778347455.7446516
+      },
+      {
+        "rel": "vm_bundles/claudevm.bundle/vmlinuz.zst",
+        "size": 14737657,
+        "mtime": 1778347455.7436292
+      },
+      {
+        "rel": "vm_bundles/claudevm.bundle/.rootfs.vhdx.zst.origin",
+        "size": 40,
+        "mtime": 1778347454.028065
+      },
+      {
+        "rel": "vm_bundles/claudevm.bundle/.rootfs.vhdx.origin",
+        "size": 40,
+        "mtime": 1778347454.0269468
+      },
+      {
+        "rel": "vm_bundles/claudevm.bundle/rootfs.vhdx",
+        "size": 9453961216,
+        "mtime": 1778347454.0216782
+      },
+      {
+        "rel": "vm_bundles/claudevm.bundle/rootfs.vhdx.zst",
+        "size": 2342440655,
+        "mtime": 1778347453.969671
+      }
+    ],
+    "claude-code-vm": [
+      {
+        "rel": "claude-code-vm/.sdk-version",
+        "size": 7,
+        "mtime": 1778495601.4026713
+      },
+      {
+        "rel": "claude-code-vm/2.1.128/.verified",
+        "size": 0,
+        "mtime": 1778376836.9465005
+      },
+      {
+        "rel": "claude-code-vm/2.1.128/claude",
+        "size": 248789632,
+        "mtime": 1778376836.9449944
+      }
+    ],
+    "claude-code": [
+      {
+        "rel": "claude-code/2.1.128/.verified",
+        "size": 0,
+        "mtime": 1778347188.075457
+      },
+      {
+        "rel": "claude-code/2.1.128/claude.exe",
+        "size": 254711968,
+        "mtime": 1778347188.0712907
+      }
+    ]
+  }
+}
