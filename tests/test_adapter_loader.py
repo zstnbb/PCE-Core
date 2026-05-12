@@ -301,3 +301,108 @@ def test_supported_selector_groups_cover_all_default_yaml_keys() -> None:
         f"YAMLs use selector groups not in SELECTOR_GROUP_TO_ATTR: {unmapped} "
         f"— add them to pce_core/adapter_loader.py before P5.C.4.2"
     )
+
+
+# ---------------------------------------------------------------------------
+# P5.C.4.2 additions: labels / prompts / flags
+# ---------------------------------------------------------------------------
+
+def test_labels_load_for_chatgpt_yaml() -> None:
+    """ChatGPT YAML declares 4 label groups via the labels section."""
+    cfg = load_adapter("chatgpt")
+    assert "reasoning_model" in cfg.labels
+    assert "code_interpreter_menu" in cfg.labels
+    assert "canvas_menu" in cfg.labels
+    assert "image_gen_menu" in cfg.labels
+    assert "o1" in cfg.labels_for("reasoning_model")
+    assert "Canvas" in cfg.labels_for("canvas_menu")
+
+
+def test_prompts_load_for_chatgpt_yaml() -> None:
+    """ChatGPT YAML declares 4 trigger prompts."""
+    cfg = load_adapter("chatgpt")
+    assert cfg.prompt_for("canvas_trigger") is not None
+    assert cfg.prompt_for("code_interp_trigger") is not None
+    assert cfg.prompt_for("image_gen_trigger") is not None
+    assert cfg.prompt_for("error_trigger") is not None
+    assert "{token}" in cfg.prompt_for("canvas_trigger")  # type: ignore[operator]
+
+
+def test_claude_image_gen_trigger_is_null() -> None:
+    """Claude has no native image gen — prompt must explicitly be null."""
+    cfg = load_adapter("claude")
+    assert cfg.prompt_for("image_gen_trigger") is None
+    # but other prompts are set
+    assert cfg.prompt_for("canvas_trigger") is not None
+
+
+def test_gemini_flags_include_branch_creation_mode() -> None:
+    """Gemini overrides branch_creation_mode and regenerate_prefer_dom_click."""
+    cfg = load_adapter("gemini")
+    assert cfg.flag_for("branch_creation_mode") == "regenerate"
+    assert cfg.flag_for("regenerate_prefer_dom_click") is True
+    assert cfg.flag_for("image_gen_invocation") is None
+
+
+def test_invalid_label_entry_raises(tmp_path: Path) -> None:
+    """Non-string entries in labels.* must raise."""
+    bad = _minimal_manifest(labels={"reasoning_model": ["ok", 123]})
+    _write_yaml(tmp_path / "bad.yaml", bad)
+    with pytest.raises(AdapterValidationError, match="non-empty string"):
+        load_adapter("bad", adapters_dir=tmp_path)
+
+
+def test_non_string_prompt_raises(tmp_path: Path) -> None:
+    """prompts.* values must be string or null."""
+    bad = _minimal_manifest(prompts={"canvas_trigger": [1, 2, 3]})
+    _write_yaml(tmp_path / "bad.yaml", bad)
+    with pytest.raises(AdapterValidationError, match="string or null"):
+        load_adapter("bad", adapters_dir=tmp_path)
+
+
+def test_apply_to_class_mirrors_labels_and_prompts() -> None:
+    """labels / prompts / flags project onto the canonical class attrs."""
+    class _Stub:
+        reasoning_model_labels = ()
+        canvas_trigger_prompt = None
+        branch_creation_mode = "edit"
+
+    cfg = load_adapter("gemini")
+    apply_to_class(_Stub, cfg)
+    assert _Stub.reasoning_model_labels == tuple(cfg.labels_for("reasoning_model"))
+    assert _Stub.canvas_trigger_prompt == cfg.prompt_for("canvas_trigger")
+    assert _Stub.branch_creation_mode == "regenerate"
+
+
+def test_chatgpt_yaml_covers_all_python_class_attrs() -> None:
+    """After P5.C.4.2 refactor, ChatGPTAdapter loads its config from YAML.
+
+    Verify every selector / label / prompt that the live Python class
+    exposes is sourced from the YAML — drift between Python and YAML
+    is impossible after the refactor because the Python file declares
+    no attributes (the class body is empty modulo the docstring).
+    """
+    from tests.e2e_probe.sites.chatgpt import ChatGPTAdapter
+
+    cfg = load_adapter("chatgpt")
+    # Selectors covered by YAML
+    assert ChatGPTAdapter.input_selectors == tuple(cfg.selectors_for("input"))
+    assert ChatGPTAdapter.model_switcher_selectors == tuple(cfg.selectors_for("model_switcher"))
+    assert ChatGPTAdapter.branch_root_selectors == tuple(cfg.selectors_for("branch_root"))
+    assert ChatGPTAdapter.error_banner_selectors == tuple(cfg.selectors_for("error_banner"))
+    # Labels covered by YAML
+    assert ChatGPTAdapter.reasoning_model_labels == tuple(cfg.labels_for("reasoning_model"))
+    assert ChatGPTAdapter.canvas_menu_labels == tuple(cfg.labels_for("canvas_menu"))
+    # Prompts covered by YAML
+    assert ChatGPTAdapter.canvas_trigger_prompt == cfg.prompt_for("canvas_trigger")
+    assert ChatGPTAdapter.error_trigger_prompt == cfg.prompt_for("error_trigger")
+
+
+def test_gemini_yaml_covers_branch_creation_mode_override() -> None:
+    """Gemini's regenerate branch-creation mode comes from YAML flags.*."""
+    from tests.e2e_probe.sites.gemini import GeminiAdapter
+
+    cfg = load_adapter("gemini")
+    assert GeminiAdapter.branch_creation_mode == cfg.flag_for("branch_creation_mode")
+    assert GeminiAdapter.regenerate_prefer_dom_click == cfg.flag_for("regenerate_prefer_dom_click")
+    assert GeminiAdapter.image_gen_invocation == cfg.flag_for("image_gen_invocation")

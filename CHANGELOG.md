@@ -5,6 +5,137 @@ All notable changes to PCE (core + browser extension) are documented in this fil
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-05-12 — P5.C.4.2 YAML refactor of 3 site adapters (932→90 LOC, -842)
+
+Second of three sub-commits under P5.C.4. P5.C.4.1 landed the loader
++ minimal manifests + 22 parity tests. **P5.C.4.2 now extends the
+YAML schema** to cover every Python class attribute on the 3 reference
+adapters AND **refactors** `tests/e2e_probe/sites/{chatgpt,claude,gemini}.py`
+to thin shells that delegate to `apply_to_class(cls, load_adapter(...))`.
+
+Net result: **chatgpt.py 363 → 29 LOC (−334), claude.py 247 → 35 LOC
+(−212), gemini.py 322 → 26 LOC (−296). Total 932 → 90 (−842 / −90%)**.
+The maintenance contract from HANDOFF §4.P5.C.4 ("selector breaks fix
+in YAML, not Python") is now real.
+
+### Schema extension — `pce_core/adapter_loader.py` (+200 LOC, +9 fields)
+
+| New top-level YAML key | Schema | Class attr convention | Purpose |
+|---|---|---|---|
+| `labels.<name>` | `list[str]` | `<name>_labels` (tuple) | Menu-item text matching (regenerate / reasoning / canvas / code / image gen) |
+| `prompts.<name>` | `str | null` | `<name>_prompt` | Long-form trigger strings for T12 / T13 / T15 / T19 |
+| `flags.<name>` | scalar (bool/str/int/null) | `<name>` (verbatim) | Behavioural overrides (`branch_creation_mode`, `regenerate_prefer_dom_click`, `image_gen_invocation`) |
+
+**+10 selector groups** added to `SELECTOR_GROUP_TO_ATTR`:
+`model_switcher` / `tool_picker` / `code_interpreter_button` /
+`canvas_button` / `image_gen_button` / `web_search_button` /
+`canvas_indicator` / `branch_prev` / `branch_next` / `error_banner`.
+Total now 25 (was 15 in P5.C.4.1).
+
+**3 new accessors** on `AdapterConfig`: `labels_for(group)` /
+`prompt_for(key)` / `flag_for(key)`. Existing `selectors_for` /
+`timeout_ms` unchanged.
+
+**Validation**: `_validate_label_groups` rejects non-list values +
+empty strings (same shape as selectors). `_validate_prompts` rejects
+non-string-non-null values. `_validate_flags` rejects compound types
+(list/dict) — only scalars or null. All errors name the offending
+YAML key in the message (no jsonschema fragments).
+
+### YAML expansion — all 3 manifests now full-coverage
+
+- `chatgpt.yaml`: 16 selector groups + 4 label groups + 4 prompts + 1 flag (~330 LOC)
+- `claude.yaml`: 14 selector groups + 1 label group + 4 prompts (image_gen_trigger explicitly null) + 1 flag (~200 LOC)
+- `gemini.yaml`: 17 selector groups + 4 label groups (2 empty by design) + 4 prompts + 3 flags (~280 LOC)
+
+Every selector / label / prompt / flag that the Python classes used
+to declare is now sourced from these manifests. **The class bodies
+declare zero attributes** (modulo `ClaudeAdapter.upload_file_via_paste`
+which is a method override, not data).
+
+### Python refactor — 3 thin shells
+
+`tests/e2e_probe/sites/chatgpt.py` (29 LOC):
+
+```python
+class ChatGPTAdapter(BaseProbeSiteAdapter):
+    """ChatGPT probe adapter. Configured via ``adapters/chatgpt.yaml``."""
+
+apply_to_class(ChatGPTAdapter, load_adapter("chatgpt"))
+```
+
+`tests/e2e_probe/sites/claude.py` (35 LOC): same shape, keeps the
+`upload_file_via_paste` method override per the 2026-05-03 Claude
+TipTap finding (synthetic `paste` events don't fire the upload chain).
+
+`tests/e2e_probe/sites/gemini.py` (26 LOC): same minimal shape.
+
+The pre-existing drift in chatgpt.py (the duplicated
+`page_load_timeout_ms = 30_000` then `= 25_000`) is now dead code —
+the YAML declares one value (25000) and the class body has zero
+attribute lines, so the double-declaration is structurally impossible
+to reintroduce.
+
+### Tests — `tests/test_adapter_loader.py` 22 → 31 (+9 P5.C.4.2)
+
+- Existing 22 P5.C.4.1 tests still GREEN (loader extension is
+  fully backward-compat — new fields default to empty dicts).
+- **+4 happy-path loads** covering labels / prompts / flags on the
+  3 shipped manifests (`test_labels_load_for_chatgpt_yaml` /
+  `test_prompts_load_for_chatgpt_yaml` /
+  `test_claude_image_gen_trigger_is_null` /
+  `test_gemini_flags_include_branch_creation_mode`).
+- **+2 validation errors**: bad label entry + non-string prompt.
+- **+1 apply_to_class mirror**: labels + prompts + flags all project
+  onto the canonical class attrs.
+- **+2 post-refactor coverage assertions**: `test_chatgpt_yaml_covers_all_python_class_attrs` +
+  `test_gemini_yaml_covers_branch_creation_mode_override` — verify
+  that after import-time `apply_to_class`, the live class attributes
+  match the YAML 1:1 for every category (selectors / labels / prompts /
+  flags). These are now tautological in the strict sense but serve as
+  smoke tests that the refactor's apply_to_class path doesn't regress.
+
+Regression: `test_conductor` (37) + `test_health_beacon` (31) +
+`test_p5c3_tools` (15) + `test_adapter_loader` (31) = **114 GREEN**
+in 10.8 s. `tests/e2e_probe` collects **295 tests** without import
+errors (refactored site classes load YAML cleanly at module import).
+
+### Acceptance gate (HANDOFF-META-PIPELINE-KICKOFF §4.P5.C.4 step 2)
+
+- [x] Every selector / label / prompt / flag previously declared on
+      the 3 site adapters now lives in YAML
+- [x] Python files drop to thin shells (≤ 35 LOC each)
+- [x] `apply_to_class` correctly mirrors all 25 selector groups +
+      5 label groups + 4 prompt keys + 3 flag keys onto class attrs
+- [x] `tests/e2e_probe` collection produces no import errors
+      (295 tests collected post-refactor, same as pre-)
+- [x] No existing test regresses (114 GREEN)
+- [x] Maintenance contract realised: a selector drift fix is now
+      a 1-line YAML edit, not a Python edit + grep through 363 lines
+
+### Drift cleanup completed
+
+- ChatGPT `page_load_timeout_ms` double declaration (P5.C.4.1
+  finding) — eliminated. Class body is empty, YAML declares 25000.
+- Module-level `_CONVERSATION_RE` constants removed from all 3 site
+  files (session URL pattern now compiled by the loader).
+
+### Out of scope (P5.C.4.3, next sub-commit)
+
+- LLM-refined `propose_patch` (Anthropic / OpenAI API call, opt-in
+  via `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` env vars)
+- `tools/repair_adapter.py` CLI for selector repair workflow
+- YAML diff emission for `propose_patch` (currently emits unified
+  Python diffs; with selectors-in-YAML, diffs should target YAML)
+
+### Out of scope (P5.C.5 cleanup phase)
+
+- 11 remaining site adapters (`copilot.py` / `deepseek.py` /
+  `grok.py` / `huggingface.py` / `kimi.py` / `manus.py` /
+  `mistral.py` / `perplexity.py` / `poe.py` / `zhipu.py` /
+  `google_ai_studio.py`) — same mechanical refactor, deferred to
+  keep the P5.C.4 PR reviewable
+
 ## [Unreleased] - 2026-05-12 — P5.C.4.1 YAML adapter loader (foundation, backward-compat)
 
 First of three sub-commits that move per-site selector configuration

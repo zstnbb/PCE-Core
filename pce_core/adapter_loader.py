@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
@@ -39,14 +39,28 @@ logger = logging.getLogger("pce.adapter_loader")
 LATEST_SCHEMA_VERSION: int = 1
 DEFAULT_ADAPTERS_DIR: Path = Path(__file__).parent / "adapters"
 
-#: All supported selector groups. Adding one requires bumping schema_version
-#: + extending the apply_to_class attribute mapping.
+#: All supported selector groups. Adding one requires extending the
+#: ``SELECTOR_GROUP_TO_ATTR`` mapping below. Unknown groups still load
+#: but ``apply_to_class`` projects them onto ``<group>_selectors``
+#: with a warning (forward-compat for new affordances).
 SUPPORTED_SELECTOR_GROUPS: tuple[str, ...] = (
+    # Core composer + response affordances
     "input", "send_button", "stop_button", "response_container",
-    "login_wall", "edit_button", "regenerate_button",
-    "more_actions_button", "file_input", "image_input",
+    "login_wall", "edit_button", "edit_input", "regenerate_button",
+    "more_actions_button", "blocking_state",
+    # File / image uploads
+    "file_input", "image_input",
+    # T06 model switcher / T14 web search
+    "model_switcher", "web_search_button",
+    # T12 / T13 / T15 advanced-tool affordances
+    "tool_picker", "code_interpreter_button",
+    "canvas_button", "image_gen_button",
+    "canvas_indicator",
+    # T09 branch flip
     "branch_root", "branch_user_root", "branch_assistant_root",
-    "blocking_state", "edit_input",
+    "branch_prev", "branch_next",
+    # T19 error banner
+    "error_banner",
 )
 
 SUPPORTED_TIMEOUT_KEYS: tuple[str, ...] = (
@@ -79,6 +93,47 @@ SELECTOR_GROUP_TO_ATTR: dict[str, str] = {
     "branch_user_root": "branch_user_root_selectors",
     "branch_assistant_root": "branch_assistant_root_selectors",
     "blocking_state": "blocking_state_selectors",
+    # P5.C.4.2 additions — full coverage of chatgpt.py / claude.py / gemini.py.
+    "model_switcher": "model_switcher_selectors",
+    "tool_picker": "tool_picker_selectors",
+    "code_interpreter_button": "code_interpreter_button_selectors",
+    "canvas_button": "canvas_button_selectors",
+    "image_gen_button": "image_gen_button_selectors",
+    "web_search_button": "web_search_button_selectors",
+    "canvas_indicator": "canvas_indicator_selectors",
+    "branch_prev": "branch_prev_selectors",
+    "branch_next": "branch_next_selectors",
+    "error_banner": "error_banner_selectors",
+}
+
+#: Mapping from YAML labels key -> class attribute name. Same convention
+#: as selectors: ``<key>_labels``. Used for menu-item text matching
+#: (regenerate menu, reasoning model picker, etc.).
+LABEL_GROUP_TO_ATTR: dict[str, str] = {
+    "regenerate_menu": "regenerate_menu_labels",
+    "reasoning_model": "reasoning_model_labels",
+    "code_interpreter_menu": "code_interpreter_menu_labels",
+    "canvas_menu": "canvas_menu_labels",
+    "image_gen_menu": "image_gen_menu_labels",
+}
+
+#: Mapping from YAML prompts key -> class attribute name. Convention
+#: ``<key>_prompt``. Holds the long multi-line trigger prompts for
+#: T12 / T13 / T15 / T19.
+PROMPT_KEY_TO_ATTR: dict[str, str] = {
+    "canvas_trigger": "canvas_trigger_prompt",
+    "code_interp_trigger": "code_interp_trigger_prompt",
+    "image_gen_trigger": "image_gen_trigger_prompt",
+    "error_trigger": "error_trigger_prompt",
+}
+
+#: Mapping from YAML flags key -> class attribute name. Convention is
+#: name-as-is (no suffix). Holds the boolean / string overrides like
+#: ``regenerate_prefer_dom_click`` and ``branch_creation_mode``.
+FLAG_KEY_TO_ATTR: dict[str, str] = {
+    "regenerate_prefer_dom_click": "regenerate_prefer_dom_click",
+    "branch_creation_mode": "branch_creation_mode",
+    "image_gen_invocation": "image_gen_invocation",
 }
 
 TIMEOUT_KEY_TO_ATTR: dict[str, str] = {
@@ -108,9 +163,10 @@ class AdapterValidationError(ValueError):
 class AdapterConfig:
     """Resolved adapter manifest. JSON-serialisable shape.
 
-    Selector groups are stored as a single dict so unknown / future
-    groups round-trip without code changes; ``selectors_for(group)``
-    is the safe accessor.
+    Group containers are stored as single dicts so unknown / future
+    entries round-trip without code changes; the typed accessors
+    (``selectors_for`` / ``labels_for`` / ``prompt_for`` / ``flag_for``)
+    are the safe access path.
     """
 
     name: str
@@ -127,11 +183,27 @@ class AdapterConfig:
     plane: list[str]
     regenerate_menu_labels: list[str]
     canary_endpoint: Optional[str]
+    # P5.C.4.2 additions.
+    labels: dict[str, list[str]] = field(default_factory=dict)
+    prompts: dict[str, Optional[str]] = field(default_factory=dict)
+    flags: dict[str, Any] = field(default_factory=dict)
     source_path: Optional[Path] = None
 
     def selectors_for(self, group: str) -> list[str]:
         """Return selector list for ``group`` (empty when not declared)."""
         return list(self.selectors.get(group, []))
+
+    def labels_for(self, group: str) -> list[str]:
+        """Return label list for ``group`` (empty when not declared)."""
+        return list(self.labels.get(group, []))
+
+    def prompt_for(self, key: str, *, default: Optional[str] = None) -> Optional[str]:
+        """Return prompt string for ``key`` (default when not declared)."""
+        return self.prompts.get(key, default)
+
+    def flag_for(self, key: str, *, default: Any = None) -> Any:
+        """Return flag value for ``key`` (default when not declared)."""
+        return self.flags.get(key, default)
 
     def timeout_ms(self, key: str, *, default: Optional[int] = None) -> Optional[int]:
         return self.timeouts_ms.get(key, default)
@@ -154,6 +226,9 @@ class AdapterConfig:
             "plane": list(self.plane),
             "regenerate_menu_labels": list(self.regenerate_menu_labels),
             "canary_endpoint": self.canary_endpoint,
+            "labels": {k: list(v) for k, v in self.labels.items()},
+            "prompts": dict(self.prompts),
+            "flags": dict(self.flags),
         }
 
 
@@ -253,6 +328,19 @@ def apply_to_class(cls: type, config: AdapterConfig) -> type:
     if config.regenerate_menu_labels:
         cls.regenerate_menu_labels = tuple(config.regenerate_menu_labels)  # type: ignore[attr-defined]
 
+    # P5.C.4.2: labels / prompts / flags.
+    for group, items in config.labels.items():
+        attr = LABEL_GROUP_TO_ATTR.get(group, f"{group}_labels")
+        setattr(cls, attr, tuple(items))
+
+    for key, value in config.prompts.items():
+        attr = PROMPT_KEY_TO_ATTR.get(key, f"{key}_prompt")
+        setattr(cls, attr, value)
+
+    for key, value in config.flags.items():
+        attr = FLAG_KEY_TO_ATTR.get(key, key)
+        setattr(cls, attr, value)
+
     return cls
 
 
@@ -278,9 +366,21 @@ def _from_yaml_dict(data: dict[str, Any], *, source_path: Optional[Path] = None)
         data.get("session_url_pattern_flags") or [],
         source_path,
     )
+    labels = _validate_label_groups(data.get("labels") or {}, source_path)
+    prompts = _validate_prompts(data.get("prompts") or {}, source_path)
+    flags = _validate_flags(data.get("flags") or {}, source_path)
 
     plane = list(data.get("plane") or [])
-    regen_labels = [str(x) for x in (data.get("regenerate_menu_labels") or [])]
+    # ``regenerate_menu_labels`` is kept as a top-level field for
+    # backward compat with P5.C.4.1 YAML files. New code should put it
+    # under ``labels.regenerate_menu`` instead. If both are declared,
+    # the labels.* form wins.
+    regen_labels_top = [str(x) for x in (data.get("regenerate_menu_labels") or [])]
+    regen_labels_nested = labels.get("regenerate_menu") or []
+    regen_labels = list(regen_labels_nested) if regen_labels_nested else regen_labels_top
+    if regen_labels and "regenerate_menu" not in labels:
+        # Mirror top-level into labels dict so consumers have a single source.
+        labels = {**labels, "regenerate_menu": list(regen_labels)}
 
     return AdapterConfig(
         name=str(data["name"]),
@@ -297,6 +397,9 @@ def _from_yaml_dict(data: dict[str, Any], *, source_path: Optional[Path] = None)
         plane=[str(p) for p in plane],
         regenerate_menu_labels=regen_labels,
         canary_endpoint=_optional_str(data.get("canary_endpoint")),
+        labels=labels,
+        prompts=prompts,
+        flags=flags,
         source_path=source_path,
     )
 
@@ -391,3 +494,59 @@ def _optional_str(value: Any) -> Optional[str]:
     if not isinstance(value, str):
         raise AdapterValidationError(f"expected str or null, got {type(value).__name__}")
     return value
+
+
+def _validate_label_groups(raw: Any, source_path: Optional[Path]) -> dict[str, list[str]]:
+    if not isinstance(raw, dict):
+        raise AdapterValidationError(
+            f"manifest at {source_path}: 'labels' must be a mapping"
+        )
+    out: dict[str, list[str]] = {}
+    for group, items in raw.items():
+        if not isinstance(items, list):
+            raise AdapterValidationError(
+                f"manifest at {source_path}: labels.{group} must be a list, "
+                f"got {type(items).__name__}"
+            )
+        validated: list[str] = []
+        for i, item in enumerate(items):
+            if not isinstance(item, str) or not item.strip():
+                raise AdapterValidationError(
+                    f"manifest at {source_path}: labels.{group}[{i}] "
+                    f"must be a non-empty string, got {item!r}"
+                )
+            validated.append(item)
+        out[str(group)] = validated
+    return out
+
+
+def _validate_prompts(raw: Any, source_path: Optional[Path]) -> dict[str, Optional[str]]:
+    if not isinstance(raw, dict):
+        raise AdapterValidationError(
+            f"manifest at {source_path}: 'prompts' must be a mapping"
+        )
+    out: dict[str, Optional[str]] = {}
+    for key, value in raw.items():
+        if value is not None and not isinstance(value, str):
+            raise AdapterValidationError(
+                f"manifest at {source_path}: prompts.{key} must be a string or null, "
+                f"got {type(value).__name__}"
+            )
+        out[str(key)] = value
+    return out
+
+
+def _validate_flags(raw: Any, source_path: Optional[Path]) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise AdapterValidationError(
+            f"manifest at {source_path}: 'flags' must be a mapping"
+        )
+    out: dict[str, Any] = {}
+    for key, value in raw.items():
+        if value is not None and not isinstance(value, (bool, str, int, float)):
+            raise AdapterValidationError(
+                f"manifest at {source_path}: flags.{key} must be a primitive scalar or null, "
+                f"got {type(value).__name__}"
+            )
+        out[str(key)] = value
+    return out
