@@ -5,6 +5,91 @@ All notable changes to PCE (core + browser extension) are documented in this fil
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-05-12 — P5.C.5.3 P5.C completion handoff (closes Meta-Pipeline)
+
+Third + final P5.C sub-commit. Caps the entire P5.C phase with a
+single consolidated handoff document and a SITE-TIER-MATRIX.md
+amendment. **No code touched.**
+
+### New file — `Docs/handoff/HANDOFF-P5C-COMPLETION-2026-05-12.md` (~480 LOC)
+
+Rollup of all 9 P5.C commits with the minimum a next-shift agent
+needs to verify the work in ≤2 min. 8 sections + 2 appendices:
+
+1. **TL;DR** — 9-commit table with hash + sub-phase + headline outcome
+2. **Sub-phase evidence** (one section per commit, kickoff acceptance
+   gate ticked per sub-phase)
+3. **D0 release gate** (HANDOFF kickoff §6 — 7/8 firm PASS + 1
+   partial-PASS for governance prose owned by the project owner)
+4. **Carry-forwards** — P5.B legacy items (D04 / E04 / E10), owner's
+   parallel-edit surfaces (CONTRIBUTING / PRIVACY / README /
+   Docs/legal/), S3 / SX backlog migration
+5. **v1.1.5 readiness checklist** — 8 boxes for the project owner
+   before `git tag -a v1.1.5`
+6. **P6 pointer** — Coverage Polish entry plan for the next-shift agent
+7. **6 verification one-liners** — copy-pastable PowerShell to
+   confirm 9 commits + 156-test regression + 14 site imports + 14
+   YAML manifests + 5 governance files + repair CLI dry-run
+8. **Acknowledgements** — ADR closures (ADR-011 G3/G7/G9, ADR-017,
+   ADR-018, ADR-019, ADR-020)
+
+Plus Appendix A (per-commit file / LOC index, 9 rows + total) and
+Appendix B (test-count timeline showing 0 → 31 → 68 → 83 → 105 →
+114 → 141 → 141 → 156 growth across the 9 commits).
+
+### Amended `Docs/stability/SITE-TIER-MATRIX.md` — new §11 (~90 LOC)
+
+New top-level amendment "2026-05-12 — YAML-data invariant". Style
+matches the existing §10 "2026-05-08 Amendment — S2/S3 formal
+deferral & browser-ext freeze".
+
+§11 is explicitly **editorial**: it does NOT change tier
+definitions (§2), coverage-doc format obligations (Parts I-VI /
+DIFF / SMOKE / STUB), E2E test depth requirements, or release
+gates (95% / 90% / 80% / 1-roundtrip). It updates only the
+implementation-detail descriptor "FULL spec (~250-350 lines)" in
+§2's tier-definitions table to reflect the post-P5.C.5.2 shape:
+
+| Tier | Adapter shape (post-2026-05-12) |
+|---|---|
+| S0 | ~30-line Python shell + ~200-line YAML manifest |
+| S1 | ~20-line Python shell + ~50-200-line YAML manifest |
+| S2 | ~20-line Python shell + ~30-50-line YAML manifest |
+| S3 | ~10-line Python smoke + (optional) ~15-line YAML stub |
+| SX | Unchanged — STUB + action-item list |
+
+§11.4 "Not implied by this amendment" explicitly clarifies that
+the YAML refactor does NOT lift the §10 v1.0 freeze on
+S2 / S3 / SX, does NOT lower the S0 / S1 commitment bar, and
+does NOT promote / demote any current site. The 14 sites in
+`pce_core/adapters/` are exactly the 14 that already had Python
+adapters before P5.C.
+
+### Acceptance gate (HANDOFF §4.P5.C.5 — final box)
+
+- [x] `Docs/handoff/HANDOFF-P5C-COMPLETION-<date>.md` exists with
+      consolidated evidence
+- [x] All P5.C.0-.4 acceptance items prove ticked in the rollup
+- [x] D04 known bug + E04 + E10 explicitly carry-forwarded to P6
+- [x] SITE-TIER-MATRIX.md reflects the YAML invariant without
+      disturbing tier definitions
+
+Closes the kickoff handoff (`HANDOFF-META-PIPELINE-KICKOFF-2026-05-12.md`).
+The project is **ready for v1.1.5 tagging** pending the owner's
+finalization of the `CONTRIBUTING.md` "Fix a broken adapter"
+prose section (the single soft D0 gate per §3 of the completion
+handoff).
+
+### Out of scope (post-P5.C)
+
+- v1.1.5 tag itself — owner's call, depends on `CONTRIBUTING.md`
+  finalization timing
+- `pce_test_conductor/__init__.py` version bump (`0.1.0` → release
+  number) — surfaced as item #8 in the completion handoff's v1.1.5
+  readiness checklist
+- P6 Coverage Polish kickoff — next handoff after v1.1.5 ships;
+  scope sketched in §6 of the completion handoff
+
 ## [Unreleased] - 2026-05-12 — P5.C.5.2 YAML refactor of 11 secondary sites (final 11/11)
 
 Second of three sub-commits under P5.C.5. P5.C.4.2 moved the 3 S0 sites

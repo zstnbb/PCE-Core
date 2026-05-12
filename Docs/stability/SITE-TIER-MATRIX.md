@@ -477,3 +477,94 @@ freeze is designed to absorb that pressure.
 For the complete rationale, 4-plane capture framework, and P5.B
 attack sequence, read
 `Docs/research/DESKTOP-CAPTURE-COGNITIVE-FRAMEWORK.md` — canonical.
+
+---
+
+## 11. 2026-05-12 Amendment — YAML-data invariant (P5.C.4.2 + P5.C.5.2)
+
+> Adopted 2026-05-12 alongside P5.C completion (`HANDOFF-P5C-COMPLETION-2026-05-12.md`).
+> Editorial; does **not** change tier definitions, coverage-doc
+> format obligations, or release gates. Updates **only** the
+> "how an adapter is shaped" implementation detail referenced
+> implicitly by §2's "FULL spec (~250-350 lines)" descriptor.
+
+### 11.1 What changed
+
+Before P5.C.4.2, every site adapter was a single-file Python class
+on `BaseProbeSiteAdapter` carrying ~250-350 LOC of selectors +
+timeouts + labels + prompts + flags. After P5.C.4.2 (3 S0 sites)
+and P5.C.5.2 (11 secondary sites), **all 14 site adapters split
+into 2 files**:
+
+- `pce_core/adapters/<name>.yaml` — declarative data (selectors,
+  labels, prompts, flags, timeouts, regex patterns, URLs).
+- `tests/e2e_probe/sites/<name>.py` — thin Python shell calling
+  `apply_to_class(cls, load_adapter(name))`. Method overrides
+  (e.g. Grok's `upload_file_via_paste`, Google AI Studio's
+  `ensure_preferred_model`) stay in the Python file; everything
+  else is data.
+
+### 11.2 Impact on §2 tier definitions
+
+The "coverage-doc format" column in §2's tier-definitions table
+remains authoritative — coverage docs continue to describe what
+each tier MUST cover (Parts I-VI / DIFF / SMOKE / STUB). The "~250-350
+lines" parenthetical refers to **legacy Python LOC**; under the
+YAML invariant the same coverage is achieved with:
+
+| Tier | Adapter shape (post-2026-05-12) |
+|---|---|
+| **S0** | ~30-line Python shell + ~200-line YAML manifest |
+| **S1** | ~20-line Python shell + ~50-200-line YAML manifest |
+| **S2** | ~20-line Python shell + ~30-50-line YAML manifest |
+| **S3** | ~10-line Python smoke test + (optional) ~15-line YAML stub |
+| **SX** | Unchanged — STUB + action-item list |
+
+Total LOC across all 14 sites dropped from **1936** (P5.C.4.1
+baseline) to **1127** (P5.C.5.2) — **−41%** while gaining a
+declarative, agent-readable / agent-editable data surface.
+
+### 11.3 Why this matters for tiering decisions
+
+The YAML invariant **does not** lower the bar for a site to enter
+S0 / S1 / S2 — the coverage-doc obligations and the E2E test depth
+in §2-§7 still hold. What changes is the **maintenance cost** of
+a tier-level adapter:
+
+- A broken selector fix is now a 1-line YAML edit, not a
+  ~250-LOC Python re-read.
+- LLM-refined repair proposals (P5.C.4.3 / `tools/repair_adapter.py`)
+  emit YAML diffs that any reviewer can apply via plain text edit.
+- New site stubs can be added by writing only the YAML; the
+  Python shell template is identical for every new site (see
+  P5.C.5.2 thin-shell example in `CHANGELOG.md`).
+
+This **strengthens** the S0 / S1 commitment (95% / 90% pass
+rates) by reducing the marginal cost of keeping a site in tier.
+It also **softens** the practical activation cost of moving an
+S3 stub to S2 — a 30-line YAML + same Python template + S2's
+diff runner is roughly half-day work per site, vs. the historical
+1-2 day Python-class authoring.
+
+### 11.4 Not implied by this amendment
+
+- **NO change to the v1.0 freeze**. §10 still controls "which
+  tiers are in-flight" — S2 / S3 / SX remain DEFERRED to v1.2+
+  per §10.1.
+- **NO change to coverage-doc obligations**. A S0 site still owes
+  Parts I-VI / ~20 T-cases / FULL spec format.
+- **NO change to E2E test depth**. S0 still runs the full
+  autopilot runner; the YAML refactor is purely an internal shape
+  change.
+- **NO promotion / demotion** of any current site. The 14 sites
+  in `pce_core/adapters/` are exactly the 14 that already had
+  Python adapters before P5.C.
+
+### 11.5 Pointer
+
+For the YAML schema, loader API, and the P5.C.4.2 + P5.C.5.2
+refactor evidence, read:
+- `pce_core/adapter_loader.py` — loader source + schema
+- `pce_core/adapters/chatgpt.yaml` — reference S0 manifest
+- `Docs/handoff/HANDOFF-P5C-COMPLETION-2026-05-12.md` — full
+  P5.C completion evidence including the per-site LOC delta tables
