@@ -593,6 +593,15 @@ def parse_args() -> argparse.Namespace:
              "(default 127.0.0.1:8080 = mitmdump). Critical for Cursor / Windsurf because their main "
              "process Node networking otherwise bypasses the system proxy via Clash fake-IP.",
     )
+    p.add_argument(
+        "--no-patch-settings",
+        action="store_true",
+        help="Skip patching the IDE's settings.json with http.proxy. By default the harvester "
+             "patches `~/AppData/Roaming/<App>/User/settings.json` to set "
+             "`http.proxy` + `http.proxySupport=on` + `http.proxyStrictSSL=false`, then restores on exit. "
+             "Without this patch the IDE's extension host (Node) bypasses the proxy "
+             "(HARVEST-SESSION-S1 F5).",
+    )
     return p.parse_args()
 
 
@@ -619,11 +628,45 @@ def main() -> int:
         else:
             logger.info("no existing %s instances to kill", spec.process_name)
 
+    # --- patch IDE settings.json with http.proxy (Track A from S1 discoveries) ---
+    # This is what forces the extension host (Node main process) to also go
+    # through mitmdump. The --proxy-server flag alone only covers the Chromium
+    # renderer. Settings are restored on cleanup below.
+    settings_patched = False
+    proxy_server = args.proxy_server.strip() or None
+    if not args.no_patch_settings and proxy_server:
+        try:
+            from patch_ide_settings import patch_app, get_ide_paths
+            # Map our app id to the patcher's app id. Same names today.
+            _ = get_ide_paths(spec.name)  # raise SystemExit if mismatch
+            patch_result = patch_app(spec.name, f"http://{proxy_server}")
+            settings_patched = True
+            logger.info(
+                "patched %s settings.json: prior=%s new=%s",
+                spec.display_name, patch_result["prior"], patch_result["new"],
+            )
+        except SystemExit as exc:
+            logger.warning("no settings-patch profile for %s — skipping (%s)", spec.name, exc)
+        except Exception:
+            logger.exception("settings patch failed — proceeding without it (extension host may bypass proxy)")
+
+    # Always register a restore on exit (works whether patch succeeded or not;
+    # restore is idempotent when no backup exists).
+    import atexit
+    if settings_patched:
+        def _restore_settings():
+            try:
+                from patch_ide_settings import restore_app
+                result = restore_app(spec.name)
+                logger.info("settings restore for %s: %s", spec.display_name, result.get("status"))
+            except Exception:
+                logger.exception("settings restore failed for %s", spec.display_name)
+        atexit.register(_restore_settings)
+
     # --- pick port ---
     debug_port = pick_port(debug_port)
 
     # --- spawn ---
-    proxy_server = args.proxy_server.strip() or None
     proc = spawn_app(exe, debug_port, proxy_server=proxy_server)
     logger.info(
         "spawned PID=%d, debug_port=%d, proxy_server=%s",

@@ -70,9 +70,38 @@ ALLOWED_HOSTS: set[str] = {
     "gemini.google.com",
     "copilot.microsoft.com",
     # ── Vendor Relay / IDE ────────────────────────────────
+    # Cursor — required-domain list pulled directly from Cursor's
+    # in-app Network Diagnostic on 2026-05-13 (Cursor 3.3.30,
+    # Anysphere build). The chat endpoint is *.api5.cursor.sh
+    # (resolves to agent.api5.cursor.sh for the current user);
+    # api2 is REST/auth/dashboard, api3/api4 is autocomplete tab,
+    # repo42 is codebase indexing. See HARVEST-SESSION-S1-DISCOVERIES.md F1.
     "api2.cursor.sh",
+    "api3.cursor.sh",
+    "api4.cursor.sh",
+    "agent.api5.cursor.sh",         # *.api5.cursor.sh — agent / chat
+    "repo42.cursor.sh",             # codebase indexing
+    "authenticator.cursor.sh",      # auth UI / login page
+    "prod.authentication.cursor.sh",  # *.authentication.cursor.sh — auth
+    "marketplace.cursorapi.com",    # extension marketplace
+    "cursor-cdn.com",               # marketplace CDN
+    "downloads.cursor.com",         # client updates
+    # Codeium / Windsurf — based on documented backend topology.
+    # server.codeium.com is the primary chat / completion endpoint;
+    # api.codeium.com is REST control plane; inference.codeium.com is
+    # the GPU inference; windsurf-server is desktop-specific; web-backend
+    # is the editor settings/sync backend.
     "api.codeium.com",
+    "server.codeium.com",
+    "inference.codeium.com",
+    "windsurf-server.codeium.com",
+    "web-backend.codeium.com",
+    "codeium-api.exafunction.com",  # Codeium parent company API
+    # GitHub Copilot — Extension Host (Node) routes through these.
+    # api.githubcopilot.com is in the subscription-tier block above.
     "copilot-proxy.githubusercontent.com",
+    "default.exp-tas.com",          # Copilot telemetry / experiments
+    # Other vendor relays
     "codewhisperer.amazonaws.com",
     "api.tabnine.com",
     "api.sourcegraph.com",

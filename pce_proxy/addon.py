@@ -205,6 +205,70 @@ _flow_meta: dict[str, dict] = {}
 _ws_state: dict[str, dict] = {}
 
 
+# ---------------------------------------------------------------------------
+# Per-host streaming (HARVEST-SESSION-S1 F3 — replaces global
+# `--set stream_large_bodies=1k` which broke other apps' gRPC streams).
+#
+# Default mitmproxy buffers the entire response before forwarding to the
+# client. Streaming clients (SSE, gRPC-web, Connect) refuse to function
+# under buffering — observed: Cursor chat reports
+# "Streaming responses are being buffered by a proxy" and aborts.
+#
+# Setting `flow.response.stream` to a callable (or True) tells mitmproxy
+# to forward chunks as they arrive. The callable variant lets us tee
+# each chunk into a list so the full body is still recorded after the
+# stream completes, giving Cursor a working chat AND PCE a complete
+# fixture body.
+#
+# We opt in on two axes:
+#   (a) Content-Type: SSE / gRPC / Connect protocols always stream.
+#   (b) Host allowlist: known IDE-class hosts whose responses are
+#       streaming even when they return Content-Type: application/json
+#       (some gRPC-over-h2 implementations don't set the gRPC content-type).
+# ---------------------------------------------------------------------------
+
+# Content types that ALWAYS imply incremental delivery. Lower-cased, prefix-matched.
+STREAMING_CONTENT_TYPE_PREFIXES = (
+    "text/event-stream",         # Classic SSE — OpenAI, Anthropic, Cursor agent, Claude
+    "application/grpc",          # gRPC (covers grpc, grpc-web, grpc+proto)
+    "application/connect",       # Connect / Connect-Web (cursor.sh uses this)
+    "application/x-ndjson",      # Newline-delimited JSON (Ollama, some others)
+)
+
+# Hosts where responses are streamed regardless of advertised content-type.
+# Discovered empirically from HARVEST-SESSION-S1; safer than global setting
+# because non-listed hosts (e.g. Windsurf Cascade's own gRPC stream) keep
+# the default buffered behaviour and are unaffected.
+STREAMING_HOSTS: set[str] = {
+    "agent.api5.cursor.sh",
+    "server.codeium.com",
+    "inference.codeium.com",
+    "chatgpt.com",
+    "chat.openai.com",
+    "claude.ai",
+    "api.openai.com",
+    "api.anthropic.com",
+}
+
+
+def _should_stream(host: str, content_type: str) -> bool:
+    """Decide whether to stream a response chunk-by-chunk.
+
+    Args:
+        host: Hostname (already lower-cased by mitmproxy).
+        content_type: Raw Content-Type response header value.
+
+    Returns:
+        True if mitmproxy should pass chunks through as they arrive
+        (and tee them into our own buffer for capture). False keeps
+        the default buffered behaviour.
+    """
+    if host in STREAMING_HOSTS:
+        return True
+    ct = content_type.lower().split(";", 1)[0].strip()
+    return any(ct.startswith(p) for p in STREAMING_CONTENT_TYPE_PREFIXES)
+
+
 class PCEAddon:
     """mitmproxy addon that captures AI traffic into local SQLite."""
 
@@ -297,6 +361,41 @@ class PCEAddon:
                 details={"direction": "request", "host": host},
             )
 
+    # --- response header phase (per-host streaming decision) -------------
+    #
+    # Fires AFTER the response status line + headers are read upstream but
+    # BEFORE the body. This is the only hook where we can flip
+    # `flow.response.stream` and have it take effect.
+
+    def responseheaders(self, flow: http.HTTPFlow) -> None:
+        meta = _flow_meta.get(flow.id)
+        if meta is None:
+            return  # not tracked, default behaviour applies
+        try:
+            host = meta.get("host") or _get_host(flow)
+            content_type = flow.response.headers.get("content-type", "")
+            if not _should_stream(host, content_type):
+                return
+
+            # Tee chunks: pass each through unchanged AND keep a copy so
+            # the regular `response()` hook can persist the full body.
+            chunks: list[bytes] = []
+
+            def _tee(chunk: bytes) -> bytes:
+                chunks.append(chunk)
+                return chunk
+
+            flow.response.stream = _tee
+            meta["captured_chunks"] = chunks
+            log_event(
+                logger, "proxy.streaming_enabled",
+                pair_id=(meta.get("pair_id") or "")[:8],
+                host=host,
+                content_type=content_type.split(";", 1)[0].strip(),
+            )
+        except Exception:
+            logger.exception("responseheaders streaming hook failed — falling back to buffered")
+
     # --- response phase ---------------------------------------------------
 
     def response(self, flow: http.HTTPFlow) -> None:
@@ -308,7 +407,12 @@ class PCEAddon:
         if meta.get("smart_pending"):
             host = meta["host"]
             content_type = flow.response.headers.get("content-type", "")
-            body_raw = flow.response.content or b""
+            # Prefer teed chunks (set in responseheaders for streaming hosts)
+            captured = meta.get("captured_chunks")
+            if captured is not None:
+                body_raw = b"".join(captured)
+            else:
+                body_raw = flow.response.content or b""
 
             from .heuristic import detect_ai_response
             confidence, reasons = detect_ai_response(body_raw, content_type)
@@ -359,7 +463,14 @@ class PCEAddon:
 
         try:
             headers_json = redact_headers_json(dict(flow.response.headers))
-            body_raw = flow.response.content or b""
+            # Streaming hosts populate meta['captured_chunks'] via the tee
+            # callback set in responseheaders(); for non-streaming flows we
+            # fall back to mitmproxy's default buffered content.
+            captured = meta.get("captured_chunks")
+            if captured is not None:
+                body_raw = b"".join(captured)
+            else:
+                body_raw = flow.response.content or b""
             body_text, body_fmt = safe_body_text(body_raw)
             body_text = redact_body_secrets(body_text)
 

@@ -1427,3 +1427,201 @@ class TestCaptureHealthAPI:
         data = resp.json()
         assert data["total_captures"] > 0
         assert "openai" in data.get("by_provider", {})
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Section 7: Per-host SSE streaming (HARVEST-SESSION-S1 F3 fix)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Before this fix, mitmproxy buffered every response by default, which
+# broke streaming clients (Cursor chat reported "Streaming responses
+# being buffered by a proxy"). The original global workaround
+# `--set stream_large_bodies=1k` broke other apps' gRPC streams system-
+# wide (Windsurf's Cascade backend went down during S1).
+#
+# These tests pin the per-host opt-in behaviour so we don't regress to
+# either failure mode:
+#
+#   * Streaming hosts (agent.api5.cursor.sh, etc.) get
+#     `flow.response.stream` set to a tee callable.
+#   * SSE / gRPC content-types trigger streaming on ANY host.
+#   * Unknown JSON responses are NOT streamed (Cascade safety).
+#   * Teed chunks are re-assembled into the body persisted to DB so
+#     fixtures still contain the full payload.
+
+
+class TestStreamingPolicy:
+    """Pure unit tests for `_should_stream` truth table."""
+
+    def test_streaming_host_overrides_content_type(self):
+        from pce_proxy.addon import _should_stream
+        # Cursor chat endpoint streams even when CT is plain JSON
+        assert _should_stream("agent.api5.cursor.sh", "application/json") is True
+
+    def test_sse_content_type_streams_any_host(self):
+        from pce_proxy.addon import _should_stream
+        assert _should_stream("api.example.com", "text/event-stream") is True
+        # with charset suffix
+        assert _should_stream("api.example.com", "text/event-stream; charset=utf-8") is True
+
+    def test_grpc_content_type_streams(self):
+        from pce_proxy.addon import _should_stream
+        assert _should_stream("api.example.com", "application/grpc") is True
+        assert _should_stream("api.example.com", "application/grpc-web+proto") is True
+
+    def test_connect_protocol_streams(self):
+        from pce_proxy.addon import _should_stream
+        # cursor.sh uses Connect protocol
+        assert _should_stream("api.example.com", "application/connect+json") is True
+
+    def test_ndjson_streams(self):
+        from pce_proxy.addon import _should_stream
+        # Ollama returns NDJSON
+        assert _should_stream("localhost:11434", "application/x-ndjson") is True
+
+    def test_unknown_host_plain_json_does_not_stream(self):
+        from pce_proxy.addon import _should_stream
+        # CRITICAL: Cascade safety — non-listed hosts with plain JSON
+        # MUST default to buffered behaviour or we break their gRPC streams.
+        assert _should_stream("api.cascade.windsurf.com", "application/json") is False
+
+    def test_cursor_rest_endpoint_does_not_stream(self):
+        from pce_proxy.addon import _should_stream
+        # api2.cursor.sh is REST (auth, dashboards, telemetry); not chat.
+        # Must NOT stream when CT is plain JSON.
+        assert _should_stream("api2.cursor.sh", "application/json") is False
+
+    def test_empty_content_type_does_not_stream_unknown_host(self):
+        from pce_proxy.addon import _should_stream
+        assert _should_stream("api.example.com", "") is False
+
+
+class TestResponseHeadersStreamingHook:
+    """Tests for the responseheaders() hook that arms streaming."""
+
+    def test_responseheaders_sets_tee_for_streaming_host(self):
+        from pce_proxy.addon import PCEAddon, _flow_meta
+
+        addon = PCEAddon()
+        # Cursor agent endpoint with SSE content-type
+        body = json.dumps({"messages": [{"role": "user", "content": "test"}]})
+        flow = _make_mock_flow(
+            "agent.api5.cursor.sh",
+            path="/aiserver.v1.AgentService/Chat",
+            request_body=body.encode(),
+            response_content_type="text/event-stream",
+        )
+
+        try:
+            addon.request(flow)
+            assert flow.id in _flow_meta
+
+            addon.responseheaders(flow)
+
+            # Verify stream attr was set to a callable
+            assert callable(flow.response.stream)
+            meta = _flow_meta[flow.id]
+            assert "captured_chunks" in meta
+            assert meta["captured_chunks"] == []
+
+            # Simulate mitmproxy invoking the tee for each chunk
+            chunk1 = b"data: {\"delta\": \"Hello\"}\n\n"
+            chunk2 = b"data: {\"delta\": \" world\"}\n\n"
+            chunk3 = b"data: [DONE]\n\n"
+            assert flow.response.stream(chunk1) == chunk1  # passthrough
+            assert flow.response.stream(chunk2) == chunk2
+            assert flow.response.stream(chunk3) == chunk3
+
+            # Chunks should now be in the captured list
+            assert meta["captured_chunks"] == [chunk1, chunk2, chunk3]
+        finally:
+            _flow_meta.pop(flow.id, None)
+
+    def test_responseheaders_skips_non_streaming_flow(self):
+        from pce_proxy.addon import PCEAddon, _flow_meta
+
+        addon = PCEAddon()
+        # api.openai.com is on STREAMING_HOSTS, so use a different
+        # allowlisted host (api.cohere.com) with plain JSON to verify
+        # the buffered path stays intact.
+        flow = _make_mock_flow(
+            "api.cohere.com",
+            request_body=b'{"model":"command-r"}',
+            response_content_type="application/json",
+        )
+
+        try:
+            addon.request(flow)
+            addon.responseheaders(flow)
+
+            # stream attr should not have been replaced by our tee
+            # (mock starts with stream as a MagicMock attribute, NOT a
+            # function we installed). Check captured_chunks is absent.
+            meta = _flow_meta.get(flow.id)
+            assert meta is not None
+            assert "captured_chunks" not in meta
+        finally:
+            _flow_meta.pop(flow.id, None)
+
+    def test_responseheaders_handles_unknown_flow_gracefully(self):
+        """If responseheaders fires for a flow we never saw in request(),
+        it must be a silent no-op."""
+        from pce_proxy.addon import PCEAddon
+
+        addon = PCEAddon()
+        flow = _make_mock_flow("agent.api5.cursor.sh")
+        # NOTE: skip addon.request() — flow not in _flow_meta
+        addon.responseheaders(flow)  # must not raise
+
+
+class TestStreamingChunkPersistence:
+    """End-to-end test: teed chunks land in DB body."""
+
+    def test_streaming_chunks_assembled_into_db_body(self):
+        from pce_proxy.addon import PCEAddon, _flow_meta
+
+        addon = PCEAddon()
+        # Note: api.anthropic.com is on STREAMING_HOSTS allowlist
+        req_body = json.dumps({
+            "model": "claude-3-5-sonnet",
+            "messages": [{"role": "user", "content": "stream-test-001"}],
+        })
+        flow = _make_mock_flow(
+            "api.anthropic.com",
+            path="/v1/messages",
+            request_body=req_body.encode(),
+            response_content_type="text/event-stream",
+        )
+
+        # Phase 1: request
+        addon.request(flow)
+        pair_id = _flow_meta[flow.id]["pair_id"]
+
+        # Phase 2: response headers → arms tee
+        addon.responseheaders(flow)
+        tee = flow.response.stream
+
+        # Phase 3: simulate streaming chunks
+        chunks = [
+            b'event: message_start\ndata: {"type":"message_start"}\n\n',
+            b'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"text":"4"}}\n\n',
+            b'event: message_stop\ndata: {"type":"message_stop"}\n\n',
+        ]
+        for c in chunks:
+            tee(c)
+
+        # Phase 4: response() persists the assembled body. mitmproxy
+        # leaves flow.response.content = None when streamed, so we
+        # mimic that to prove the teed chunks are used.
+        flow.response.content = None
+        addon.response(flow)
+
+        # Verify persisted body in DB matches concatenated chunks
+        rows = query_captures(last=20)
+        # Find our response row by pair_id (most recent)
+        resp_rows = [r for r in rows if r["pair_id"] == pair_id and r["direction"] == "response"]
+        assert len(resp_rows) == 1, f"expected 1 response row, got {len(resp_rows)}"
+        body = resp_rows[0]["body_text_or_json"] or ""
+        # Each chunk's content should be in the persisted body
+        for c in chunks:
+            assert c.decode() in body, f"chunk missing from body: {c[:40]!r}"
