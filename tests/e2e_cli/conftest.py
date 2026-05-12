@@ -20,6 +20,7 @@ from __future__ import annotations
 import io
 import os
 import sqlite3
+import subprocess
 import sys
 from pathlib import Path
 from typing import Iterator
@@ -201,3 +202,32 @@ def fetch_l3h_rows():
             conn.close()
 
     return _fetch
+
+
+@pytest.fixture
+def tmp_git_repo(tmp_path: Path) -> Path:
+    """Create a minimal git repo with one commit."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(
+        ["git", "init"], cwd=str(repo),
+        capture_output=True, check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@test.com"],
+        cwd=str(repo), capture_output=True, check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"],
+        cwd=str(repo), capture_output=True, check=True,
+    )
+    (repo / "README.md").write_text("init")
+    subprocess.run(
+        ["git", "add", "."], cwd=str(repo),
+        capture_output=True, check=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "init"],
+        cwd=str(repo), capture_output=True, check=True,
+    )
+    return repo

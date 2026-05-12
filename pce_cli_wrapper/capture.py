@@ -38,6 +38,7 @@ from pce_core.db import (
     insert_capture,
     new_pair_id,
 )
+from pce_core.git_context import get_git_context
 from pce_core.health import emit_beacon
 
 logger = logging.getLogger("pce.cli_wrapper.capture")
@@ -229,6 +230,9 @@ class CliWrapperObserver:
             "timed_out": result.timed_out,
             "tty_passthrough": result.tty_passthrough,
         }
+        git_ctx = get_git_context(result.cwd)
+        if git_ctx:
+            body["git"] = git_ctx
         if not result.tty_passthrough:
             body["stdin"] = _encode_stream(result.stdin_bytes)
             body["stdout"] = _encode_stream(result.stdout_bytes)
@@ -255,6 +259,9 @@ class CliWrapperObserver:
             "wrapper_version": _wrapper_version(),
             "capture_kind": "stdio_relay",
         }
+        git_ctx = get_git_context(result.cwd)
+        if git_ctx:
+            meta["git"] = git_ctx
         return json.dumps(meta, ensure_ascii=False, separators=(",", ":"))
 
 

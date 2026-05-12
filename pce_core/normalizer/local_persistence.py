@@ -56,8 +56,10 @@ from __future__ import annotations
 import json
 import logging
 import re
+from pathlib import Path
 from typing import Optional
 
+from pce_core.git_context import get_git_context
 from pce_core.rich_content import build_content_json
 
 from .anthropic import _extract_rich_blocks
@@ -297,6 +299,10 @@ def _build_layer_meta(body: dict, line_type: str) -> dict:
     and a few standardised fields (cwd / entrypoint / version /
     permissionMode / gitBranch / userType). Useful for forensic
     queries and dashboard rendering of Cowork-specific context.
+
+    When ``cwd`` is present and points to a git repo, resolves the
+    HEAD commit SHA so downstream consumers can anchor the session to
+    a specific code state without storing file contents.
     """
     meta: dict = {
         "line_type": line_type,
@@ -314,4 +320,11 @@ def _build_layer_meta(body: dict, line_type: str) -> dict:
         if isinstance(v, str) and len(v) > 4000:
             v = v[:4000] + "..."
         meta[field] = v
+
+    # Resolve git commit hash from cwd when available.
+    cwd_raw = body.get("cwd")
+    if isinstance(cwd_raw, str) and cwd_raw:
+        git_ctx = get_git_context(Path(cwd_raw))
+        if git_ctx:
+            meta["git"] = git_ctx
     return meta

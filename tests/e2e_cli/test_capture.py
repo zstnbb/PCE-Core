@@ -291,3 +291,51 @@ class TestDryRun:
         obs.emit(_mk_result(args=["-p", "hi2"]))
         assert obs.stats["rows_written"] == 2  # would-emit count
         assert count_l3h_rows(tmp_pce_db) == 0
+
+
+# ---------------------------------------------------------------------------
+# Git context integration
+# ---------------------------------------------------------------------------
+
+
+class TestGitContext:
+    def test_body_includes_git_when_in_repo(
+        self, tmp_pce_db: Path, fetch_l3h_rows, tmp_git_repo: Path
+    ) -> None:
+        obs = CliWrapperObserver(db_path=tmp_pce_db)
+        r = _mk_result(args=["-p", "hi"])
+        # Override cwd to point at a real git repo
+        r.cwd = tmp_git_repo
+        obs.emit(r)
+        rows = fetch_l3h_rows(tmp_pce_db)
+        body = json.loads(rows[0]["body_text_or_json"])
+        assert "git" in body
+        assert "git_commit_sha" in body["git"]
+        assert len(body["git"]["git_commit_sha"]) == 40
+        assert "git_branch" in body["git"]
+
+    def test_meta_includes_git_when_in_repo(
+        self, tmp_pce_db: Path, fetch_l3h_rows, tmp_git_repo: Path
+    ) -> None:
+        obs = CliWrapperObserver(db_path=tmp_pce_db)
+        r = _mk_result(args=["-p", "hi"])
+        r.cwd = tmp_git_repo
+        obs.emit(r)
+        rows = fetch_l3h_rows(tmp_pce_db)
+        meta = json.loads(rows[0]["meta_json"])
+        assert "git" in meta
+        assert "git_commit_sha" in meta["git"]
+        assert "git_short_sha" in meta["git"]
+
+    def test_no_git_key_when_not_in_repo(
+        self, tmp_pce_db: Path, fetch_l3h_rows, tmp_path: Path
+    ) -> None:
+        obs = CliWrapperObserver(db_path=tmp_pce_db)
+        r = _mk_result(args=["-p", "hi"])
+        r.cwd = tmp_path  # not a git repo
+        obs.emit(r)
+        rows = fetch_l3h_rows(tmp_pce_db)
+        body = json.loads(rows[0]["body_text_or_json"])
+        meta = json.loads(rows[0]["meta_json"])
+        assert "git" not in body
+        assert "git" not in meta
