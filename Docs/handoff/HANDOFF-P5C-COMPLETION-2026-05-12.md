@@ -488,8 +488,14 @@ Test-Path CODEOWNERS, .github/PULL_REQUEST_TEMPLATE.md, .github/ISSUE_TEMPLATE/b
 # Expected: 5 × True
 
 # 6. Repair CLI is wired (dry-run, mock provider)
-python -m tools.repair_adapter --target browser_chatgpt --json | python -c "import sys, json; d = json.load(sys.stdin); print('provider:', d['provider'], 'confidence:', d['confidence'])"
-# Expected: "provider: mock confidence: 0.25"
+python -m tools.repair_adapter --target browser_chatgpt --json
+# Expected on a CLEAN checkout (no prior failed runs):
+#   exit code 1 + stderr message "No failed run found for target='browser_chatgpt' within 168 h."
+#   ↑ This is the CORRECT response — the repair CLI by design only
+#     proposes diffs against an existing failed conductor run.
+# Expected after the FIRST nightly probe + a real failure:
+#   exit code 0 + JSON payload with provider="mock" / confidence=0.25
+#   (or higher confidence if --no-dry-run + valid API key in env)
 ```
 
 If any of the 6 checks fails, the handoff is INCOMPLETE and the

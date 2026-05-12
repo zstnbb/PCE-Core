@@ -164,6 +164,18 @@ Report security issues privately per [`SECURITY.md`](SECURITY.md). Community sta
 - Decision records — [`Docs/docs/engineering/adr/`](Docs/docs/engineering/adr/)
 - Detailed dev guide (Chinese) — [`Docs/README.md`](Docs/README.md)
 
+## Legal Notice
+
+PCE is a personal observability tool. It records your own AI conversations on your own machine. It does not bypass paywalls, defeat encryption, or proxy authentication. Your use of PCE with any third-party AI service may be subject to that service's Terms of Service; you are responsible for evaluating and complying with those terms.
+
+- **Privacy & data handling** — [`PRIVACY.md`](PRIVACY.md) (sections 1–14, including Terms of Service, trade-secret, and takedown commitments)
+- **Legal threat model** — [`Docs/legal/THREAT-MODEL.md`](Docs/legal/THREAT-MODEL.md) (per-layer risk matrix; the contract every contribution must satisfy)
+- **Cease-and-desist & DMCA process** — [`Docs/legal/CEASE-AND-DESIST-RESPONSE.md`](Docs/legal/CEASE-AND-DESIST-RESPONSE.md) (24-hour vendor kill-switch + escalation tree)
+- **Compliance boundary for contributors** — [`CONTRIBUTING.md`](CONTRIBUTING.md) Rule 5
+- **Security disclosures** — [`SECURITY.md`](SECURITY.md) (private channel; prefix `[DMCA]` or `[Legal]` for legal notices)
+
+This notice is not legal advice. PCE is provided under Apache-2.0; the license's disclaimer of warranties and limitation of liability apply.
+
 ## License
 
 [Apache-2.0](LICENSE) · Copyright 2026 PCE Contributors.

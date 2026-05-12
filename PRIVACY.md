@@ -97,3 +97,39 @@ We will update this file in the repository when the behavior of the extension or
 ## 10. Contact
 
 For privacy questions or concerns, please open an issue at https://github.com/zstnbb/PCE-Core/issues. For security-relevant disclosures that should stay private until fixed, use GitHub's private advisory flow: https://github.com/zstnbb/PCE-Core/security/advisories/new.
+
+## 11. Terms of Service of Third-Party AI Services
+
+PCE is a passive recording tool that runs on your machine. Whether your use of an AI service through PCE is consistent with that service's Terms of Service is a question between you and the service operator.
+
+- **You are responsible** for reading and complying with the Terms of Service of any AI service you connect to via PCE.
+- **PCE does not** circumvent rate limits, geo-restrictions, content moderation, or paid-tier paywalls. PCE records what your account would already see.
+- **PCE does not** market itself as a tool to bypass, unlock, defeat, or circumvent any service control.
+- If a service's Terms of Service prohibit local recording of your own conversations, you should evaluate whether to continue using PCE on that service.
+
+We make no representation that PCE's use is permitted by every AI service's Terms of Service. We do not provide legal advice on this question.
+
+## 12. Trade Secrets, System Prompts, and Republication
+
+Conversations you capture with PCE may include outputs that the service operator considers proprietary — for example, hidden system prompts, fine-tuning artifacts, or internal model identifiers.
+
+- **Local use is yours.** Storing, searching, and replaying captured conversations on your own machine for personal, research, or quality-assurance purposes is the intended use of PCE.
+- **Republication is your responsibility.** If you publicly disclose captured outputs (for example, by posting screenshots, exporting datasets, or publishing analyses), you are responsible for any trade-secret, contract, or confidentiality obligations that may apply to that disclosure.
+- **PCE does not encourage exfiltration.** We do not accept code contributions whose stated purpose is to extract, expose, or publish proprietary content from any AI service.
+
+## 13. Cease-and-Desist and Takedown Commitments
+
+PCE is committed to good-faith compliance with legitimate legal requests:
+
+- **Vendor-specific support is removable on short notice.** Each AI service we support is implemented in an isolated adapter file. If we receive a credible cease-and-desist request from an AI service operator, we will follow the procedure documented at [`Docs/legal/CEASE-AND-DESIST-RESPONSE.md`](Docs/legal/CEASE-AND-DESIST-RESPONSE.md), including disabling distribution of the disputed adapter within 24 hours of acknowledged receipt while review is pending.
+- **DMCA §512 takedowns** addressed to the GitHub repository are handled through GitHub's documented process. Counter-notices, when filed, follow the GitHub Acceptable Use Policies.
+- **DMCA Designated Agent for the PCE-Core repository:** disclosures should be sent via GitHub's private vulnerability reporting flow at https://github.com/zstnbb/PCE-Core/security/advisories/new with the subject prefix `[DMCA]` or `[Legal]`. Postal service is not currently accepted.
+- **Public takedown log.** Resolved cases (after counsel review) are summarized at `Docs/legal/TAKEDOWN-LOG.md` so the community can audit our compliance pattern. Personal information is redacted from these summaries.
+
+These commitments do not waive any legal defense and do not constitute admission that any particular request is valid.
+
+## 14. No Legal Advice; Limitation of Liability
+
+This Privacy Policy describes how PCE handles data and outlines our compliance commitments. It is **not legal advice**. PCE is provided under the Apache License 2.0; the license's disclaimer of warranties and limitation of liability apply.
+
+If you are deploying PCE in a workplace or other regulated environment, consult your own legal counsel regarding applicability of data-protection law (e.g. GDPR, CCPA, PIPL), wiretap and recording statutes, and any sector-specific regulations.

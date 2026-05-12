@@ -71,6 +71,14 @@
   - 技术结构、模块、数据流、实现边界。
 - `docs/engineering/adr/`
   - 关键工程决策记录，后续不要轻易推翻。
+- `docs/engineering/META-PIPELINE-FRAMEWORK.md`
+  - P5.C 跨 lane 三件套契约（capture/verification/health-as-data）+ AdapterContract 规范，是 Meta-Pipeline 阶段所有 lane 的工程契约。
+- `stability/`
+  - 验证执行标准与覆盖矩阵：浏览器 T-case (`PCE-PROBE-E2E-EXECUTION-STANDARD.md`)、桌面 D-case (`DESKTOP-D-CASE-EXECUTION-STANDARD.md`)、健康度 (`PCE-PIPELINE-HEALTH-MATRIX.md`)、桌面产品矩阵 (`DESKTOP-PRODUCT-MATRIX.md`)、站点 tier (`SITE-TIER-MATRIX.md`).
+- `research/`
+  - 战略性认知文档：例如 `DESKTOP-CAPTURE-COGNITIVE-FRAMEWORK.md` 4 张捕获面 × 应用类型 × normalizer 三段。
+- `legal/` （2026-05-12 P5.C.0 新增）
+  - 法律治理产物（ADR-019 §3.5）：`THREAT-MODEL.md` per-layer 风险矩阵 + 7 个法律理论防御论据；`CEASE-AND-DESIST-RESPONSE.md` 24h 函件响应 playbook + vendor kill-switch + P0–P3 escalation tree。任何新抓取技术 merge 前必须能落入 THREAT-MODEL §3 矩阵某一行；任何法律函件按 CEASE-AND-DESIST-RESPONSE §1 流程响应。
 - `tasks/`
   - 给本地 agent 的执行入口。
 - `handoff/`

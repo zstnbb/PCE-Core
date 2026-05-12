@@ -112,7 +112,7 @@ Claude Code (D0)     = H1/L3h CLI wrap + N (L1 anthropic.com)
 
 **禁止**: 任何"AI 自动修复并 push"的实现. 治理边界: AI 是 "副驾", 人 / agent + review 是 "驾驶员".
 
-### 3.2 三项治理产物 (P5.C.5 强制)
+### 3.2 前三项治理产物 — 贡献者路径 (P5.C.5 强制)
 
 **产物 1 — `CONTRIBUTING.md` "Fix a broken adapter" 章节**:
 
@@ -149,9 +149,65 @@ P5.C 是 "把契约 + 产物落到代码 + dashboard + CI 上" 的实施阶段. 
 | P5.C.2 Test Conductor MVP | `pce_test_conductor/` (8 MCP tool) | 激活 ADR-017 |
 | P5.C.3 Nightly CI | GH Actions + auto-issue | 契约 B 释放门生效 |
 | P5.C.4 配置化 + AI 修复 | YAML adapter + `propose_patch` LLM | 契约 C + D |
-| P5.C.5 治理收口 | CONTRIBUTING / CODEOWNERS / templates / cleanup | 三项治理产物 |
+| P5.C.5 治理收口 | CONTRIBUTING / CODEOWNERS / templates / legal / cleanup | 5 项治理产物 (§3.2 + §3.5) |
 
 P5.C 完成后, P6 (Coverage Polish) 才有意义启动.
+
+### 3.5 后两项治理产物 — 法律边界 (P5.C.0 随本决议同 commit 交付)
+
+**上下文**: 项目所有者「无法主体维护」构成工程风险; 同样的约束下, 法律事件 (cease-and-desist / DMCA / Webstore takedown) 如果需要项目所有者现场从头思考 → 响应延迟 24–72h → 被判为 willful → 赔偿面扩大.
+
+**原则**: 把 "收到法律函件后该怕么处理" 产品化成可调用的 playbook + per-layer 风险分级, 让项目所有者以外的 maintainer 也能遵照步骤响应. 同上联架构: AI/agent 辅助, 人是驾驶员.
+
+**产物 4 — `Docs/legal/THREAT-MODEL.md` (风险框架)**:
+
+锁住 PCE 在法律上的姿态 + 每个 UCS layer 的风险评分 + 每种法律理论的防御论据:
+
+- §1 baseline 姿态 (合法 analogues: Wireshark / Charles / mitmproxy / yt-dlp; 危险 anti-pattern: Power Ventures / 3taps / BrandTotal)
+- §2 七个法律理论 (CFAA / DMCA §1201 / tortious interference / trade secret / copyright / Webstore policy / GDPR-CCPA-PIPL / wiretap / EU-CN 反规避) — 每个附防御与残余风险
+- §3 按 layer 的可执行矩阵 — **这是合规边界的唯一权威来源**: 每行 "Allowed in OSS?" 列是 ✅/❌ 二选一。 L0 / L2 类型代码永久不准进 OSS repo
+- §4 按 adversary profile 的预定防御; §5 工程 safeguard 表 (CI / lint / schema check); §6 新抓取技术 merge 前 6 个必答问题
+
+**产物 5 — `Docs/legal/CEASE-AND-DESIST-RESPONSE.md` (操作 playbook)**:
+
+锁住 "法律函件到达后 24h 内该按哪些按钮":
+
+- §0–1 24h triage: 证据保全 → 分类函件 → 评估 P0/P1/P2/P3 严重度 → 选择是否微作业移除
+- §2 确认模板 (在 72h 内发出, 不承认任何事实主张)
+- §3 实质响应 (§3.1 合法则移除 / §3.2 部分合法则部分移除 / §3.3 不合法则反驳)
+- §4 **vendor kill-switch 工程流程**: 依赖 P5.C.2 锁定的 `pce_core/sites/<vendor>.{yaml,py}` 隔离, 2h 内可执行移除
+- §5 DMCA §512(g) 反通知指南
+- §6 公开 takedown log 格式 — 在 `Docs/legal/TAKEDOWN-LOG.md` 留下 sanitized 记录, 作为未来误认为 willful 的反证
+- §7 P3 → P0 escalation tree (何时叫律师 / 何时联系 EFF + Software Freedom Conservancy)
+- §8 8 项 "what NOT to do" — 怎么把一个可存活的事件变成项目终结事件
+
+**与三项工程治理产物 (§3.2) 的区别**:
+
+| §3.2 三件 | §3.5 两件 |
+|---|---|
+| 面向贡献者 | 面向 maintainer + counsel |
+| 调节 "如何修 broken adapter" | 调节 "如何响应 cease-and-desist" |
+| 嵌入 GitHub 工作流 | 嵌入项目所有者 + counsel 工作流 |
+| 错了也就个 PR | 错了可能项目终结 |
+
+**P5.C.0 acceptance** (本 commit):
+- ✅ `Docs/legal/THREAT-MODEL.md` 已交付 (产物 4)
+- ✅ `Docs/legal/CEASE-AND-DESIST-RESPONSE.md` 已交付 (产物 5)
+- ✅ `PRIVACY.md` §11–14 补充 ToS 免责 / Trade Secret / DMCA designated agent / no-legal-advice
+- ✅ `CONTRIBUTING.md` Rule 5 合规边界
+- ✅ `README.md` Legal Notice 段
+
+**P5.C.5 锁口** (后期):
+- ⚪ `.github/workflows/legal-keyword-scan.yml` — PR diff 扫 `bypass / unlock / defeat / crack / circumvent / pirate` (在用户面向字符串中) — 违反则 fail check
+- ⚪ `scripts/check_vendor_isolation.py` — 检查当前仓库里 vendor 专有逻辑都限于 `pce_core/sites/<vendor>.{yaml,py}` 与 `pce_browser_extension_wxt/sites/<vendor>.ts`
+- ⚪ `Docs/legal/TAKEDOWN-LOG.md` 骨架 (初始为空, 首个 entry 由首次事件生成)
+- ⚪ GitHub Security Advisory 启用 `[DMCA]` / `[Legal]` 主题分类
+- ⚪ 与 EFF / Software Freedom Conservancy 建立 pre-positioned contact
+
+**边界 — 本产物不包含的**:
+- 不提供实际法律意见 (counsel review 在 v1.0 launch 前是 P0)
+- 不提供跨司法管辖区的逐字辞典 (中文 大陆 / 欧盟 / 日本 反规避变体仅点名, 实际过场 counsel-of-jurisdiction)
+- 不锁 P0 事件的具体响应 (必须 counsel one-on-one)
 
 ---
 

@@ -261,6 +261,12 @@ P5.A 封存交接：`handoff/HANDOFF-BROWSER-EXT-FREEZE-2026-05-08.md` ⭐ **202
 - `stability/PCE-PIPELINE-HEALTH-MATRIX.md` — **跨 lane 健康度矩阵契约**（2026-05-12，P5.C 新增）— health-as-data 契约
 - `stability/SITE-TIER-MATRIX.md` — 浏览器站点 tier 矩阵（2026-04-25 + 2026-05-08 §10 修订；浏览器子系统已封存，矩阵留作历史与重启参考）
 
+法律治理（2026-05-12、P5.C.0 新增，ADR-019 §3.5 下的产物 4 + 5）：
+- `legal/THREAT-MODEL.md` — **法律威胁模型**：per-layer 风险矩阵 + 7 个法律理论防御论据 + L0/L2 永久不进 OSS 的硬约束。任何新抓取技术 merge 前必须能载入 §3 矩阵某一行
+- `legal/CEASE-AND-DESIST-RESPONSE.md` — **法律函件响应 playbook**：24h triage + 确认模板 + vendor kill-switch 工程 procedure + DMCA §512(g) 反通知 + P0–P3 escalation tree (EFF / Software Freedom Conservancy)
+- (骨架待起) `legal/TAKEDOWN-LOG.md` — 公开 sanitized 事件记录，首个 entry 由首次事件生成
+- (补充在仓库根目录) `PRIVACY.md` §11–14 · `CONTRIBUTING.md` Rule 5 · `README.md` Legal Notice 段
+
 ADR：
 - `ADR-001` 第一阶段先做记录不做干预
 - `ADR-002` 采用本地统一代理作为底层内核
@@ -280,7 +286,7 @@ ADR：
 - `ADR-016` ✅ (**P5.B.2 kickoff 2026-05-09 落地**) P5.B.2 实施转向：否决 L3b Electron preload + ASAR repack，改 L3d CDP launcher + `.mcpb` Desktop Extensions 打包；migration 0009→0010 重编号
 - `ADR-017` 📝 (**Proposed 2026-05-09，实施 Phase 4.D.1–6**) 跨 lane 测试编排与 Agent 可调用契约：新建 `pce_test_conductor/`（OSS）统一 browser lane (`pce_probe/`) 与 desktop lane (`tests/e2e_desktop/`)，暴露 8 个 MCP tool + 9 值 FailureKind 本体 + JSON Schema canary + 3 个补丁模板；honour ADR-011 G9 "agent 侧实现，插件不投资"——补丁仅作为 diff data 返回，物理 apply 由调用方 agent 落地
 - `ADR-018` ✅ (**v1.1.0-alpha.8-adr018 2026-05-10 落地**) 闭源 Store 分发 Electron AI 应用捕获策略：固化 8 面 × 23 路径威胁模型 + 5 红线 + 13 保留/10 永久排除路径过滤；增设 UCS 子层 **L3g · Local Persistence Watcher**（`pce_persistence_watcher/`）；锁定 MSIX 三主轴实施模型（M / L3g / H1 = L3h）；以 H2 (证书 pin) / H3 (SSLKEYLOGFILE) / H4 (Electron Fuses) 三可伪假设参数化三覆盖场景；**实测场景 H2✅ + H3✅ + H4❌，三区覆盖 ≈94% T1，P1 D0 ≥85% 门已过**；P6 重命名为“Coverage Polish” + Frida + Kernel 推为 Pro 专有。120 hermetic 测试全绿（L3g 43 + L3h 77）
-- `ADR-019` ✅ (**P5.C.0 2026-05-12 落地**) **治理优于功能 — 把可维护性作为产品一等约束**：4 项强制契约（跨 lane 三件套 + 多通道冗余 + 配置化优先 + Patch-as-data） + 3 项治理产物（CONTRIBUTING/CODEOWNERS/templates） + 新增 P5.C 阶段；激活 ADR-017 (Test Conductor) 与 ADR-011 G3 (DOM watcher) + G9 (LLM auto-fix)；项目所有者「无法主体维护」约束下的工程生存前提
+- `ADR-019` ✅ (**P5.C.0 2026-05-12 落地**) **治理优于功能 — 把可维护性作为产品一等约束**：4 项强制契约（跨 lane 三件套 + 多通道冗余 + 配置化优先 + Patch-as-data） + **5 项治理产物**（§3.2 前 3: CONTRIBUTING/CODEOWNERS/templates · §3.5 后 2: THREAT-MODEL/CEASE-AND-DESIST-RESPONSE） + 新增 P5.C 阶段；激活 ADR-017 (Test Conductor) 与 ADR-011 G3 (DOM watcher) + G9 (LLM auto-fix)；项目所有者「无法主体维护」约束下的工程生存前提；跨 三件套 + 三件治理 + 两件法律边界是项目在被起诉 / 接 cease-and-desist / counsel 换中 所能存活的完整姿态
 
 任务单：
 - `tasks/TASK-001-proxy-poc.md` — 已完成 (Foundation)
