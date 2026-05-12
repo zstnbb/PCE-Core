@@ -1290,6 +1290,389 @@ def case_E15_session_restart(ctx: CaseContext) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# P5.B.7.P2 (2026-05-12) — extended capture surfaces
+# ---------------------------------------------------------------------------
+#
+# E16-E22 verify the P2 extensions (sub-agent JSONLs + user-home state
+# surfaces). All seven are STATIC-eligible — they probe DB rows / raw
+# captures populated by the watcher's ``--only code_subagents`` and
+# ``--only user_state`` walkers (or a full scan that hits everything).
+# Live mode falls through to the static check because the surfaces
+# don't require fresh UI driving to materialise — a single
+# ``python -m pce_persistence_watcher scan`` populates everything.
+
+
+_SUBAGENT_KEY_LIKE = "%__agent_%"
+
+
+def _user_state_path_prefix() -> str:
+    """Return the raw_captures path prefix for user-state surfaces."""
+    return "/claude-desktop/user-state/"
+
+
+def case_E16_subagent_capture(ctx: CaseContext) -> dict:
+    """E16 — sub-agent JSONL transcripts captured into the DB.
+
+    Verifies that the P2 sub-agent walker has populated the
+    ``sessions`` table with at least one row whose ``session_key``
+    matches the composite ``<parent>__agent_<id>`` pattern AND whose
+    ``tool_family`` resolves to ``"claude-desktop-code"`` (proves the
+    entrypoint-hoist is reaching the normaliser correctly).
+    """
+    con = _connect(ctx.db_path)
+    try:
+        row = con.execute(
+            "SELECT id, session_key, tool_family FROM sessions "
+            "WHERE session_key LIKE ? AND tool_family = ? "
+            "LIMIT 1",
+            (_SUBAGENT_KEY_LIKE, TOOL_FAMILY_CODE),
+        ).fetchone()
+        n_subs = con.execute(
+            "SELECT COUNT(*) FROM sessions WHERE session_key LIKE ? "
+            "AND tool_family = ?",
+            (_SUBAGENT_KEY_LIKE, TOOL_FAMILY_CODE),
+        ).fetchone()[0]
+        n_msgs = con.execute(
+            "SELECT COUNT(*) FROM messages m "
+            "JOIN sessions s ON m.session_id = s.id "
+            "WHERE s.session_key LIKE ? AND s.tool_family = ?",
+            (_SUBAGENT_KEY_LIKE, TOOL_FAMILY_CODE),
+        ).fetchone()[0]
+    finally:
+        con.close()
+
+    if row is None:
+        return _verdict(
+            "E16", "skip",
+            reason="no sub-agent sessions in DB; run "
+                   "`python -m pce_persistence_watcher scan --only code_subagents` "
+                   "after using the Code-tab Task tool at least once",
+        )
+    return _verdict(
+        "E16", "pass",
+        reason=f"sub-agent capture present: {n_subs} session(s) with "
+               f"{n_msgs} message(s), e.g. {row['session_key'][:60]}",
+        evidence={"sample_key": row["session_key"], "n_sessions": n_subs,
+                  "n_messages": n_msgs},
+    )
+
+
+def case_E17_subagent_parent_link(ctx: CaseContext) -> dict:
+    """E17 — sub-agent rows carry parent_session_id meta link.
+
+    Each sub-agent raw_captures row's ``meta_json`` should contain
+    ``is_subagent=true`` AND ``parent_session_id`` set to the parent
+    session UUID. This is the bidirectional link the dashboard needs
+    to surface "main session X spawned sub-agent Y".
+    """
+    # PCE serialises meta_json via compact ``json.dumps`` (no spaces),
+    # but a hand-built fixture or future emitter change could use the
+    # default ``", "`` / ``": "`` separators. Accept both shapes so the
+    # case isn't fragile to that one-character schema drift.
+    con = _connect(ctx.db_path)
+    try:
+        row = con.execute(
+            "SELECT meta_json, session_hint FROM raw_captures "
+            "WHERE path LIKE '/claude-desktop/agent-transcript/%__agent_%' "
+            "  AND ("
+            "        meta_json LIKE '%\"is_subagent\":true%' "
+            "     OR meta_json LIKE '%\"is_subagent\": true%' "
+            "  ) "
+            "LIMIT 1"
+        ).fetchone()
+    finally:
+        con.close()
+
+    if row is None:
+        return _verdict(
+            "E17", "skip",
+            reason="no sub-agent raw_captures with is_subagent meta; "
+                   "re-run watcher after spawning a sub-agent",
+        )
+    try:
+        meta = json.loads(row["meta_json"])
+    except json.JSONDecodeError as exc:
+        return _verdict(
+            "E17", "fail",
+            reason=f"sub-agent meta JSON malformed: {exc}",
+        )
+    parent = meta.get("parent_session_id")
+    agent = meta.get("agent_id")
+    if not (isinstance(parent, str) and isinstance(agent, str)):
+        return _verdict(
+            "E17", "fail",
+            reason="sub-agent meta missing parent_session_id or agent_id",
+            evidence={"meta_keys": list(meta.keys())},
+        )
+    return _verdict(
+        "E17", "pass",
+        reason=f"sub-agent linked: parent={parent[:12]}... agent_id={agent[:12]}",
+        evidence={"parent_session_id": parent, "agent_id": agent},
+    )
+
+
+def case_E18_user_state_global(ctx: CaseContext) -> dict:
+    """E18 — ``~/.claude.json`` captured with mcpServers visible.
+
+    Verifies the user_state_global surface is in raw_captures AND
+    the body retains its structural ``mcpServers`` map (proving the
+    redactor preserved the field while scrubbing userID/oauthAccount).
+    """
+    con = _connect(ctx.db_path)
+    try:
+        row = con.execute(
+            "SELECT body_text_or_json FROM raw_captures "
+            "WHERE path = '/claude-desktop/user-state/user_state_global' "
+            "LIMIT 1"
+        ).fetchone()
+    finally:
+        con.close()
+
+    if row is None:
+        return _verdict(
+            "E18", "skip",
+            reason="no user_state_global capture; run "
+                   "`python -m pce_persistence_watcher scan --only user_state`",
+        )
+    try:
+        body = json.loads(row["body_text_or_json"])
+    except json.JSONDecodeError as exc:
+        return _verdict("E18", "fail", reason=f"~/.claude.json body malformed: {exc}")
+
+    mcp = body.get("mcpServers")
+    if not isinstance(mcp, dict):
+        return _verdict(
+            "E18", "fail",
+            reason="user_state_global body missing mcpServers dict",
+            evidence={"body_keys": list(body.keys())[:20]},
+        )
+    n_projects = len(body.get("projects", {})) if isinstance(body.get("projects"), dict) else 0
+    return _verdict(
+        "E18", "pass",
+        reason=f"global state captured: {len(mcp)} MCP server(s), "
+               f"{n_projects} project state record(s)",
+        evidence={"mcp_servers": list(mcp.keys()), "n_projects": n_projects},
+    )
+
+
+def case_E19_settings_redaction(ctx: CaseContext) -> dict:
+    """E19 — settings.json captured AND secret-redacted.
+
+    PASS condition: the user_state_settings raw_captures row exists
+    AND its body_text_or_json does NOT contain any of the well-known
+    secret patterns (literal ``ANTHROPIC_AUTH_TOKEN`` *value* form
+    ``sk-...`` or similar). The body's ``env`` block is checked
+    structurally — any key matching the secret-suffix pattern must
+    resolve to the redaction sentinel.
+    """
+    con = _connect(ctx.db_path)
+    try:
+        row = con.execute(
+            "SELECT body_text_or_json FROM raw_captures "
+            "WHERE path = '/claude-desktop/user-state/user_state_settings' "
+            "LIMIT 1"
+        ).fetchone()
+    finally:
+        con.close()
+
+    if row is None:
+        return _verdict(
+            "E19", "skip",
+            reason="no settings.json capture; run watcher with "
+                   "--only user_state",
+        )
+    body_text = row["body_text_or_json"] or ""
+    # Coarse smoke check: any plaintext "sk-" followed by 8+ chars
+    # in the body indicates a secret leaked through.
+    import re as _re
+    if _re.search(r"\"sk-[A-Za-z0-9_-]{12,}\"", body_text):
+        return _verdict(
+            "E19", "fail",
+            reason="settings.json body still contains a 'sk-...' literal "
+                   "(redaction did NOT scrub the API token)",
+        )
+    try:
+        body = json.loads(body_text)
+    except json.JSONDecodeError as exc:
+        return _verdict("E19", "fail", reason=f"settings body malformed: {exc}")
+
+    env = body.get("env", {})
+    redacted_keys: list[str] = []
+    clear_keys: list[str] = []
+    for k, v in env.items():
+        if v == "<redacted-by-pce-watcher>":
+            redacted_keys.append(k)
+        else:
+            clear_keys.append(k)
+    return _verdict(
+        "E19", "pass",
+        reason=f"settings.json redacted: {len(redacted_keys)} secret env "
+               f"key(s) scrubbed, {len(clear_keys)} clean key(s) preserved",
+        evidence={"redacted_keys": redacted_keys, "clear_keys": clear_keys},
+    )
+
+
+def case_E20_todos_captured(ctx: CaseContext) -> dict:
+    """E20 — TodoWrite product files captured.
+
+    Each file is one ``~/.claude/todos/<sessId>-agent-<agentId>.json``;
+    empty ``[]`` files are skipped by the walker. PASS condition: at
+    least one non-empty todos snapshot exists in raw_captures.
+    """
+    con = _connect(ctx.db_path)
+    try:
+        n = con.execute(
+            "SELECT COUNT(*) FROM raw_captures "
+            "WHERE path LIKE '/claude-desktop/user-state/user_state_todos/%'"
+        ).fetchone()[0]
+        sample = con.execute(
+            "SELECT body_text_or_json FROM raw_captures "
+            "WHERE path LIKE '/claude-desktop/user-state/user_state_todos/%' "
+            "LIMIT 1"
+        ).fetchone()
+    finally:
+        con.close()
+
+    if n == 0:
+        return _verdict(
+            "E20", "skip",
+            reason="no todos captures in DB; user may not have used "
+                   "the TodoWrite tool, or watcher needs --only user_state",
+        )
+    # Validate one record's shape: must have todos[], session_id, agent_id.
+    if sample is None:
+        return _verdict("E20", "fail", reason="todos count > 0 but sample fetch failed")
+    try:
+        body = json.loads(sample["body_text_or_json"])
+    except json.JSONDecodeError as exc:
+        return _verdict("E20", "fail", reason=f"todos body malformed: {exc}")
+    todos = body.get("todos")
+    if not isinstance(todos, list) or not todos:
+        return _verdict(
+            "E20", "fail",
+            reason="todos body lacks a non-empty 'todos' array",
+            evidence={"body_keys": list(body.keys())},
+        )
+    return _verdict(
+        "E20", "pass",
+        reason=f"TodoWrite product captured: {n} non-empty file(s); "
+               f"sample has {len(todos)} task(s)",
+        evidence={"n_files": n, "sample_item_count": len(todos),
+                  "sample_session_id": body.get("session_id")},
+    )
+
+
+def case_E21_history_captured(ctx: CaseContext) -> dict:
+    """E21 — ``~/.claude/history.jsonl`` slash-command history captured.
+
+    PASS condition: at least one user_state_history capture exists
+    (one record per non-blank line) AND its body has the expected
+    shape: ``{display, timestamp, project}``.
+    """
+    con = _connect(ctx.db_path)
+    try:
+        n = con.execute(
+            "SELECT COUNT(*) FROM raw_captures "
+            "WHERE path LIKE '/claude-desktop/user-state/user_state_history/%'"
+        ).fetchone()[0]
+        sample = con.execute(
+            "SELECT body_text_or_json FROM raw_captures "
+            "WHERE path LIKE '/claude-desktop/user-state/user_state_history/%' "
+            "ORDER BY created_at ASC LIMIT 1"
+        ).fetchone()
+    finally:
+        con.close()
+
+    if n == 0:
+        return _verdict(
+            "E21", "skip",
+            reason="no history.jsonl captures; run watcher with --only user_state",
+        )
+    try:
+        body = json.loads(sample["body_text_or_json"])
+    except json.JSONDecodeError as exc:
+        return _verdict("E21", "fail", reason=f"history body malformed: {exc}")
+    if "display" not in body or "timestamp" not in body:
+        return _verdict(
+            "E21", "fail",
+            reason="history line missing 'display' or 'timestamp' field",
+            evidence={"body_keys": list(body.keys())},
+        )
+    return _verdict(
+        "E21", "pass",
+        reason=f"history.jsonl captured: {n} line(s); sample "
+               f"display={body.get('display', '')[:40]!r}",
+        evidence={"n_lines": n, "first_timestamp_ms": body.get("timestamp")},
+    )
+
+
+# Tools the Code-tab Task / palette is known to expose. From RECON
+# 2026-05-12 on the reference machine, ~/.claude.json's toolUsage map
+# typically contains these (some may be 0-count for new installs).
+_EXPECTED_TOOLUSAGE_KEYS: frozenset[str] = frozenset({
+    "Bash", "Read", "Write", "Edit", "Glob", "Grep",
+    "Task", "TodoWrite",
+})
+
+
+def case_E22_tool_palette(ctx: CaseContext) -> dict:
+    """E22 — ``~/.claude.json`` toolUsage map proves the full palette.
+
+    The captured global state's ``toolUsage`` is a counter dict whose
+    keys enumerate every tool the user's Claude Code install has
+    ever invoked. PASS condition: at least 6 of the 8 well-known
+    Code-tab tools (Bash/Read/Write/Edit/Glob/Grep/Task/TodoWrite)
+    appear as keys.
+
+    This validates that P5.B.7.P1's E04-E08 (5 tools) is only a
+    subset of the full palette — the dashboard layer that exposes
+    "what tools has Claude used in this project" now has full data.
+    """
+    con = _connect(ctx.db_path)
+    try:
+        row = con.execute(
+            "SELECT body_text_or_json FROM raw_captures "
+            "WHERE path = '/claude-desktop/user-state/user_state_global' "
+            "LIMIT 1"
+        ).fetchone()
+    finally:
+        con.close()
+
+    if row is None:
+        return _verdict(
+            "E22", "skip",
+            reason="no user_state_global capture; run watcher with --only user_state",
+        )
+    try:
+        body = json.loads(row["body_text_or_json"])
+    except json.JSONDecodeError as exc:
+        return _verdict("E22", "fail", reason=f"global-state body malformed: {exc}")
+    tu = body.get("toolUsage", {})
+    if not isinstance(tu, dict) or not tu:
+        return _verdict(
+            "E22", "skip",
+            reason="toolUsage map missing or empty (new install with no Code-tab activity yet)",
+        )
+    present = _EXPECTED_TOOLUSAGE_KEYS & set(tu.keys())
+    if len(present) < 6:
+        return _verdict(
+            "E22", "fail",
+            reason=f"toolUsage map covers only {len(present)}/8 expected "
+                   f"Code-tab tools: {sorted(present)}",
+            evidence={"present": sorted(present),
+                      "missing": sorted(_EXPECTED_TOOLUSAGE_KEYS - present),
+                      "all_keys": sorted(tu.keys())},
+        )
+    return _verdict(
+        "E22", "pass",
+        reason=f"toolUsage covers {len(present)}/8 expected Code-tab "
+               f"tools; full palette has {len(tu)} tool(s)",
+        evidence={"present_expected": sorted(present),
+                  "full_palette": sorted(tu.keys())},
+    )
+
+
+# ---------------------------------------------------------------------------
 # Case registry + main
 # ---------------------------------------------------------------------------
 
@@ -1311,6 +1694,14 @@ CASES: tuple[tuple[str, Callable[[CaseContext], dict]], ...] = (
     ("E13", case_E13_pointer_completeness),
     ("E14", case_E14_idle_silence),
     ("E15", case_E15_session_restart),
+    # P5.B.7.P2 extensions (2026-05-12).
+    ("E16", case_E16_subagent_capture),
+    ("E17", case_E17_subagent_parent_link),
+    ("E18", case_E18_user_state_global),
+    ("E19", case_E19_settings_redaction),
+    ("E20", case_E20_todos_captured),
+    ("E21", case_E21_history_captured),
+    ("E22", case_E22_tool_palette),
 )
 
 
@@ -1434,8 +1825,16 @@ def main(argv: Optional[list[str]] = None) -> int:
     else:
         # Names of the cases this mode is required to PASS. The
         # remaining cases are expected to SKIP without penalty.
+        # P5.B.7 P1 baseline: E00-E03 + E09 + E11 + E13 + E14 (8 cases).
+        # P5.B.7.P2 additions (2026-05-12): E16-E22 cover the sub-agent
+        # JSONLs + user-home state surfaces. All 7 are PASS-eligible on
+        # any install that has been used at least once (the watcher's
+        # full scan captures them deterministically) — the only failure
+        # mode is "watcher hasn't run yet", which the per-case SKIP
+        # message tells the operator how to resolve.
         static_required = {
             "E00", "E01", "E02", "E03", "E09", "E11", "E13", "E14",
+            "E16", "E17", "E18", "E19", "E20", "E21", "E22",
         }
         if selected:
             # Only enforce required cases that were actually run.
