@@ -221,11 +221,23 @@ class OpenAIChatNormalizer(BaseNormalizer):
         # Derive tool_family from host
         tool_family = _tool_family(host, provider)
 
-        # Session key: conversation_id groups all messages from one chat
+        # Session key: conversation_id groups all messages from one chat.
+        # ChatGPT Web new-chat first-message has no conversation_id in the
+        # request body (only ``parent_message_id="client-created-root"``);
+        # the conversation_id is allocated server-side and surfaces in the
+        # /backend-api/f/conversation response delta tree
+        # (``assemble_chatgpt_web_f_sse`` lifts it onto ``resp_data``).
+        # Falling back to it here keeps turn 1 + turn 2 of the same chat
+        # in the same session row. See live sweep 2026-05-12 23:34 pair
+        # 6a9847ff41134241 — first-turn request had no conversation_id.
         session_key = (
             req_data.get("conversation_id")
             or req_data.get("session_id")
         )
+        if not session_key and isinstance(resp_data, dict):
+            cid = resp_data.get("conversation_id")
+            if isinstance(cid, str) and cid:
+                session_key = cid
 
         # Title hint: prefer explicit title from browser ext, else first user message
         title_hint = req_data.get("title")

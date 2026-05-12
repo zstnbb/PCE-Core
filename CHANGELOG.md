@@ -5,6 +5,108 @@ All notable changes to PCE (core + browser extension) are documented in this fil
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-05-12 — feat(normalizer/openai): session_key response fallback + P2 ChatGPT Desktop LIVE SWEEP PASS
+
+Stage 4 verification of P2 ChatGPT Desktop onboarding per
+`PCE-STANDARD-WORKFLOW.md` §7. Closes the live-sweep step from
+commit `f3d36d4`; **P2 D02 now PASS on live evidence**.
+
+### Live sweep — 2026-05-12 23:34 UTC+08:00
+
+Proxy chain rebuilt:
+ChatGPT Desktop (Electron) → `127.0.0.1:8080` (mitmdump
+`--mode upstream:http://127.0.0.1:7890`) → Clash → upstream → chatgpt.com.
+
+New chat:
+- User: `'What is 2+2?'` (12 chars)
+- Assistant (~3 s later): `'\n\n2 + 2 = 4.'` (12 chars)
+
+Pair `6a9847ff41134241` captured: 902-byte request, 2992-byte SSE
+response. Normalizer produced 2 `messages` rows in 1 new session
+`37ddb011851b4c2ead602c719c933402`, both with **non-empty
+`content_text`**, assistant `model_name=gpt-5-3` (resolved from
+`metadata.resolved_model_slug`). Full evidence package:
+`Docs/handoff/HANDOFF-P2-CHATGPT-DESKTOP-FIRST-SWEEP.md`.
+
+### Bug caught + fixed
+
+The live sweep exposed a second-order bug in `OpenAIChatNormalizer`:
+ChatGPT Web doesn't include `conversation_id` in the **first** request
+of a new chat (only `parent_message_id="client-created-root"`) — the
+conversation_id is server-allocated and only appears in the response
+delta tree. Previous `session_key` extraction only checked `req_data`,
+returning None on first-turn and causing turn 1 + turn 2 of the same
+chat to land in different session rows.
+
+**Fix** (`pce_core/normalizer/openai.py:237-240`): 7-line response-side
+fallback. `assemble_chatgpt_web_f_sse` already surfaces
+`conversation_id` at the top level (since the prior commit), so this
+is one extra `if` block — no plumbing rework.
+
+### Wire-format variant locked in
+
+The live capture used a **single non-streaming `root-add`** delta
+(no incremental appends) where `content.parts=["\n\n2 + 2 = 4."]`
+carries the full assistant text directly. This is presumably how
+ChatGPT Web ships very-short replies (no streaming needed). The
+historical 2026-05-10 fixture used 39 incremental `append` deltas
+with bare-`v` continuation against `/message/content/text`. **Both
+variants now covered by regression tests.**
+
+### Tests (+2 new, total 22 PASS / 0 FAIL in 0.07 s)
+
+- `test_chatgpt_web_f_sse_live_fixture_simple_text` — asserts the
+  live capture assembles into `'\n\n2 + 2 = 4.'` with
+  `conversation_id='6a034877-...'` and `model='gpt-5-3'`.
+- `test_openai_normalizer_session_key_from_response_conversation_id` —
+  bug-regression test that asserts the request invariant (no
+  `conversation_id` in body — fails loud if a future capture pattern
+  changes this) and the fallback's correctness.
+
+### Fixtures (NEW)
+
+`tests/fixtures/`:
+- `chatgpt_f_conversation_request_simple_text.json` — 902 B,
+  new-chat first request; `parent_message_id="client-created-root"`,
+  no `conversation_id` in body.
+- `chatgpt_f_conversation_response_simple_text.txt` — 2992 B,
+  single-`root-add` wire format. JWT in `resume_conversation_token`
+  pre-redacted by proxy's redact layer to `[REDACTED_JWT]`.
+
+### Regression
+
+Re-ran the same 240-test surrounding set as commit `f3d36d4`:
+**240 PASS / 0 FAIL** in 19.5 s. `tests/test_sse_and_pipeline.py`
+now 22 PASS (was 20).
+
+### Files modified
+
+- `pce_core/normalizer/openai.py` — +7 LOC (session_key response-fallback)
+- `tests/test_sse_and_pipeline.py` — +74 LOC (2 new tests + runner block)
+- `tests/fixtures/chatgpt_f_conversation_request_simple_text.json` — NEW, 902 B
+- `tests/fixtures/chatgpt_f_conversation_response_simple_text.txt` — NEW, 2992 B
+- `Docs/handoff/HANDOFF-P2-CHATGPT-DESKTOP-FIRST-SWEEP.md` — NEW, full evidence trail
+- `Docs/stability/DESKTOP-PRODUCT-MATRIX.md` §4.2 — `LIVE SWEEP PASS` annotation appended
+
+### RECON §5 open question — status update
+
+| # | Question | Status |
+|---|---|---|
+| Q1 | `content_type="text"` variant works the same? | **YES ✅ closed** (live fixture is precisely this variant) |
+| Q2 | Legacy `/backend-api/conversation` (no `/f/`)? | Still open — needs different cohort |
+| Q3 | Multimodal (image upload) goes through same wire? | Still open |
+| Q4 | `conversation_id` stable across turns in one chat? | **Effectively closed** — session_key fix ensures it |
+| Q5 | Cancel-mid-stream behaviour? | Still open |
+
+### What this opens
+
+- **Tag** — P2 D02 is now LIVE-VERIFIED. Ready for release marker
+  (suggested: `v1.1.0-alpha.16` per the alpha cadence, or `v1.1.6`
+  per the patch cadence — owner choice).
+- Optional Q2/Q3/Q5 sweeps for deeper confidence.
+- `Docs/install/PCE_CHATGPT_DESKTOP_INSTALL.md` rewrite (post-ADR-018
+  draft pending per MATRIX §4.2 row "Install assets").
+
 ## [Unreleased] - 2026-05-12 — feat(normalizer): ChatGPT Web /backend-api/f/conversation JSON-patch SSE assembler (P2 D02 closed)
 
 Stage 4 of P2 ChatGPT Desktop onboarding per `PCE-STANDARD-WORKFLOW.md`

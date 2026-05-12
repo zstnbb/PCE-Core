@@ -412,6 +412,72 @@ def test_chatgpt_web_f_sse_real_fixture():
           f"last assistant len={len(last)})")
 
 
+def test_chatgpt_web_f_sse_live_fixture_simple_text():
+    """Real captured 2992-byte body from live sweep 2026-05-12 23:34 pair
+    6a9847ff41134241 ("What is 2+2?" → "\\n\\n2 + 2 = 4.").
+
+    Wire-format variant: single non-streaming root-add (no incremental
+    deltas — short reply emitted as one block with
+    ``content.parts = ["\\n\\n2 + 2 = 4."]``). Locks in support for the
+    `parts: [<str>]` fallback in `_extract_message_text`.
+    """
+    fixture = _FIXTURES_DIR / "chatgpt_f_conversation_response_simple_text.txt"
+    if not fixture.exists():
+        print(f"[SKIP] live fixture missing: {fixture}")
+        return
+    body = fixture.read_text(encoding="utf-8")
+    result = assemble_chatgpt_web_f_sse(body)
+    assert result is not None
+    assert result.get("conversation_id") == "6a034877-cfc4-83e8-9c3f-9ccdde05cf75"
+    assert result["model"] == "gpt-5-3"
+    assert len(result["choices"]) == 1
+    msg = result["choices"][0]["message"]
+    assert msg["role"] == "assistant"
+    assert msg["content"] == "\n\n2 + 2 = 4."
+    print("[PASS] test_chatgpt_web_f_sse_live_fixture_simple_text")
+
+
+def test_openai_normalizer_session_key_from_response_conversation_id():
+    """Bug-regression: new-chat first-message has no conversation_id in
+    the request body (only ``parent_message_id="client-created-root"``).
+    Without the response-fallback, turn 1 + turn 2 of the same chat
+    would land in different session rows. See live sweep
+    2026-05-12 23:34 pair 6a9847ff41134241.
+    """
+    req_path = _FIXTURES_DIR / "chatgpt_f_conversation_request_simple_text.json"
+    resp_path = _FIXTURES_DIR / "chatgpt_f_conversation_response_simple_text.txt"
+    if not req_path.exists() or not resp_path.exists():
+        print(f"[SKIP] live fixtures missing")
+        return
+    req = req_path.read_text(encoding="utf-8")
+    resp = resp_path.read_text(encoding="utf-8")
+    # Sanity: confirm the request really has NO conversation_id (the precondition
+    # for this regression test — if a future capture pattern changes this we want
+    # the test to fail loudly so we re-evaluate).
+    import json as _json
+    req_obj = _json.loads(req)
+    assert "conversation_id" not in req_obj or not req_obj.get("conversation_id"), \
+        "live fixture invariant: new-chat request must lack conversation_id"
+    n = OpenAIChatNormalizer()
+    result = n.normalize(
+        request_body=req,
+        response_body=resp,
+        provider="openai",
+        host="chatgpt.com",
+        path="/backend-api/f/conversation",
+    )
+    assert result is not None
+    # session_key MUST resolve from the response's conversation_id.
+    assert result.session_key == "6a034877-cfc4-83e8-9c3f-9ccdde05cf75", \
+        f"session_key fallback failed: got {result.session_key!r}"
+    # And the actual content is captured.
+    assert any(m.role == "user" and m.content_text == "What is 2+2?"
+               for m in result.messages)
+    assert any(m.role == "assistant" and m.content_text == "\n\n2 + 2 = 4."
+               for m in result.messages)
+    print("[PASS] test_openai_normalizer_session_key_from_response_conversation_id")
+
+
 def test_openai_normalizer_handles_f_conversation_path():
     """End-to-end: OpenAIChatNormalizer.normalize() against the fixture.
 
@@ -469,5 +535,7 @@ if __name__ == "__main__":
     test_chatgpt_web_f_sse_returns_none_for_empty_or_garbage()
     test_chatgpt_web_f_sse_multimodal_parts()
     test_chatgpt_web_f_sse_real_fixture()
+    test_chatgpt_web_f_sse_live_fixture_simple_text()
+    test_openai_normalizer_session_key_from_response_conversation_id()
     test_openai_normalizer_handles_f_conversation_path()
     print("\n=== ALL TESTS PASSED ===")

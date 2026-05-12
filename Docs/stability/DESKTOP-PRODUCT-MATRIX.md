@@ -636,11 +636,29 @@ Code-region 在 Desktop 内是**同一个 SPA route 下**的不同子界面。
 > path carry-over). Closes P2 D02 blocker; Stage 4 normalizer impl
 > is the only remaining work. §4.1 H2-P2 ✅ PASS finding stands
 > unchanged.
+>
+> **2026-05-12 23:34 LIVE SWEEP — P2 D02 PASS on live evidence**. Stage 4
+> code (commit `f3d36d4`) deployed; proxy chain rebuilt
+> (ChatGPT Desktop → `:8080` mitmdump upstream-mode → `:7890` Clash);
+> new chat "What is 2+2?" → `'\n\n2 + 2 = 4.'` captured end-to-end:
+> 1 pair_id `6a9847ff41134241` (902-byte req + 2992-byte resp) → 2 messages
+> (user `text_len=12`, assistant `text_len=12`, both non-empty,
+> `model_name=gpt-5-3`) in session `37ddb011851b4c2ead602c719c933402`.
+> Live sweep also caught a second-order bug — `session_key=None` for
+> new-chat first-message because the request lacks `conversation_id`
+> (server-allocated in response delta tree); fixed via response-side
+> fallback in `openai.py`. Variant locked in: this response shipped
+> the assistant message as a single non-streaming `root-add` with
+> `content.parts=["..."]` (vs the 39-delta streaming form of the
+> 2026-05-10 fixture); both variants now covered by regression tests.
+> RECON Q1 (content_type=text variant) and Q4 (conversation_id
+> stability) closed. See `Docs/handoff/HANDOFF-P2-CHATGPT-DESKTOP-FIRST-SWEEP.md`
+> for full evidence trail.
 
 | Field | Value |
 |---|---|
 | OS | Windows (MSIX) + macOS |
-| Primary plane / layer | **N / L1** (system proxy + CA, `pce_proxy/`) — primary route; **H2-P2 ✅ PASS confirmed 2026-05-10** (361 clean hits, 0 TLS errors, app-layer cookies negotiated). ⚠️ **2026-05-10 chat-region empirical revision** (SUPERSEDED by 2026-05-12 RECON re-verification): user-side ✅ captured, assistant-side ❌ BLOCKED (split-channel HTTP→WSS handoff) — conclusion rebutted. ✅ **2026-05-12 RECON re-verification**: full assistant stream is in HTTP SSE as JSON-patch deltas; assembler needed in normalizer. See dated notes above + `Docs/research/2026-05-12-chatgpt-desktop-f-endpoint-recon-findings.md` |
+| Primary plane / layer | **N / L1** (system proxy + CA, `pce_proxy/`) — primary route; **H2-P2 ✅ PASS confirmed 2026-05-10** (361 clean hits, 0 TLS errors, app-layer cookies negotiated). ⚠️ **2026-05-10 chat-region empirical revision** (SUPERSEDED by 2026-05-12 RECON re-verification): user-side ✅ captured, assistant-side ❌ BLOCKED (split-channel HTTP→WSS handoff) — conclusion rebutted. ✅ **2026-05-12 RECON re-verification + Stage 4 normalizer + LIVE SWEEP PASS** (commit `f3d36d4` + commit `<HEAD>`): full assistant stream is in HTTP SSE as JSON-patch deltas; `assemble_chatgpt_web_f_sse()` in `pce_core/normalizer/sse.py` handles the wire format; live sweep 2026-05-12 23:34 (pair `6a9847ff41134241`, session `37ddb011851b4c2ead602c719c933402`) verified end-to-end: user `'What is 2+2?'` + assistant `'\n\n2 + 2 = 4.'` both captured into `messages` table with non-empty `content_text`, model resolved to `gpt-5-3`. See `Docs/handoff/HANDOFF-P2-CHATGPT-DESKTOP-FIRST-SWEEP.md`. |
 | Persistence axis | **L3g local persistence watcher** ✅ pkg alpha.8 — same parser stack as P1, ChatGPT-specific `LocalCache` layout discovery wired but layout itself TBD on first install probe |
 | MCP axis | **M / L3f** (only when user has configured ChatGPT Desktop MCP servers — ChatGPT MCP support is partial / 2026-evolving) |
 | Chat-region anti-pin | **A2 SSLKEYLOGFILE** patch — primary fallback if H2-on-P2 = pinned |

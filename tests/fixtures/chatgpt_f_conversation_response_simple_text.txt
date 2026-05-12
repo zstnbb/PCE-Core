@@ -1,0 +1,20 @@
+event: delta_encoding
+data: "v1"
+
+data: {"type": "resume_conversation_token", "kind": "topic", "token": "[REDACTED_JWT]", "conversation_id": "6a034877-cfc4-83e8-9c3f-9ccdde05cf75"}
+
+data: {"type": "message_marker", "conversation_id": "6a034877-cfc4-83e8-9c3f-9ccdde05cf75", "message_id": "d8cf3bf4-7545-4a0f-a0dc-bae23a554093", "marker": "user_visible_token", "event": "first"}
+
+event: delta
+data: {"p": "", "o": "add", "v": {"message": {"id": "d8cf3bf4-7545-4a0f-a0dc-bae23a554093", "author": {"role": "assistant", "name": null, "metadata": {"real_author": "tool:web"}}, "create_time": 1778597908.811916, "update_time": null, "content": {"content_type": "text", "parts": ["\n\n2 + 2 = 4."]}, "status": "finished_successfully", "end_turn": true, "weight": 1.0, "metadata": {"finish_details": {"type": "stop", "stop_tokens": [200002]}, "is_complete": true, "citations": [], "content_references": [], "story_events": [], "resolved_model_slug": "gpt-5-3", "search_result_groups": [], "request_id": "wfr_019e1cb20cb670d2ad053ce7caff48dc", "message_type": "next", "turn_exchange_id": "7b0b4e47-b193-4708-8f69-902cfd9dcbbf", "model_slug": "gpt-5-3", "can_save": true, "instant_answer_used": true, "parent_id": "8df9fa52-243f-4a30-ae6b-52f26d9532cb"}, "recipient": "all", "channel": null}, "conversation_id": "6a034877-cfc4-83e8-9c3f-9ccdde05cf75", "error": null, "error_code": null}, "c": 0}     
+
+data: {"type": "message_marker", "conversation_id": "6a034877-cfc4-83e8-9c3f-9ccdde05cf75", "message_id": "d8cf3bf4-7545-4a0f-a0dc-bae23a554093", "marker": "last_token", "event": "last"}
+
+data: {"type": "title_generation", "title": "Math Calculation", "conversation_id": "6a034877-cfc4-83e8-9c3f-9ccdde05cf75"}
+
+data: {"type": "server_ste_metadata", "metadata": {"conduit_prewarmed": false, "plan_type": "free", "plan_type_bucket": "free", "user_agent": "app_windows", "service": null, "tool_name": null, "tool_invoked": false, "fast_convo": true, "warmup_state": "rewarm", "is_first_turn": null, "cluster_region": "westus3", "model_slug": "i-5-mini", "region": null, "is_multimodal": null, "did_auto_switch_to_reasoning": false, "auto_switcher_race_winner": null, "is_autoswitcher_enabled": false, "is_search": null, "did_prompt_contain_image": false, "search_tool_call_count": null, "search_tool_query_types": null, "message_id": "d8cf3bf4-7545-4a0f-a0dc-bae23a554093", "request_id": "7303d451-6202-461f-a041-0ab74c4b04ef", "turn_exchange_id": "7b0b4e47-b193-4708-8f69-902cfd9dcbbf", "turn_trace_id": "01c6b323-d0a3-4677-96c9-3094b044adde", "a32e6ebcb": null, "resume_with_websockets": true, "low_turn_topic_ttl": false, "streaming_async_status": false, "replace_stream_status": true, "temporal_conversation_turn": false, "pro_mode_turn_topic_streaming": true, "turn_use_case": "instant answers", "turn_mode": "default"}, "conversation_id": "6a034877-cfc4-83e8-9c3f-9ccdde05cf75"}
+
+data: {"type": "message_stream_complete", "conversation_id": "6a034877-cfc4-83e8-9c3f-9ccdde05cf75"}
+
+data: [DONE]
+
