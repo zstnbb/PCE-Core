@@ -56,7 +56,7 @@ import time
 import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Iterator, Optional
 
 # Windows console (cp936/GBK) cannot encode the verdict glyphs we print
 # below. Force UTF-8 on stdout/stderr early so ✓ ⏭ ✗ render correctly
@@ -236,6 +236,58 @@ def _latest_code_pointer_body(con: sqlite3.Connection) -> Optional[dict]:
         return None
 
 
+def _iter_code_pointer_bodies_fs() -> Iterator[dict]:
+    """Yield every Code-tab pointer JSON body found on disk.
+
+    Walks both MSIX virtual-store and Squirrel locations. Used by
+    cases that need to scan history (E09 audit trail) rather than
+    just the latest pointer. Yields oldest-first by mtime so the
+    caller can decide on iteration order; ordering isn't strict.
+    """
+    candidates: list[Path] = []
+    local_appdata = os.environ.get("LOCALAPPDATA")
+    appdata = os.environ.get("APPDATA")
+    if local_appdata:
+        try:
+            for pkg in (Path(local_appdata) / "Packages").glob("*Claude*"):
+                p = pkg / "LocalCache" / "Roaming" / "Claude" / "claude-code-sessions"
+                if p.is_dir():
+                    candidates.append(p)
+        except OSError:
+            pass
+    if appdata:
+        p = Path(appdata) / "Claude" / "claude-code-sessions"
+        if p.is_dir():
+            candidates.append(p)
+
+    for root in candidates:
+        try:
+            users = list(root.iterdir())
+        except OSError:
+            continue
+        for user in users:
+            if not user.is_dir():
+                continue
+            try:
+                orgs = list(user.iterdir())
+            except OSError:
+                continue
+            for org in orgs:
+                if not org.is_dir():
+                    continue
+                try:
+                    files = list(org.iterdir())
+                except OSError:
+                    continue
+                for f in files:
+                    if not (f.is_file() and f.suffix == ".json"):
+                        continue
+                    try:
+                        yield json.loads(f.read_text(encoding="utf-8"))
+                    except (OSError, ValueError):
+                        continue
+
+
 def _latest_code_pointer_body_fs() -> Optional[dict]:
     """Filesystem fallback: read the latest pointer JSON directly.
 
@@ -294,25 +346,51 @@ def _find_tool_use_in_session(
     since_ts: float = 0.0,
 ) -> Optional[dict]:
     """Find a messages row from a Code-tab session containing a tool_use
-    for ``tool_name`` (case-insensitive; e.g. 'Bash', 'Read', 'Write',
-    'Edit', 'Glob', 'Grep').
+    for ``tool_name`` (e.g. 'Bash', 'Read', 'Write', 'Edit', 'Glob',
+    'Grep').
+
+    The PCE normaliser writes Code-tab tool_use blocks two ways:
+
+    * **``content_text``** carries a deterministic marker
+      ``"[Tool call: <name>]"`` (verified against
+      ``pce_core/normalizer/local_persistence.py`` on real captures).
+    * **``content_json.attachments[].name``** carries the structured
+      tool name, but ``json.dumps`` with default ``separators=(', ',
+      ': ')`` produces ``"name": "Bash"`` (note the space). A naive
+      ``LIKE '%"name":"Bash"%'`` (no space) silently misses every
+      modern Code-tab capture.
+
+    We therefore primarily match on ``content_text`` and fall back
+    to two whitespace-tolerant JSON patterns so an unusual emitter
+    (compact ``json.dumps`` without spaces) is still picked up.
 
     Returns {id, session_id, ts, content_text_preview} or None.
     """
     sql = (
         "SELECT m.id, m.session_id, m.ts, "
-        "       substr(m.content_text, 1, 200) AS preview, "
-        "       m.content_json "
+        "       substr(m.content_text, 1, 200) AS preview "
         "FROM messages m JOIN sessions s ON m.session_id = s.id "
         "WHERE s.tool_family = ? "
         "  AND m.ts >= ? "
-        "  AND m.content_json IS NOT NULL "
-        "  AND m.content_json LIKE ? "
+        "  AND ("
+        "        m.content_text LIKE ? "        # primary: marker
+        "     OR m.content_json LIKE ? "        # fallback 1: spaced JSON
+        "     OR m.content_json LIKE ? "        # fallback 2: compact JSON
+        "  ) "
         "ORDER BY m.ts DESC LIMIT 1"
     )
-    pattern = f'%"name":"{tool_name}"%'
+    marker_pattern = f"%[Tool call: {tool_name}]%"
+    json_spaced = f'%"name": "{tool_name}"%'
+    json_compact = f'%"name":"{tool_name}"%'
     row = con.execute(
-        sql, (TOOL_FAMILY_CODE, since_ts, pattern),
+        sql,
+        (
+            TOOL_FAMILY_CODE,
+            since_ts,
+            marker_pattern,
+            json_spaced,
+            json_compact,
+        ),
     ).fetchone()
     if not row:
         return None
@@ -401,14 +479,52 @@ def _live_send_code_and_verify(
             evidence={"prior_line_count": prior_line_count},
         )
 
-    # Re-discover the active session after send (a fresh send may create
-    # a new JSONL if this was a new session).
-    time.sleep(1.5)  # small grace for JSONL creation
-    active = driver.find_active_code_session(max_age_s=60.0)
+    # Re-discover the active session after send (a fresh send may
+    # create a new JSONL if this was a new session). Claude Desktop's
+    # Code tab typically writes the first line of a new JSONL 5–15 s
+    # after Enter (the first stream token has to arrive before the
+    # writer flushes), so we poll for up to 30 s rather than
+    # checking once with a 1.5 s grace window.
+    #
+    # IMPORTANT: ``find_active_code_session`` picks the JSONL with the
+    # most recent mtime in the last 60 s. After ``ensure_fresh=True``
+    # the *previous* case's JSONL is still mtime-fresh (the previous
+    # case just finished an assistant turn seconds ago) — so without
+    # the ``!= pre_jsonl`` guard we'd latch onto the OLD session's
+    # JSONL, the wait loop would see no growth there (Claude is
+    # writing to the NEW session's JSONL we haven't discovered yet),
+    # and the case would FAIL with ``outcome=no_growth``. This was the
+    # M7 live-sweep-run-3 regression: E04–E08 + E12 all hit it because
+    # E01 had just succeeded with a fresh JSONL.
+    jsonl_deadline = time.time() + 30.0
+    active = None
+    while time.time() < jsonl_deadline:
+        candidate = driver.find_active_code_session(max_age_s=60.0)
+        if candidate is not None:
+            # Accept if this is the first prompt (no pre_jsonl), OR
+            # if the active session is a *different* JSONL than the
+            # one we snapshotted before send.
+            if pre_jsonl is None or candidate["jsonl_path"] != pre_jsonl:
+                active = candidate
+                break
+            # Same JSONL as before — keep waiting for the new
+            # session's file to appear on disk.
+        time.sleep(2.0)
+    # Last-ditch fallback: if 30 s elapsed and we never saw a
+    # different JSONL, accept whatever's currently active. This
+    # covers the case where ensure_fresh somehow didn't actually
+    # start a new session (e.g., "New session" click was missed)
+    # and the prompt was appended to the existing session — in
+    # which case the prior_line_count baseline below correctly
+    # gates the growth check.
+    if active is None:
+        active = driver.find_active_code_session(max_age_s=60.0)
     if active is None:
         return _verdict(
             case_name, "fail",
-            reason="no active Code-tab JSONL found within 60s of send",
+            reason="no active Code-tab JSONL found within 30s of send "
+                   "(expected ~/.claude/projects/<encoded-cwd>/<sess>.jsonl "
+                   "to appear)",
             evidence={"pid": pid},
         )
 
@@ -826,33 +942,76 @@ def case_E08_glob(ctx: CaseContext) -> dict:
 
 
 def case_E09_permission_audit(ctx: CaseContext) -> dict:
-    """E09 — pointer's sessionPermissionUpdates[] is non-empty."""
-    body = _latest_code_pointer_body_fs()
-    if body is None:
-        con = _connect(ctx.db_path)
+    """E09 — at least one Code-tab pointer carries a non-empty
+    ``sessionPermissionUpdates[]`` audit trail.
+
+    The §5.C contract is "the audit-trail feature *exists*", not "the
+    latest session has it" — fresh sessions with no tool_use yet
+    legitimately have empty updates. We therefore scan ALL pointer
+    rows in PCE's ``raw_captures`` (and fall back to the on-disk
+    pointers under MSIX / Squirrel) and PASS if *any* pointer has
+    one or more audit entries.
+    """
+    # First try the DB — fastest and reflects the watcher's normalised
+    # view. Walk every pointer row, not just the latest.
+    con = _connect(ctx.db_path)
+    try:
+        rows = con.execute(
+            "SELECT body_text_or_json FROM raw_captures "
+            "WHERE path LIKE '%/code-tab-session-pointer/%' "
+            "ORDER BY created_at DESC"
+        ).fetchall()
+    finally:
+        con.close()
+    best: Optional[dict] = None
+    pointers_seen = 0
+    for row in rows:
+        pointers_seen += 1
         try:
-            body = _latest_code_pointer_body(con)
-        finally:
-            con.close()
-    if body is None:
+            body = json.loads(row[0] or "{}")
+        except (ValueError, TypeError):
+            continue
+        updates = body.get("sessionPermissionUpdates")
+        if isinstance(updates, list) and len(updates) > 0:
+            best = body
+            break
+
+    # Filesystem fallback: scan ALL pointer JSONs (MSIX + Squirrel),
+    # not just the most recent one, to maximize the chance of finding
+    # a pointer with audit entries.
+    if best is None:
+        for body in _iter_code_pointer_bodies_fs():
+            pointers_seen += 1
+            updates = body.get("sessionPermissionUpdates")
+            if isinstance(updates, list) and len(updates) > 0:
+                best = body
+                break
+
+    if pointers_seen == 0:
         return _verdict(
             "E09", "skip",
             reason="no Code-tab pointer JSON found on disk or in DB; "
                    "rerun --mode live after any tool-using prompt",
         )
-    updates = body.get("sessionPermissionUpdates")
-    if not isinstance(updates, list) or len(updates) == 0:
+    if best is None:
         return _verdict(
             "E09", "fail",
-            reason="pointer JSON has empty sessionPermissionUpdates[]",
-            evidence={"pointer_keys": sorted(body.keys())},
+            reason=f"scanned {pointers_seen} Code-tab pointer(s); none "
+                   "had non-empty sessionPermissionUpdates[] — the "
+                   "audit-trail feature appears uninvoked. Run a tool-use "
+                   "prompt + accept the permission dialog to populate one.",
+            evidence={"pointers_scanned": pointers_seen},
         )
+    updates = best["sessionPermissionUpdates"]
     return _verdict(
         "E09", "pass",
-        reason=f"pointer has {len(updates)} permission-audit entries",
+        reason=f"audit trail present: 1 of {pointers_seen} pointer(s) has "
+               f"{len(updates)} permission-audit entry/entries",
         evidence={
+            "pointers_scanned": pointers_seen,
             "update_count": len(updates),
             "sample": updates[0] if updates else None,
+            "pointer_session_id": best.get("sessionId"),
         },
     )
 

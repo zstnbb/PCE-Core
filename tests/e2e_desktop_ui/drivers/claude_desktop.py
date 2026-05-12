@@ -89,7 +89,15 @@ class ClaudeDesktopDriver(DesktopDriver):
     # bottom — so the previous fixed (cx, bottom-120) heuristic
     # missed it and clicked into blank space, dropping focus and
     # silently breaking subsequent Ctrl+V paste.
-    _COMPOSER_CONTROL_TYPES = ("Edit", "Document", "Custom")
+    #
+    # P5.B.7 (2026-05-11) — the inline Code tab presents a much more
+    # collapsed UIA tree: the prompt input is a ``Group`` named
+    # ``"Prompt"`` instead of an Edit/Document. We therefore allow
+    # Group as a control_type but ONLY when its name matches a
+    # Code-tab-specific hint, so we don't accidentally match every
+    # Group on the chat / cowork tabs (Group is a noisy generic
+    # container in Chromium UIA).
+    _COMPOSER_CONTROL_TYPES = ("Edit", "Document", "Custom", "Group")
     _COMPOSER_NAME_HINTS = (
         "reply to claude", "reply to anthropic", "how can i help",
         "what can i help", "how are you", "start a new chat",
@@ -97,6 +105,9 @@ class ClaudeDesktopDriver(DesktopDriver):
         "type your message", "write a message", "start typing",
         "发送消息", "输入消息", "输入你的问题", "给 claude 发消息",
     )
+    # Tighter name filter applied ONLY to Group elements (since Group
+    # is otherwise too generic to allow blindly).
+    _CODE_COMPOSER_GROUP_NAMES = ("prompt", "compose", "message input")
 
     def _composer_click_point(self) -> tuple[int, int]:
         """Return ``(cx, cy)`` that should land inside the composer.
@@ -164,14 +175,33 @@ class ClaudeDesktopDriver(DesktopDriver):
                 if el_w > 0.95 * win_w and el_h > 0.85 * win_h:
                     continue
                 name = (info.name or "").lower()
+                # Group is too generic to allow blindly: require its
+                # name to match a Code-tab-specific composer hint
+                # (e.g. "Prompt"). Without this gate the chat / cowork
+                # views — which contain dozens of unrelated Groups —
+                # would produce noisy false-positive matches.
+                if ct == "Group" and not any(
+                    h in name for h in self._CODE_COMPOSER_GROUP_NAMES
+                ):
+                    continue
                 score = 0
                 if any(h in name for h in self._COMPOSER_NAME_HINTS):
                     score += 100_000
-                # Prefer Edit > Document > Custom
+                # Prefer Edit > Document > Custom > Group
                 if ct == "Edit":
                     score += 5_000
                 elif ct == "Document":
                     score += 2_500
+                elif ct == "Custom":
+                    score += 1_500
+                elif ct == "Group":
+                    # Code-tab Group composer scores below the chat
+                    # composers but above an unmatched candidate. We
+                    # also +score it explicitly when the Group's name
+                    # is one of the Code-tab hints so a Code-tab live
+                    # case naturally lands here.
+                    if any(h in name for h in self._CODE_COMPOSER_GROUP_NAMES):
+                        score += 50_000
                 # Prefer wider elements (composer is wide, not a tiny search box)
                 score += el_w
                 # Prefer elements in the bottom 70% of the window (avoid header search)
@@ -190,6 +220,14 @@ class ClaudeDesktopDriver(DesktopDriver):
         """Check whether the system-wide UIA focused element looks like
         the composer (Edit / Document, reasonably wide). Used to verify
         a click_at actually landed in the right place before pasting.
+
+        P5.B.7 (2026-05-11) — the inline Code tab's prompt input is a
+        UIA ``Group`` (50026) rather than an ``Edit`` / ``Document``.
+        Chromium usually exposes an inner Edit on focus but on some
+        builds the focused element is the Group itself. Accept Group
+        as a valid focused control_type when its name matches a
+        Code-tab composer hint, so a successful Code-tab click is not
+        flagged as a focus miss.
         """
         try:
             from pywinauto.uia_defines import IUIA  # type: ignore
@@ -200,14 +238,25 @@ class ClaudeDesktopDriver(DesktopDriver):
             # 50004 = UIA_EditControlTypeId
             # 50030 = UIA_DocumentControlTypeId
             # 50025 = UIA_CustomControlTypeId
+            # 50026 = UIA_GroupControlTypeId (Code-tab composer)
             ct_id = int(focused.CurrentControlType)
-            if ct_id not in (50004, 50030, 50025):
+            if ct_id not in (50004, 50030, 50025, 50026):
                 return False
             br = focused.CurrentBoundingRectangle
             width = br.right - br.left
             height = br.bottom - br.top
             if width < 200 or height < 24:
                 return False
+            # Group is too generic to accept blindly — require its
+            # name to match a Code-tab composer hint, mirroring the
+            # gate in :meth:`_find_composer_uia`.
+            if ct_id == 50026:
+                try:
+                    fname = (focused.CurrentName or "").lower()
+                except Exception:
+                    fname = ""
+                if not any(h in fname for h in self._CODE_COMPOSER_GROUP_NAMES):
+                    return False
             return True
         except Exception as exc:
             logger.debug("_is_composer_focused: failed: %s", exc)
