@@ -5,6 +5,52 @@ All notable changes to PCE (core + browser extension) are documented in this fil
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-05-12 — P5.C.0 Contract freeze (kickoff for P5.C Meta-Pipeline)
+
+P5.C kickoff: 0 lines of code, 6 canonical markdown documents that
+explicitly freeze the cross-lane contracts of the Meta-Pipeline.
+After P5.B closed all 3 sub-regions of Claude Desktop (chat 19/22 +
+cowork 12/17 + code 25/26), the project pivots from "horizontal: add
+another product" to "vertical: codify the lane × contract matrix so
+the next product is ≤ 1 sub-phase of work".
+
+### New documents (6, 90 KB / 1465 lines)
+
+- `Docs/docs/decisions/2026-05-12-meta-pipeline-and-maintenance-strategy.md` — the decision (9 chapters)
+- `Docs/docs/engineering/META-PIPELINE-FRAMEWORK.md` — framework v1.0 (10 chapters, 4 lanes × 3-piece contract)
+- `Docs/docs/engineering/adr/ADR-019-maintenance-as-first-class-concern.md` — adopted ADR (4 mandatory contracts + 3 governance artefacts)
+- `Docs/stability/DESKTOP-D-CASE-EXECUTION-STANDARD.md` — desktop chat-region D-case standard (D00–D22)
+- `Docs/stability/PCE-PIPELINE-HEALTH-MATRIX.md` — health-as-data v1 schema + lane hook matrix + colour rules
+- `Docs/handoff/HANDOFF-META-PIPELINE-KICKOFF-2026-05-12.md` — kickoff handoff for P5.C 6 sub-phases (440 lines)
+
+### Updated documents (2)
+
+- `Docs/README.md` — phase comparison table gains P5.C row
+- `Docs/docs/PROJECT.md` — §11 + §12 carry P5.C entry
+
+### Mental model addition
+
+P5.B was **plane-first** (`N / H / M / U × type 1-7`). P5.C adds the
+orthogonal **lane-first** axis (`Browser / Desktop / CLI / MCP × 3
+contracts`). Each lane must implement: capture-as-data (CaptureEvent v2,
+already exists), verification-as-data (T/D/C/E/K/M-case standards),
+health-as-data (HealthBeacon v1, new in P5.C.1).
+
+### Drift patches in the same commit
+
+- handoff §1 phase-transition table: P5.B.5 cowork-region "实施待启" → "alpha.11 12/17 PASS (gate met)"; P5.B.6 → P5.B.7 code-region "待规划" → "alpha.14 + alpha.15 empirical 25/26 PASS"
+- handoff §7.3: P5.B.5 cowork-region marked closed with carry-forward to P5.C.5
+- handoff §7.4: re-labelled P5.B.6 → P5.B.7, marked closed with E10 default-mode UIA + E04/D04 cancel-mid-stream normaliser bug carried forward to P5.C.5
+- Anchoring note added: handoff drafted 11:46 hadn't picked up alpha.11 / alpha.14 / alpha.15 commits; sync正确 in this kickoff commit
+
+### Decisions made (handoff §5)
+
+- **D-1** (健康度 dashboard 现在做 vs P5.C.1 才做) → ✅ 现在做 — already inside P5.C.1 deliverables
+- **D-3** (加"我有 API key"兜底通道) → ✅ 加, schedule for P5.C.4
+
+D-2 (CONTRIBUTING + CODEOWNERS) deferred to P5.C.5 per default;
+D-4 (selector YAML config) deferred to P5.C.4 per default.
+
 ## [Unreleased] - 2026-05-12 — P5.B.7 P2.1 Code-region audit-gap closure (sessions/<pid>.json + custom agents/*.md + plugins/*.json)
 
 Direct continuation of P5.B.7 P2 (commit `e8fd137`, tag

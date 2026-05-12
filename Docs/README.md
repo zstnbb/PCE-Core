@@ -2,30 +2,44 @@
 
 这是 PCE 项目的所有落盘文档入口。它用来替代长聊天，指导后续实现与迭代。
 
-截至 2026-04-18，P0–P4 全部完成；本轮采纳 **Universal Capture Stack (UCS)** 作为捕获层北极星架构，采纳 **Open Core** 商业模型，采纳 **A+A 发布路径**（小步快发 + 开发者优先）；P5.A Subscription Capture 即将开工。
+截至 2026-05-12：P0–P4 全部完成；P5.A 浏览器扩展子系统已硬冻结；P5.B IDE & Desktop & MCP Capture 在 chat-region 走通 D0 释放门（Claude Desktop 19/22 PASS），cowork-region + code-region 作为并行轨道 carry forward；**P5.C Meta-Pipeline & Maintainability 在 2026-05-12 启动契约冻结阶段（P5.C.0）**，本轮决议把可维护性作为产品一等约束（ADR-019），通过跨 lane 三件套契约 + Test Conductor + 健康度矩阵把项目所有者「无法主体维护」约束下的工程基础搭起来。
 
 ## 这套文件怎么用
 
-先读顺序如下（推荐第一次接手项目的人按这个顺序看，约 2–3 小时建立全面认识）：
+先读顺序如下（推荐第一次接手项目的人按这个顺序看，约 2.5 小时建立全面认识）：
 
-1. `docs/PROJECT.md`
-   - 看项目当前阶段、目标、边界、产品原则与阶段划分。
-2. `docs/decisions/2026-04-18-ucs-and-release-strategy.md` ⭐
-   - **本轮决议**：UCS 采纳 + Open Core + A+A 发布路径。当前所有工作的直接上游。
-3. `docs/engineering/UNIVERSAL-CAPTURE-STACK-DESIGN.md` ⭐
-   - **UCS 工业级设计文档**（1340 行，13 章 + 3 附录），P5–P8 所有阶段的蓝本。
-4. `docs/engineering/adr/`
-   - 看每一个关键决策为什么这样选。共 10 份 ADR，其中 ADR-009（UCS）和 ADR-010（Open Core）是本轮新增。
-5. `docs/decisions/2026-04-05-foundation-session.md`
-   - 项目起点的定义（需要背景时读）。
-6. `docs/decisions/2026-04-17-industrialization-roadmap.md`
-   - P0–P3 工业化收敛（需要理解已完成阶段时读）。
-7. `docs/engineering/ARCHITECTURE.md`
-   - 当前 v0.2 架构，UCS 将在 P5–P8 推进到 v0.3。
-8. `tasks/TASK-006-P5A-subscription-capture.md` ⭐
-   - **当前执行入口**，P5.A 的 11 项原子任务。
-9. `handoff/HANDOFF-P5A-KICKOFF.md` ⭐
-   - 可直接交给本地 agent 的 P5.A handoff。
+### P5.C 接手 agent (active)
+
+1. `docs/PROJECT.md` ⭐
+   - 项目总边界、§11 阶段划分含 P5.C、§13.A 接手 P5.C 的阅读路径。
+2. `docs/decisions/2026-05-12-meta-pipeline-and-maintenance-strategy.md` ⭐
+   - **本轮决议**：P5.C "为什么" 的真理来源、9 章。
+3. `docs/engineering/META-PIPELINE-FRAMEWORK.md` ⭐
+   - **P5.C "怎么做" 的工程级定义**：4 lane × 三件套契约（capture/verification/health-as-data）+ AdapterContract + Test Conductor manifest 规范。
+4. `docs/engineering/adr/ADR-019-maintenance-as-first-class-concern.md`
+   - 治理优于功能作为产品一等约束的决策固化。
+5. `stability/DESKTOP-D-CASE-EXECUTION-STANDARD.md` + `stability/PCE-PIPELINE-HEALTH-MATRIX.md` ⭐
+   - **P5.C "什么算做完" 的两个验证契约**。
+6. `docs/engineering/adr/ADR-017-test-conductor-cross-lane-agent-contract.md`
+   - P5.C.2 实施依据（status: Proposed → Adopted）。
+7. `handoff/HANDOFF-META-PIPELINE-KICKOFF-2026-05-12.md` ⭐
+   - **当前 active**，P5.C.0 → P5.C.5 子阶段执行入口。
+
+### P5.B 余项轨道 agent
+
+1. `docs/PROJECT.md` §13.B
+2. `research/DESKTOP-CAPTURE-COGNITIVE-FRAMEWORK.md` ⭐ — strategy 轴
+3. `stability/DESKTOP-PRODUCT-MATRIX.md` ⭐ — validation 轴（D/C/E case 全集）
+4. `handoff/HANDOFF-IDE-DESKTOP-KICKOFF.md` 🟡 — carry-on
+5. `handoff/HANDOFF-P1-CLAUDE-DESKTOP-COWORK-KICKOFF-2026-05-10.md` — cowork standard-down
+6. `docs/engineering/META-PIPELINE-FRAMEWORK.md` ⭐ — 余项 lane 也需遵守三件套契约
+
+### 历史背景（按需读）
+
+- `docs/decisions/2026-04-18-ucs-and-release-strategy.md` — UCS 采纳 + Open Core + A+A 发布路径
+- `docs/engineering/UNIVERSAL-CAPTURE-STACK-DESIGN.md` — UCS 工业级设计文档（1340 行）
+- `docs/decisions/2026-04-05-foundation-session.md` — 基础阶段
+- `docs/decisions/2026-04-17-industrialization-roadmap.md` — P0–P3 工业化收敛
 
 ## 阶段与任务对照
 
@@ -37,9 +51,11 @@
 | P2 抓层工业化 + UX | `tasks/TASK-004-P2-capture-ux-upgrade.md` | — | 已完成 |
 | P3 渲染层工业化 + UX | `tasks/TASK-005-P3-desktop-shell.md` | — | 已完成 |
 | P4 长期演进 | — | — | 已完成 |
-| **P5.A** Subscription Capture (v1.0) | `tasks/TASK-006-P5A-subscription-capture.md` | `handoff/HANDOFF-P5A-KICKOFF.md` | **当前活动**（R1–R7 前置中）|
-| P5.B IDE & Electron (v1.1) | 待 P5.A 完成后产出 | — | 待启动 |
-| P6 Pinning-Proof (v1.2) | 待 P5.B 完成后产出 | — | 待启动 |
+| P5.A Subscription Capture (v1.0) | `tasks/TASK-006-P5A-subscription-capture.md` | `handoff/HANDOFF-BROWSER-EXT-FREEZE-2026-05-08.md` | ✅ 浏览器扩展子系统硬冻结 |
+| P5.B IDE & Desktop & MCP (v1.1) | `tasks/TASK-007-P5B-ide-desktop-mcp.md` (待起草) | `handoff/HANDOFF-IDE-DESKTOP-KICKOFF.md` 🟡 carry-on | chat-region D0 已过；cowork+code 余项与 P5.C 并行 |
+| **P5.C** Meta-Pipeline & Maintainability (v1.1.5) | (待起草) | `handoff/HANDOFF-META-PIPELINE-KICKOFF-2026-05-12.md` ⭐ | **当前活动**（P5.C.0 契约冻结同 commit 落地） |
+| P5.D IDE plugin (v1.1.6) | 待 P5.C 完成后产出 | — | 待启动 |
+| P6 Pinning-Proof / Coverage Polish (v1.2) | 待 P5.D 完成后产出 | — | 待启动 |
 | P7 Force Capture (v1.3) | 待 P6 完成后产出 | — | 待启动 |
 | P8 Full Supervisor (v2.0) | 待 P7 完成后产出 | — | 待启动 |
 
@@ -83,18 +99,20 @@
 
 ## 当前建议
 
-基础设施（记录 -> 看见）已在 P0–P4 打通。当前进入“按照 UCS 北极星架构分阶段迭代 + 首次对外发布”阶段。
+基础设施（记录 -> 看见）已在 P0–P4 打通；UCS 北极星架构 + Open Core + A+A 发布路径已锁定（2026-04-18 决议）；P5.A 浏览器扩展子系统硬冻结；P5.B chat-region D0 释放门已过。当前进入 **P5.C Meta-Pipeline & Maintainability** 阶段——把跨 lane 三件套契约 + Test Conductor + 健康度矩阵 + 治理产物落地，让项目所有者「无法主体维护」约束下系统能持续生存。
 
 近期重点：
 
-1. 完成 R1–R7 仓库拆分与开源门面文件（P5.A 编码的前置条件）
-2. 开工 P5.A 11 项原子任务（见 `TASK-006`）
-3. 4 周后发 v1.0 Subscription Capture（OSS `github.com/zstnbb/PCE-Core` 从私有转公开，Apache-2.0）
+1. P5.C.0 契约冻结（**本 commit 已交付** — 6 份新文档 + PROJECT.md/Docs/README.md 更新）
+2. P5.C.1 健康度骨架（`pce_core/health.py` + 4 lane 接入 + dashboard 健康度视图）
+3. P5.C.2 Test Conductor MVP（激活 ADR-017，8 MCP tool + canary + classifier）
+4. P5.B 余项（cowork + code）作为并行轨道，由独立 agent 推进
 
 绝对不追求的：
 
 - 对所有 AI 产品一次性全覆盖（UCS Tier 3 明确不投资 F7 移动端 / F8 OS 集成）
-- v1.0 就上 ChatGPT Plus 大众用户（技术门槛不匹配，待 v2.0 Supervisor 就绪后再扩展）
-- 自动 infer / 自动干预 / 自动连续性建模（属于“理解”层，不在 P5–P8 范围）
+- 把维护负担留给项目所有者（ADR-019 把治理作为产品 P0）
+- 自动 infer / 自动干预 / 自动连续性建模（属于"理解"层，不在 P5–P8 范围）
+- 客户端 telemetry 上报到外部（Local-first 硬约束，PROJECT.md §7.1）
 
-一句话语境：抓 / 存 / 渲染的工业化已完，接下来是把抓层按 UCS 推到全形态 75% 覆盖率，同时产品化对外发行。
+一句话语境：抓 / 存 / 渲染的工业化已完，浏览器 + 桌面 chat 已走通 D0；现在把跨 lane 契约 + 治理工程化，让 PCE 在项目所有者无法亲自维护时仍能生存与迭代。
