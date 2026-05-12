@@ -5,6 +5,97 @@ All notable changes to PCE (core + browser extension) are documented in this fil
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-05-12 — P5.C.3 Nightly CI + auto-issue (ADR-011 G3 / G7 active)
+
+Closes the second half of the auto-eyes loop from ADR-019: now that
+P5.C.1 + P5.C.2 produce health beacons + classified failure records,
+P5.C.3 wires the **nightly trigger** + **rendered health matrix SVG**
++ **auto-issue on fail** so the project owner doesn't need to look
+at any lane manually for it to be discovered as broken.
+
+### New tooling — `tools/`
+
+| File | Role | LOC |
+|---|---|---:|
+| `tools/render_health_matrix.py` | Read `compute_matrix()` + canary store → write `Docs/stability/HEALTH-MATRIX.svg` | ~330 |
+| `tools/auto_issue_on_fail.py`   | Scan `pce_test_conductor/runs/` → classify each non-pass → `gh issue create` (with `--dry-run` default) | ~280 |
+
+`render_health_matrix.py` ships with **zero new deps** (pure stdlib +
+existing pyyaml). Output is a self-contained SVG with `xmlns` so
+GitHub's MD renderer embeds it inline.
+
+`auto_issue_on_fail.py` is **read-only** by default (`--dry-run`
+unless `--no-dry-run` explicit). Issue body composes per
+HEALTH-MATRIX §5.3 + carries every applicable `propose_patch`
+suggestion as a fenced diff block, in keeping with ADR-019 §3.1
+contract D ("patches as data, never auto-applied").
+
+### New CI surface — `.github/workflows/nightly-probe.yml`
+
+- **Trigger**: cron `0 2 * * *` (UTC) + `workflow_dispatch` (manual,
+  with optional `hours_back` / `window_hours` / `dry_run_issues` inputs)
+- **Job 1 — `smoke`**: pytest `tests/test_conductor.py` + `tests/test_health_beacon.py`
+- **Job 2 — `health-matrix`**: render SVG + commit to `Docs/stability/`
+  if changed, using the workflow `GITHUB_TOKEN` (no PAT required)
+- **Job 3 — `auto-issue`**: invoke `tools/auto_issue_on_fail` against
+  any failed run records (default dry-run; toggle via dispatch input)
+- **Permissions**: `contents: write` (for SVG commit-back) + `issues: write`
+
+Live e2e probes (browser / desktop / cli driving real sites) remain
+**off this CI** — GH-hosted runners lack browser logins + Claude
+Desktop. Real beacon data continues to flow from contributors' local
+machines; CI exercises the orchestration layer + reports.
+
+### Tests — `tests/test_p5c3_tools.py` (15 tests, all PASS)
+
+- `render_health_matrix`: 5 (lane skeleton when empty / SVG header
+  contents / canary badge rendering / missing canary dir handled /
+  XML escaping for evil target names)
+- `auto_issue_on_fail`: 8 (collect filters status+age / unreadable
+  JSON skipped / classify dispatch / proposals dispatch / title +
+  body shape / `gh` command shape / dry-run skips subprocess /
+  end-to-end `process_runs` dry-run)
+- Workflow YAML: 2 (parse + 3-job structural assertions)
+
+`run_case` integration is exercised via the existing
+`tests/test_conductor.py::test_run_case_pass_via_stub_pytest` (P5.C.2);
+P5.C.3 doesn't re-test that surface.
+
+Combined: `tests/test_conductor.py` (37) + `test_health_beacon.py`
+(31) + `test_p5c3_tools.py` (15) = **83 GREEN**, run in 11 s.
+
+### Acceptance gate (HANDOFF-META-PIPELINE-KICKOFF §4.P5.C.3)
+
+- [x] Nightly workflow is valid YAML + 3 jobs in the right `needs`
+      chain (`test_nightly_probe_workflow_*`)
+- [x] Auto-issue invocation produces the spec'd `gh issue create`
+      argv with the `broken-adapter` label + `@CODEOWNERS` assignee
+      (`test_build_gh_command_includes_labels_and_assignee`)
+- [x] Health matrix SVG renders 4-lane summary + per-target rows
+      with canary badge (`test_render_svg_contains_lane_summary` +
+      `test_render_svg_renders_canary_badge`)
+- [x] Canary diff produces `enum_extension` severity=soft (already
+      verified in P5.C.2 via `test_diff_schemas_detects_added_removed_changed_enum`)
+- [x] ≥ 1 deliberate broken case → 1 auto-issue (verified via
+      `test_process_runs_dry_run_does_not_call_gh` end-to-end)
+
+### ADR status patches in this commit
+
+- **ADR-011 G3** (DOM baseline watcher) → schema-canary maturity reached
+  via P5.C.2 + nightly trigger via P5.C.3. Status remains "deferred —
+  DOM baseline maturity is the residual chunk, P5.C.4 follow-up".
+- **ADR-011 G7** (cron / systemd scheduler) → satisfied by the GH
+  Actions schedule trigger. ADR text not patched in this commit
+  (cosmetic), follow-up.
+
+### Out of scope (later P5.C sub-phases)
+
+- Real live-probe runs on a self-hosted runner with Chrome + Claude
+  Desktop credentials → P5.C.5 + post-v1.1.5 runner provisioning
+- LLM-refined proposals embedded in auto-issue bodies → P5.C.4
+- README.md inline embedding of the SVG → P5.C.5 (cosmetic)
+- `selector_changed_pending_review` PR auto-creation flow → P5.C.4
+
 ## [Unreleased] - 2026-05-12 — P5.C.2 Test Conductor MVP (ADR-017 Proposed → Adopted)
 
 Activates ADR-017 by shipping `pce_test_conductor/` — the cross-lane
