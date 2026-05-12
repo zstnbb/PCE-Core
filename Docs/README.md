@@ -2,11 +2,15 @@
 
 这是 PCE 项目的所有落盘文档入口。它用来替代长聊天，指导后续实现与迭代。
 
-截至 2026-05-12：P0–P4 全部完成；P5.A 浏览器扩展子系统已硬冻结；P5.B IDE & Desktop & MCP Capture 在 chat-region 走通 D0 释放门（Claude Desktop 19/22 PASS），cowork-region + code-region 作为并行轨道 carry forward；**P5.C Meta-Pipeline & Maintainability 在 2026-05-12 启动契约冻结阶段（P5.C.0）**，本轮决议把可维护性作为产品一等约束（ADR-019），通过跨 lane 三件套契约 + Test Conductor + 健康度矩阵把项目所有者「无法主体维护」约束下的工程基础搭起来。
+截至 2026-05-12：P0–P4 全部完成；P5.A 浏览器扩展子系统已硬冻结；P5.B IDE & Desktop & MCP Capture 在 chat-region 走通 D0 释放门（Claude Desktop 19/22 PASS），cowork-region + code-region 作为并行轨道 carry forward；**P5.C Meta-Pipeline & Maintainability 已于 2026-05-12 完成并 tag v1.1.5**，本轮决议把可维护性作为产品一等约束（ADR-019），跨 lane 三件套契约 + Test Conductor + 健康度矩阵 + 9 ADR-011 gates 全绿，进入 P6 Coverage Polish。
 
 ## 这套文件怎么用
 
 先读顺序如下（推荐第一次接手项目的人按这个顺序看，约 2.5 小时建立全面认识）：
+
+### ⭐ 新 agent 接班 60 秒定位 (read first)
+
+`docs/engineering/PCE-STANDARD-WORKFLOW.md` ⭐ — **任何接到 "做 X 这个产品 / 修 X 这个 bug" 任务的 agent 必须先读 60 秒**。它把 PCE 接产品 / 修 bug 的完整生命周期定义成 6 阶段（决策 → Desk → RECON → 标准 → 闭环 → 稳定），每阶段输入 / 工具 / 产物 / 完成标准都列了, 加一张编号速查表 (T/D/E/C/F-case, S0-SX, L0-L4, plane N/H/M/U, G1-G9) 和一份 5 分钟自检清单。读完它再去翻具体 doc, 不会迷路。
 
 ### P5.C 接手 agent (active)
 
@@ -71,6 +75,8 @@
   - 技术结构、模块、数据流、实现边界。
 - `docs/engineering/adr/`
   - 关键工程决策记录，后续不要轻易推翻。
+- `docs/engineering/PCE-STANDARD-WORKFLOW.md` ⭐
+  - **PCE 接产品 / 修 bug 完整生命周期 (6 阶段) + 编号速查表 + 5 分钟自检清单**。任何新 agent 接班先读 60 秒, 再翻具体 doc。
 - `docs/engineering/META-PIPELINE-FRAMEWORK.md`
   - P5.C 跨 lane 三件套契约（capture/verification/health-as-data）+ AdapterContract 规范，是 Meta-Pipeline 阶段所有 lane 的工程契约。
 - `stability/`

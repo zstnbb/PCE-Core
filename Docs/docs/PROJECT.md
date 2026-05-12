@@ -251,6 +251,7 @@ P5.A 封存交接：`handoff/HANDOFF-BROWSER-EXT-FREEZE-2026-05-08.md` ⭐ **202
 - `docs/decisions/2026-05-12-meta-pipeline-and-maintenance-strategy.md` — **P5.C Meta-Pipeline 与可维护性战略**（本轮决议、9 章）
 
 架构文档：
+- `docs/engineering/PCE-STANDARD-WORKFLOW.md` ⭐ — **PCE 接产品 / 修 bug 6 阶段生命周期 + 编号速查表 + 5 分钟自检** (2026-05-12, v1.0 canonical). 新 agent 接班 read-first; 任何"开始做 X 产品"任务由它指路, 然后再翻 META-PIPELINE-FRAMEWORK / DESKTOP-D-CASE-EXECUTION-STANDARD 等具体执行 doc.
 - `docs/engineering/ARCHITECTURE.md` — 版本随阶段演进，当前 v0.2（UCS v0.3 于 P5.B.1 中增设 L3f MCP middleware，ADR-015 已落地）
 - `docs/engineering/UNIVERSAL-CAPTURE-STACK-DESIGN.md` — **UCS 工业级设计文档**（1340 行，13 章 + 3 附录）
 - `docs/engineering/META-PIPELINE-FRAMEWORK.md` — **Meta-Pipeline 框架 v1.0**（2026-05-12，P5.C 阶段所有 agent 必读）— 4 lane × 三件套契约 + AdapterContract + Test Conductor manifest 规范
