@@ -63,9 +63,38 @@ python tests\e2e_desktop_ui\run_p1_code_sweep.py --mode static
 - **DONE 24 PASS / 2 SKIP / 0 FAIL** (target ≥16 required / ≤10 optional / 0 FAIL). Gate: PASS.
 - `e2e_l3g` regression: 168/168.
 
-### Live-sweep projection
+### Live-sweep (empirical, 2026-05-12 10:33 UTC+08)
 
-E23-E25 are static-only by design — they verify DB-side state the watcher populates deterministically. Live mode falls through to the same static checks. Combined with P1's empirical 15 PASS / 1 SKIP / 0 FAIL (commit `a69d303`), the projected live verdict is **25 PASS / 1 SKIP / 0 FAIL** (only E10 default-mode permission-dialog SKIP carries through, per §5.C.2 Q2).
+```
+python tests\e2e_desktop_ui\run_p1_code_sweep.py --mode live
+```
+
+Run dir: `tests\e2e_desktop_ui\reports\p1_code\20260512-103320_mode-live/`. Wall-clock ~3.5 min (E14's 60 s idle window dominates; E15 + E16-E25 are static-eligible and finish in ms).
+
+- E00 PASS — code-tab footprint: 21 pointer / 438 transcript / 29 sessions.
+- E01 PASS — fresh prompt "What is 2 + 2?" round-tripped (3 new messages, ~1.3 s).
+- E02 PASS — assistant message has 524 chars of captured text.
+- E03 PASS — multi-turn session has 6 messages.
+- **E04–E08 PASS** (Bash / Read / Write / Edit / Glob+Grep) — static-verified against earlier P1 transcripts; the live run did not need to re-exercise.
+- E09 PASS — audit trail present: 1 of 13 pointer(s) carries `Read` rule on `//c/Windows/System32/drivers/etc/**`.
+- **E10 SKIP** — default-mode permission-dialog UIA names still uncharted (§5.C.2 Q2).
+- E11 PASS — pointer's `enabledMcpTools` lists all 6 PCE tools (`pce_capture` / `pce_query` / `pce_stats` / `pce_sessions` / `pce_session_messages` / `pce_capture_pair`).
+- E12 PASS — `pce_capture` reference in Code-tab message.
+- E13 PASS — pointer carries all 9 required fields; sample title "Simple math calculation", `titleSource` populated.
+- **E14 PASS (60.0 s)** — true-silence verified: 0 transcript rows + 0 pointer rows during 60 s idle window.
+- E15 PASS — durability proxy: pointer updated 3523 ms after creation (write-through confirmed).
+- **E16 PASS** — sub-agent capture present: 8 sessions / 54 messages, sample composite key `52568116-…__agent_abaa8d80…`.
+- E17 PASS — sub-agent linkage: `parent_session_id=52568116-bc57-…` + `agent_id=abaa8d8057208b910`.
+- E18 PASS — global state captured: 1 MCP server (`sajitmmw_ecl` — the user's PCE install) + 8 project state records.
+- **E19 PASS** — `settings.json` secret-redaction: `ANTHROPIC_AUTH_TOKEN` scrubbed; `ANTHROPIC_BASE_URL` + `MCP_TIMEOUT` + `MCP_TOOL_TIMEOUT` preserved clean.
+- E20 PASS — TodoWrite product: 7 non-empty files, sample 6 tasks.
+- E21 PASS — `history.jsonl`: 59 lines captured, sample display `'你好'` (validates Unicode round-trip).
+- **E22 PASS** — `toolUsage` palette covers 8 / 8 expected (`Bash`/`Read`/`Write`/`Edit`/`Glob`/`Grep`/`Task`/`TodoWrite`); full discovered palette has 16 tools including `Agent` / `AskUserQuestion` / `EnterPlanMode` / `TaskCreate` / `TaskOutput` / `TaskStop` / `TaskUpdate` / `ToolSearch` (Claude Code 2.1.128's complete tool set).
+- E23 PASS — `sessions/<pid>.json`: 20 records, sample pid=11316, `entrypoint='claude-desktop'`, `version='2.1.128'`; `session_hint` matches body's `sessionId`.
+- E24 PASS — custom agent: 1 file (`forge-engineering-executor`, prompt_len=8275, frontmatter keys `{color, description, model, name}`).
+- E25 PASS — plugin state: all 4 allow-listed files (`blocklist.json` / `config.json` / `installed_plugins.json` / `known_marketplaces.json`).
+- **DONE 25 PASS / 1 SKIP / 0 FAIL** (target ≥12 PASS / ≤4 SKIP / 0 FAIL — full §5.C contract). **Gate: PASS** with margin (13 PASSes above the floor).
+- Empirical match to the post-P2.1 D0 sub-gate (≥16/16 required + ≤10 optional + 0 FAIL): 16 required all PASS, 8 optional PASS + 1 optional SKIP (E10), 0 FAIL.
 
 ### Repo cleanup (incidental)
 
