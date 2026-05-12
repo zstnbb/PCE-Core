@@ -39,12 +39,14 @@ from pce_core.db import init_db
 from . import __version__
 from .agent_sessions import (
     iter_code_tab_pointer_records,
+    iter_code_tab_subagent_records,
     iter_code_tab_transcript_records,
     iter_local_config_records,
     iter_records as iter_agent_session_records,
     iter_transcript_records,
 )
 from .capture import ChromiumStateObserver
+from .claude_user_state import iter_claude_user_state_records
 from .config import WatcherConfig, parse_argv
 from .discovery import AppInstall, discover, summarise
 from .leveldb_reader import (
@@ -223,6 +225,47 @@ def _scan_install(
             if cfg.verbose:
                 sys.stderr.write(
                     f"    code-tab session_pointer records parsed: {n}\n"
+                )
+
+    # ── Code-tab SUB-AGENT JSONL transcripts (P5.B.7.P2, 2026-05-12) ──
+    # Walks ~/.claude/projects/<encoded-cwd>/subagents/agent-*.jsonl.
+    # Each line is rewritten to use a composite session_id
+    # (``<parentSessId>__agent_<agentId>``) so the normaliser creates
+    # a distinct session row for the sub-agent, while still linking
+    # back to the parent via the ``parent_session_id`` field stamped
+    # on each line's body. Same downstream pipeline as
+    # ``transcript_line`` records (kind unchanged).
+    if only in (None, "code_tab", "code_subagents"):
+        cp_root = inst.root("claude_projects")
+        if cp_root is not None:
+            n = 0
+            for rec in iter_code_tab_subagent_records(cp_root):
+                observer.observe_agent_session(rec)
+                n += 1
+            if cfg.verbose:
+                sys.stderr.write(
+                    f"    code-tab subagent transcript_line records parsed: {n}\n"
+                )
+
+    # ── User-home Claude Code state surfaces (P5.B.7.P2, 2026-05-12) ──
+    # Five surfaces from ``~/.claude/*`` + ``~/.claude.json``:
+    # global state JSON, settings.json, settings.local.json, todos
+    # (TodoWrite product), and history.jsonl (prompt + slash-cmd
+    # history). All redactions for ANTHROPIC_AUTH_TOKEN / userID /
+    # oauthAccount.* are applied in the walker before yield, so no
+    # secrets can land in raw_captures. See
+    # ``pce_persistence_watcher.claude_user_state`` for the full
+    # surface list and redaction rules.
+    if only in (None, "code_tab", "user_state"):
+        uh_root = inst.root("claude_user_home")
+        if uh_root is not None:
+            n = 0
+            for rec in iter_claude_user_state_records(uh_root):
+                observer.observe_agent_session(rec)
+                n += 1
+            if cfg.verbose:
+                sys.stderr.write(
+                    f"    claude-code user-state records parsed: {n}\n"
                 )
 
     # ── local-config surfaces (free, ADR-018 §6 C4 supplementary) ──

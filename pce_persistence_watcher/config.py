@@ -93,6 +93,13 @@ _SOURCE_CATEGORIES = (
     "transcripts",
     # P5.B.7 (2026-05-11): code-tab only (JSONL + pointer).
     "code_tab",
+    # P5.B.7.P2 (2026-05-12): Code-tab sub-agent JSONLs (Task tool
+    # spawn products) — composite session_id with parent link.
+    "code_subagents",
+    # P5.B.7.P2 (2026-05-12): user-home Claude Code state surfaces
+    # (~/.claude.json + ~/.claude/{settings*.json,todos/*.json,
+    # history.jsonl}). Secret-scrubbed at walker boundary.
+    "user_state",
 )
 
 

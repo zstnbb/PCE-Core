@@ -60,36 +60,64 @@ logger = logging.getLogger("pce.persistence_watcher.agent_sessions")
 class AgentSessionRecord:
     """A parsed record from a Claude Desktop persistence surface.
 
-    ``kind`` is one of ``"session"`` / ``"skills_catalogue"`` /
-    ``"local_config"`` / ``"transcript_line"`` — the observer uses it
-    to route the record into the right PCE capture envelope shape.
+    ``kind`` is one of:
 
-    ``surface`` is set only for ``kind == "local_config"`` and names
-    which top-level config file the record came from (per ADR-018 §6
-    C4 supplementary findings, 2026-05-10): one of ``"preferences"``,
-    ``"cowork_owner"``, ``"git_worktrees"``, ``"device_id"``.
+    - ``"session"`` / ``"skills_catalogue"`` - Cowork agent-session
+      manifests and skills catalogue (M2 baseline).
+    - ``"local_config"`` - LocalCache profile-root config surfaces
+      (preferences / cowork_owner / git_worktrees / device_id;
+      ADR-018 §6 C4 supplementary, 2026-05-10).
+    - ``"transcript_line"`` - one record per JSONL line; covers
+      cowork transcripts, Code-tab transcripts, AND Code-tab
+      sub-agent transcripts (P5.B.7.P2, 2026-05-12 — see
+      ``iter_code_tab_subagent_records``).
+    - ``"code_tab_session_pointer"`` - Code-tab session metadata
+      pointer (claude-code-sessions/<user>/<org>/local_<sess>.json;
+      P5.B.7, 2026-05-11).
+    - ``"user_state_snapshot"`` / ``"user_state_line"`` -
+      P5.B.7.P2 user-home surfaces. See
+      ``claude_user_state.iter_claude_user_state_records`` for the
+      full surface list. Snapshots are point-in-time JSON files
+      (``~/.claude.json`` + ``settings*.json`` + ``todos/*.json``);
+      lines are per-line ``history.jsonl`` records.
 
-    ``line_uuid`` and ``line_index`` are set only for ``kind ==
-    "transcript_line"`` (added 2026-05-11 after Round 3 RECON revealed
-    Cowork's JSONL transcript schema — see
-    ``Docs/research/2026-05-11-cowork-recon-findings.md`` Q5 closure).
-    ``line_uuid`` is the line's own ``uuid`` field when present (used
-    for per-line dedup so a growing append-only JSONL doesn't re-emit
-    old lines). ``line_index`` is the 0-based position in the file for
-    lines that have no ``uuid`` (queue-operation, ai-title,
-    last-prompt). At least one of the two is always set.
+    The observer uses ``kind`` to route the record into the right
+    PCE capture envelope shape (host / path / dedup strategy).
+
+    ``surface`` discriminates within a kind. For ``local_config``:
+    one of ``"preferences"``, ``"cowork_owner"``, ``"git_worktrees"``,
+    ``"device_id"``. For ``user_state_snapshot`` / ``user_state_line``:
+    one of ``"user_state_global"``, ``"user_state_settings"``,
+    ``"user_state_settings_local"``, ``"user_state_todos"``,
+    ``"user_state_history"``.
+
+    ``line_uuid`` and ``line_index`` are set for line-oriented kinds
+    (``"transcript_line"`` and ``"user_state_line"``). They were
+    added 2026-05-11 after Round 3 RECON revealed cowork's JSONL
+    transcript schema — see
+    ``Docs/research/2026-05-11-cowork-recon-findings.md`` Q5.
+    ``line_uuid`` is the line's own ``uuid`` field when present
+    (used for per-line dedup so a growing append-only JSONL doesn't
+    re-emit old lines). ``line_index`` is the 0-based position in
+    the file for lines that have no ``uuid`` (``queue-operation``,
+    ``ai-title``, ``last-prompt``, ``history.jsonl``). At least one
+    of the two is always set for line-oriented records.
     """
 
-    kind: str  # "session" | "skills_catalogue" | "local_config" | "transcript_line"
-    session_id: Optional[str]  # uuid if kind == "session"/"transcript_line", else None
+    # See the class docstring for the full ``kind`` allow-list. The
+    # runtime does not enforce the set; capture.observe_agent_session
+    # falls through to a generic session-style envelope for unknown
+    # kinds, which is the safest default.
+    kind: str
+    session_id: Optional[str]
     source_path: Path
     mtime_ns: int
     size_bytes: int
     body_json: dict  # parsed manifest content OR parsed JSONL line
     last_updated_ms: Optional[int]  # from manifest/line when present
-    surface: Optional[str] = None  # set when kind == "local_config"
-    line_uuid: Optional[str] = None  # set when kind == "transcript_line"
-    line_index: Optional[int] = None  # set when kind == "transcript_line"
+    surface: Optional[str] = None  # see class docstring
+    line_uuid: Optional[str] = None  # set for line-oriented kinds
+    line_index: Optional[int] = None  # set for line-oriented kinds
 
 
 # ---------------------------------------------------------------------------
@@ -664,6 +692,198 @@ def iter_code_tab_transcript_records(
                     )
         except OSError as exc:
             logger.debug("cannot read jsonl %s: %s", jsonl_path, exc)
+            continue
+
+
+# ---------------------------------------------------------------------------
+# Code-tab SUB-AGENT transcripts (P5.B.7.P2, 2026-05-12)
+# ---------------------------------------------------------------------------
+#
+# When the main Code-tab session spawns a sub-agent via the ``Task``
+# tool, the sub-agent's conversation tree is persisted to a SEPARATE
+# JSONL file under::
+#
+#     ~/.claude/projects/<encoded-cwd>/<parentSessionId>/subagents/agent-<agentId>.jsonl
+#
+# RECON 2026-05-12 on the reference machine confirmed the layout is
+# FOUR levels deep, not three:
+#
+# - The encoded-cwd directory holds BOTH the flat
+#   ``<sessionId>.jsonl`` main transcripts (P5.B.7 P1 capture) AND,
+#   for sessions that spawned at least one sub-agent, a sibling
+#   DIRECTORY also named ``<sessionId>/`` whose only child is
+#   ``subagents/`` containing one or more ``agent-<id>.jsonl``.
+# - The sub-agent's lines carry the PARENT session's ``sessionId``
+#   field — they are NOT a new top-level session by Claude's data
+#   model. The discriminator is ``agentId`` (16-hex like
+#   ``"a84429dd11b8f1cb8"``) and ``isSidechain: true``.
+# - The first user line has ``parentUuid: null`` because the
+#   sub-agent's conversation tree is rooted independently.
+# - The first line has NO ``entrypoint`` field. Sub-agents only spawn
+#   from the Code-tab Task tool today, so the walker hardcodes
+#   ``entrypoint="claude-desktop"`` for downstream tool_family
+#   routing. A standalone CLI Task tool that wrote subagent JSONLs
+#   would currently be mis-attributed; that is acceptable for v0
+#   because no such writer is known and the fix (read parent
+#   ``<parentSessId>.jsonl``'s entrypoint) is local to this walker.
+# - New ``type`` value: ``"progress"`` (streaming sub-agent execution
+#   progress events). It joins ``user`` / ``assistant`` /
+#   ``queue-operation`` etc. in the type histogram and lands in
+#   ``content_text`` as ``"[Progress: ...]"`` via the normaliser's
+#   existing fallback path.
+
+
+def _find_code_tab_subagent_jsonl_files(
+    claude_projects_root: Path,
+) -> Iterator[Path]:
+    """Yield every sub-agent ``agent-*.jsonl`` under the Code-tab layout.
+
+    Walks the four-level layout::
+
+        <root>/<encoded-cwd>/<parentSessionId>/subagents/agent-*.jsonl
+
+    Bounded recursion: descends into encoded-cwd dirs, then into
+    UUID-shaped session subdirs (skipping any other shape — they're
+    out of scope for this walker), then into ``subagents/`` children.
+    Yields the ``agent-*.jsonl`` files; everything else is ignored.
+
+    Returns silently if ``claude_projects_root`` does not exist or
+    is not a directory.
+    """
+    if not claude_projects_root.exists() or not claude_projects_root.is_dir():
+        return
+    try:
+        cwd_dirs = list(claude_projects_root.iterdir())
+    except OSError:
+        return
+    for cwd_dir in cwd_dirs:
+        if not cwd_dir.is_dir():
+            continue
+        try:
+            sess_entries = list(cwd_dir.iterdir())
+        except OSError:
+            continue
+        for sess_dir in sess_entries:
+            # The encoded-cwd dir holds a mix of ``<sessId>.jsonl``
+            # files (main transcripts, handled by the P1 walker) and
+            # ``<sessId>/`` directories (subagent containers, handled
+            # here). Filter to directories whose name is a UUID.
+            if not sess_dir.is_dir():
+                continue
+            if not _looks_like_uuid(sess_dir.name):
+                continue
+            sub_dir = sess_dir / "subagents"
+            if not sub_dir.is_dir():
+                continue
+            try:
+                children = list(sub_dir.iterdir())
+            except OSError:
+                continue
+            for child in children:
+                if (
+                    child.is_file()
+                    and child.suffix == ".jsonl"
+                    and child.name.startswith("agent-")
+                ):
+                    yield child
+
+
+def iter_code_tab_subagent_records(
+    claude_projects_root: Path,
+) -> Iterator[AgentSessionRecord]:
+    """Walk Code-tab sub-agent JSONLs and yield one record per LINE.
+
+    Each yielded record uses ``kind="transcript_line"`` so the
+    LocalPersistenceNormalizer routes it through the same session +
+    message machinery as the main transcript. To give the sub-agent
+    its own session row, the walker REWRITES the line's
+    ``sessionId`` to the composite key
+    ``"<parentSessionId>__agent_<agentId>"`` and stamps three
+    auxiliary fields onto the body so downstream consumers can
+    surface the parent link without re-parsing the file path:
+
+    - ``parent_session_id`` - original sessionId from the JSONL line
+    - ``agent_id`` - agentId from the JSONL line
+    - ``is_subagent: true`` - convenience flag for dashboard queries
+
+    The injection only happens when the line was identified as a
+    sub-agent line (``isSidechain == True`` and ``agentId`` is a
+    non-empty string). Other lines are emitted unmodified.
+
+    The walker also hoists ``entrypoint="claude-desktop"`` onto every
+    line that lacks one. See module docstring for the rationale and
+    the deferred CLI-Task-tool fix.
+    """
+    for jsonl_path in _find_code_tab_subagent_jsonl_files(claude_projects_root):
+        stat = _stat_safe(jsonl_path)
+        if stat is None:
+            continue
+        mtime_ns, _file_size = stat
+
+        try:
+            with jsonl_path.open("r", encoding="utf-8", errors="replace") as fh:
+                for line_index, raw_line in enumerate(fh):
+                    line = raw_line.rstrip("\r\n")
+                    if not line.strip():
+                        continue
+                    try:
+                        body = json.loads(line)
+                    except json.JSONDecodeError as exc:
+                        logger.warning(
+                            "malformed subagent jsonl line at %s:%d: %s",
+                            jsonl_path, line_index, exc,
+                        )
+                        continue
+                    if not isinstance(body, dict):
+                        continue
+
+                    parent_sess = body.get("sessionId")
+                    agent_id = body.get("agentId")
+                    if not (
+                        isinstance(parent_sess, str)
+                        and isinstance(agent_id, str)
+                        and parent_sess
+                        and agent_id
+                    ):
+                        # Unknown shape — keep the line but don't
+                        # rewrite session_id; the normaliser will
+                        # treat it like any other transcript line.
+                        composite_id: Optional[str] = parent_sess if isinstance(parent_sess, str) else None
+                    else:
+                        composite_id = f"{parent_sess}__agent_{agent_id}"
+                        body["parent_session_id"] = parent_sess
+                        body["agent_id"] = agent_id
+                        body["is_subagent"] = True
+                        # Override the line's sessionId so the
+                        # normaliser builds a separate session row.
+                        # The original is preserved under
+                        # parent_session_id (set above).
+                        body["sessionId"] = composite_id
+
+                    # Sub-agents only spawn from the Code-tab Task
+                    # tool today, so the entrypoint is fixed. See
+                    # the module-level comment for the CLI caveat.
+                    if not body.get("entrypoint"):
+                        body["entrypoint"] = "claude-desktop"
+
+                    line_uuid = (
+                        body.get("uuid") if isinstance(body.get("uuid"), str) else None
+                    )
+                    last_updated_ms = _parse_iso8601_to_ms(body.get("timestamp"))
+
+                    yield AgentSessionRecord(
+                        kind="transcript_line",
+                        session_id=composite_id,
+                        source_path=jsonl_path,
+                        mtime_ns=mtime_ns,
+                        size_bytes=len(line.encode("utf-8", errors="replace")),
+                        body_json=body,
+                        last_updated_ms=last_updated_ms,
+                        line_uuid=line_uuid,
+                        line_index=line_index,
+                    )
+        except OSError as exc:
+            logger.debug("cannot read subagent jsonl %s: %s", jsonl_path, exc)
             continue
 
 

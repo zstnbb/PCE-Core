@@ -181,13 +181,17 @@ def _discover_msix(app_id: str, name_pattern: str) -> Optional[AppInstall]:
                     # claude-code-sessions/<user>/<org>/local_<sess>.json
                     # See `Docs/research/2026-05-11-code-tab-recon-findings.md`.
                     roots["claude_code_sessions"] = child / "claude-code-sessions"
-                    # P5.B.7 (2026-05-11): inline Code-tab JSONL
-                    # transcripts live OUTSIDE app_profile, in user
-                    # home (~/.claude/projects/<encoded-cwd>/<cliSessId>.jsonl).
-                    # Same dir is shared with standalone P6 Claude
-                    # Code CLI; entrypoint:"claude-desktop" field on
-                    # each line discriminates Desktop vs CLI origin.
-                    roots["claude_projects"] = Path.home() / ".claude" / "projects"
+                    # P5.B.7 (2026-05-11) + P5.B.7.P2 (2026-05-12):
+                    # user-home Claude Code surfaces (transcripts +
+                    # state). These live under ``~/.claude/`` which
+                    # is NOT app-scoped — only ``claude-desktop``
+                    # installs are the data producer for these
+                    # surfaces, so we gate on app_id to avoid
+                    # mis-attributing the records to a co-installed
+                    # ChatGPT Desktop (which has its own MSIX entry).
+                    if app_id == "claude-desktop":
+                        roots["claude_projects"] = Path.home() / ".claude" / "projects"
+                        roots["claude_user_home"] = Path.home() / ".claude"
                     roots["logs"] = child / "logs"
                     break
 
@@ -254,7 +258,10 @@ def _discover_squirrel(app_id: str) -> Optional[AppInstall]:
         roots["vm_bundles"] = state_root / "vm_bundles"
         roots["claude_code_vm"] = state_root / "claude-code-vm"
         roots["claude_code_sessions"] = state_root / "claude-code-sessions"
-        roots["claude_projects"] = Path.home() / ".claude" / "projects"
+        # P5.B.7 + P5.B.7.P2: see MSIX branch above for rationale.
+        if app_id == "claude-desktop":
+            roots["claude_projects"] = Path.home() / ".claude" / "projects"
+            roots["claude_user_home"] = Path.home() / ".claude"
         roots["logs"] = state_root / "logs"
 
     version: Optional[str] = None
@@ -312,7 +319,10 @@ def _discover_mac(app_id: str) -> Optional[AppInstall]:
                 roots["indexeddb"] = support / "IndexedDB"
                 roots["agent_sessions"] = support / "local-agent-mode-sessions"
                 roots["claude_code_sessions"] = support / "claude-code-sessions"
-                roots["claude_projects"] = Path.home() / ".claude" / "projects"
+                # P5.B.7 + P5.B.7.P2: see MSIX branch above for rationale.
+                if app_id == "claude-desktop":
+                    roots["claude_projects"] = Path.home() / ".claude" / "projects"
+                    roots["claude_user_home"] = Path.home() / ".claude"
                 roots["logs"] = support / "logs"
             return AppInstall(
                 app_id=app_id,

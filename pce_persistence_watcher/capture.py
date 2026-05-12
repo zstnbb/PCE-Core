@@ -153,6 +153,15 @@ class ChromiumStateObserver:
             # lines. The normaliser routes user / assistant lines into
             # sessions+messages; metadata lines stay in raw_captures.
             "transcript_line": 0,
+            # P5.B.7 (2026-05-11) — Code-tab session pointer JSONs.
+            "code_tab_session_pointer": 0,
+            # P5.B.7.P2 (2026-05-12) — user-home state surfaces from
+            # ``claude_user_state.iter_claude_user_state_records``:
+            # ``user_state_snapshot`` covers ~/.claude.json,
+            # settings*.json, and todos/*.json (point-in-time JSON);
+            # ``user_state_line`` covers history.jsonl (per-line).
+            "user_state_snapshot": 0,
+            "user_state_line": 0,
         }
 
     # ------------------------------------------------------------------
@@ -177,6 +186,16 @@ class ChromiumStateObserver:
           new lines. After insert, triggers
           ``pipeline.normalize_conversation`` to produce sessions +
           messages immediately (P5.B.5.3, 2026-05-11).
+        - ``"code_tab_session_pointer"``: host=local-agent-mode,
+          path=/<app_id>/code-tab-session-pointer/<uuid>,
+          session_hint=<cliSessionId>. Metadata-only; no normalize
+          trigger (P5.B.7, 2026-05-11).
+        - ``"user_state_snapshot"`` / ``"user_state_line"``:
+          host=local-config, path=/<app_id>/user-state/<surface>[/<key>],
+          session_hint=<session_id-or-None>. Both surfaces are
+          config-level state from ``~/.claude/`` + ``~/.claude.json``
+          and do NOT trigger normalize — they live only in
+          raw_captures (P5.B.7.P2, 2026-05-12).
         """
         with self._lock:
             self.stats["records_seen"] += 1
@@ -185,12 +204,14 @@ class ChromiumStateObserver:
             body_str = self._body_for(rec.body_json)
 
             # Fingerprint seed depends on kind:
-            # - transcript_line uses line_uuid (preferred) or line_index
-            #   for per-line dedup so an appended JSONL only re-emits
-            #   the NEW lines (otherwise content-hash dedup would
-            #   re-emit every existing line on each watcher pass).
+            # - Line-oriented kinds (``transcript_line``,
+            #   ``user_state_line``) use line_uuid (preferred) or
+            #   line_index for per-line dedup so an appended JSONL
+            #   only re-emits the NEW lines (otherwise content-hash
+            #   dedup would re-emit every existing line on each
+            #   watcher pass).
             # - Everything else uses the canonical body-string hash.
-            if rec.kind == "transcript_line":
+            if rec.kind in ("transcript_line", "user_state_line"):
                 seed = (
                     rec.line_uuid
                     or f"idx={rec.line_index}|sz={rec.size_bytes}"
@@ -215,10 +236,27 @@ class ChromiumStateObserver:
             }
             if rec.surface is not None:
                 meta["surface"] = rec.surface
-            if rec.kind == "transcript_line":
+            if rec.kind in ("transcript_line", "user_state_line"):
                 meta["line_uuid"] = rec.line_uuid
                 meta["line_index"] = rec.line_index
-                meta["line_type"] = rec.body_json.get("type")
+                meta["line_type"] = (
+                    rec.body_json.get("type")
+                    if isinstance(rec.body_json, dict)
+                    else None
+                )
+            # P5.B.7.P2 (2026-05-12): subagent transcripts inject
+            # ``is_subagent`` / ``agent_id`` / ``parent_session_id``
+            # onto the body. Surface them in meta as well so dashboard
+            # filters don't need to peek inside body_json.
+            if rec.kind == "transcript_line" and isinstance(rec.body_json, dict):
+                if rec.body_json.get("is_subagent") is True:
+                    meta["is_subagent"] = True
+                    aid = rec.body_json.get("agent_id")
+                    pid = rec.body_json.get("parent_session_id")
+                    if isinstance(aid, str):
+                        meta["agent_id"] = aid
+                    if isinstance(pid, str):
+                        meta["parent_session_id"] = pid
 
             triggered_normalize = False
             if rec.kind == "local_config":
@@ -234,6 +272,40 @@ class ChromiumStateObserver:
                 )
                 session_hint = rec.session_id
                 triggered_normalize = True
+            elif rec.kind == "user_state_snapshot":
+                # P5.B.7.P2 (2026-05-12) — user-home JSON snapshots.
+                # The ``todos`` surface emits one record per file so
+                # the path includes the filename to keep records
+                # distinct in raw_captures; other surfaces are
+                # singleton snapshots whose surface name suffices.
+                host = "local-config"
+                if rec.surface == "user_state_todos":
+                    key_suffix = f"/{rec.source_path.name}"
+                else:
+                    key_suffix = ""
+                path = (
+                    f"/{self.app_id}/user-state/"
+                    f"{rec.surface or 'unknown'}{key_suffix}"
+                )
+                # Todos carry a derived session_id (parsed from the
+                # filename ``<sessId>-agent-<agentId>.json``); other
+                # surfaces have no native session affinity.
+                session_hint = rec.session_id
+            elif rec.kind == "user_state_line":
+                # P5.B.7.P2 (2026-05-12) — ``history.jsonl`` per-line.
+                # Lines have no per-line uuid in the wild; line_index
+                # is the dedup key.
+                host = "local-config"
+                line_key = rec.line_uuid or f"idx-{rec.line_index}"
+                path = (
+                    f"/{self.app_id}/user-state/"
+                    f"{rec.surface or 'history'}/{line_key}"
+                )
+                # ``history.jsonl`` lines carry a ``sessionId`` field
+                # tying the prompt to the Code-tab session that ran
+                # it; pipe it into session_hint so the dashboard can
+                # join history entries to captured sessions.
+                session_hint = rec.session_id
             elif rec.kind == "code_tab_session_pointer":
                 # P5.B.7 (2026-05-11) — Code-tab session metadata
                 # pointer (~1 KB JSON at claude-code-sessions/<user>/
