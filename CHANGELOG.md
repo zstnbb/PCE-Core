@@ -5,6 +5,92 @@ All notable changes to PCE (core + browser extension) are documented in this fil
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-05-12 — docs(research/stability): P2 ChatGPT Desktop RECON closure — split-channel WSS hypothesis rebutted
+
+Closes Stage 2 (RECON) of P2 ChatGPT Desktop onboarding per
+`PCE-STANDARD-WORKFLOW.md` §5. The 2026-05-10 empirical finding that
+"ChatGPT Desktop's assistant stream is blocked on a separate
+WebSocket" was re-tested against the current `~/.pce/data/pce.db`
+and **rebutted**. Root cause of the 2026-05-10 false-negative:
+`/backend-api/f/conversation` response bodies carry the assistant
+stream as **JSON-patch SSE deltas** where each delta's `v` carries a
+tiny token slice (e.g. `{"v":"Par"}` + `{"v":"is"}`). The 2026-05-10
+`grep "Paris"` across `raw_captures` rows correctly found zero
+matches because no single row line contained the full word — but
+the text IS present once the append ops are applied in order.
+
+### Evidence
+
+Row `62f1686f...` (`host='chatgpt.com'`, `path LIKE '/backend-api/f/conversation%'`,
+`direction='response'`) is 15829 bytes containing:
+
+- 1 `resume_conversation_token` SSE frame
+- 1 `input_message` SSE frame (the user turn)
+- **39 `event: delta` SSE frames** (JSON-patch append ops against
+  the assistant message tree — the full response stream)
+- 1 `server_ste_metadata`, 2 `message_marker`, 1 `message_stream_complete`,
+  1 `beacon_ui_response`, 1 `[DONE]`
+
+Wire format (canonical form, see full shape in the dated note in
+`DESKTOP-PRODUCT-MATRIX.md` §4.2 + in `Docs/research/2026-05-12-chatgpt-desktop-f-endpoint-recon-findings.md`):
+
+```
+event: delta
+data: {"p":"", "o":"add", "v":{"message":{...assistant skeleton...}}}
+
+event: delta
+data: {"p":"/message/content/text", "o":"append", "v":"<first-tok>"}
+
+event: delta
+data: {"v":"<next-tok>"}       # bare v — continues last (p,o) target
+
+... (N more bare-v deltas) ...
+
+data: {"type":"message_stream_complete", ...}
+data: [DONE]
+```
+
+### Impact
+
+- **No WSS capture infra work needed** — `pce_proxy/addon.py::websocket_message`
+  hook (added in P5.B.5 for Cowork) remains correct for Claude Desktop
+  Cowork but is NOT needed for P2 ChatGPT Desktop chat-region.
+- **No `ALLOWED_HOSTS` changes needed** — `chatgpt.com` already covers
+  the full stream.
+- **Remaining P2 D02 work** = single new function
+  `assemble_chatgpt_web_f_sse()` in `pce_core/normalizer/sse.py` + a
+  `/backend-api/f/conversation` path branch in
+  `pce_core/normalizer/openai.py::normalize`. Estimated effort 0.5-1 day
+  + regression tests. OpenAI's existing `assemble_sse_response`
+  handles the OpenAI-API `choices[].delta.content` shape only, not
+  this ChatGPT Web JSON-patch shape.
+
+### New files
+
+- `Docs/research/2026-05-12-chatgpt-desktop-f-endpoint-recon-findings.md`
+  — full RECON findings: TL;DR, verification evidence, wire format
+  reference, 5 open questions (content_type=text variant, legacy
+  `/backend-api/conversation` path, multimodal, conversation_id
+  stability, cancel-mid-stream behavior), Stage 3 → Stage 4
+  sequencing per STANDARD-WORKFLOW.
+
+### Modified files
+
+- `Docs/stability/DESKTOP-PRODUCT-MATRIX.md` §4.2 — dated 2026-05-12
+  revision block + Primary plane row marked "SUPERSEDED by 2026-05-12
+  RECON re-verification" (history preserved, per STANDARD-WORKFLOW
+  §11.7 "supersede, don't delete").
+- `CHANGELOG.md` — this entry.
+
+### Stage gating
+
+Stage 3 (matrix + CHANGELOG) completes with this commit. Stage 4
+(normalizer implementation) requires owner sign-off first because
+any change to `pce_core/normalizer/openai.py` touches S0 ChatGPT Web
+(19 T-cases) as well as P2 ChatGPT Desktop. Follow-up commit expected
+to land `assemble_chatgpt_web_f_sse` + regression tests against the
+captured fixture.
+
 ## [Unreleased] - 2026-05-12 — fix(D04/E04): cancel-mid-stream request-only recovery
 
 Closes the **D04** known bug carry-forward from P5.B (Claude Desktop chat

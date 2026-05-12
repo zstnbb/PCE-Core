@@ -598,11 +598,49 @@ Code-region 在 Desktop 内是**同一个 SPA route 下**的不同子界面。
 > therefore BLOCKED on user-side only** until WebSocket capture is added.
 > See `Docs/handoff/HANDOFF-P1-D03-D05-P2-EMPIRICAL-2026-05-10.md` §4
 > for full evidence + 4 candidate unblock paths.
+>
+> **2026-05-12 N/L1 chat-region RECON re-verification** ✅ : the 2026-05-10
+> "split-channel WSS" conclusion above is **rebutted**. Re-inspection of
+> the existing `raw_captures` table surfaced a 15829-byte
+> `/backend-api/f/conversation` response row (id `62f1686f...`) containing
+> **39 `event: delta` SSE frames** encoding the full assistant stream
+> via JSON-patch append ops. The 2026-05-10 "zero matches for Paris / 你好"
+> search missed the content because delta tokens are split across bare
+> `{"v": "tok"}` chunks that no single line contains a full search
+> string. Wire shape (canonical form):
+>
+> ```
+> event: delta
+> data: {"p":"", "o":"add", "v":{"message":{...assistant skeleton...}, "conversation_id":"..."}}
+>
+> event: delta
+> data: {"p":"/message/content/text", "o":"append", "v":"<first-tok>"}
+>
+> event: delta
+> data: {"v":"<next-tok>"}          # bare v — continues last (p,o) target
+> ... (N more bare-v deltas) ...
+> data: {"type":"message_stream_complete", ...}
+> data: [DONE]
+> ```
+>
+> **Implication**: no WSS capture work needed. No `ALLOWED_HOSTS`
+> change needed. The existing L1 channel captures the full stream
+> already; the gap is a **JSON-patch delta assembler** in
+> `pce_core/normalizer/` (new function `assemble_chatgpt_web_f_sse`).
+> Estimated effort 0.5-1 day + tests. `openai.py`'s existing
+> `assemble_sse_response` handles OpenAI-API `choices[].delta.content`
+> shape only, which is NOT the ChatGPT Web format observed here.
+> See `Docs/research/2026-05-12-chatgpt-desktop-f-endpoint-recon-findings.md`
+> for full evidence + §5 open questions (content_type=text variant,
+> multimodal, cancel-mid-stream, legacy /backend-api/conversation
+> path carry-over). Closes P2 D02 blocker; Stage 4 normalizer impl
+> is the only remaining work. §4.1 H2-P2 ✅ PASS finding stands
+> unchanged.
 
 | Field | Value |
 |---|---|
 | OS | Windows (MSIX) + macOS |
-| Primary plane / layer | **N / L1** (system proxy + CA, `pce_proxy/`) — primary route; **H2-P2 ✅ PASS confirmed 2026-05-10** (361 clean hits, 0 TLS errors, app-layer cookies negotiated). ⚠️ **2026-05-10 chat-region empirical revision**: user-side ✅ captured (3/3 prompts via `/backend-api/f/conversation` POST), assistant-side ❌ BLOCKED (split-channel HTTP→WSS handoff, see new dated note above) |
+| Primary plane / layer | **N / L1** (system proxy + CA, `pce_proxy/`) — primary route; **H2-P2 ✅ PASS confirmed 2026-05-10** (361 clean hits, 0 TLS errors, app-layer cookies negotiated). ⚠️ **2026-05-10 chat-region empirical revision** (SUPERSEDED by 2026-05-12 RECON re-verification): user-side ✅ captured, assistant-side ❌ BLOCKED (split-channel HTTP→WSS handoff) — conclusion rebutted. ✅ **2026-05-12 RECON re-verification**: full assistant stream is in HTTP SSE as JSON-patch deltas; assembler needed in normalizer. See dated notes above + `Docs/research/2026-05-12-chatgpt-desktop-f-endpoint-recon-findings.md` |
 | Persistence axis | **L3g local persistence watcher** ✅ pkg alpha.8 — same parser stack as P1, ChatGPT-specific `LocalCache` layout discovery wired but layout itself TBD on first install probe |
 | MCP axis | **M / L3f** (only when user has configured ChatGPT Desktop MCP servers — ChatGPT MCP support is partial / 2026-evolving) |
 | Chat-region anti-pin | **A2 SSLKEYLOGFILE** patch — primary fallback if H2-on-P2 = pinned |
