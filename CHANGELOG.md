@@ -5,6 +5,135 @@ All notable changes to PCE (core + browser extension) are documented in this fil
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-05-12 — feat(normalizer): ChatGPT Web /backend-api/f/conversation JSON-patch SSE assembler (P2 D02 closed)
+
+Stage 4 of P2 ChatGPT Desktop onboarding per `PCE-STANDARD-WORKFLOW.md`
+§7. Closes the P2 D02 blocker (assistant-side capture) by adding a
+JSON-patch SSE assembler that handles the wire format documented in
+`Docs/research/2026-05-12-chatgpt-desktop-f-endpoint-recon-findings.md`.
+
+### Implementation
+
+**New function** `assemble_chatgpt_web_f_sse(sse_text) -> Optional[dict]`
+in `pce_core/normalizer/sse.py` (~290 LOC including the supporting
+`_parse_sse_events`, `_apply_patch_op`, `_extract_message_text`
+helpers + a 30-line design comment block).
+
+Algorithm:
+
+1. Parse SSE into `(event_type, data_str)` pairs (blank-line separated
+   per spec, accommodating the leading `data:` + optional single space
+   strip).
+2. Walk events left-to-right maintaining state:
+   - **Root-add** `{"p":"", "o":"add", "v":{message:..., conversation_id:...}}` —
+     commit any previous state, initialize fresh message tree.
+   - **Append** `{"p":"/message/content/text", "o":"append", "v":"tok"}` —
+     concat to that path, remember as `last_path` / `last_op`.
+   - **Bare-v** `{"v":"tok"}` (no `p` / `o`) — continues `(last_path, last_op)`.
+   - **Replace / remove** — overwrite / drop at path.
+   - **Patch** `{"p":"...", "o":"patch", "v":[<sub-ops>]}` — recursive bulk apply.
+3. `message_stream_complete` data frames commit + reset state.
+4. Return `{"choices": [{"message":{"role","content"}}, ...], "model", "conversation_id"}`
+   so the existing `OpenAIChatNormalizer.normalize()` flow consumes it
+   unchanged — same `choices[].message.content` extraction path used
+   for OpenAI-API responses.
+
+### Wire-up
+
+`pce_core/normalizer/openai.py::normalize` line 154-171: when the
+standard JSON parse + `assemble_sse_response` fallback both fail AND
+the path matches `/backend-api/f/conversation` (or legacy
+`/backend-api/conversation` variants), try `assemble_chatgpt_web_f_sse`
+first, then fall back to the standard SSE assembler if it returns None
+(belt-and-suspenders — handles a-b-test cohorts that may still ship
+the legacy `choices[].delta.content` shape on the same path).
+
+### Tests
+
+`tests/test_sse_and_pipeline.py` — 9 new tests in addition to the 11
+existing ones (total: 20 PASS / 0 FAIL in 0.12 s):
+
+- `test_chatgpt_web_f_sse_minimal` — single-message stream with
+  root-add + appends + bare-v continuation + complete
+- `test_chatgpt_web_f_sse_bare_v_continuation` — 7-token stream
+  where 6 of 7 are bare-v continuations
+- `test_chatgpt_web_f_sse_multiple_messages` — 3 consecutive
+  root-adds → 3 messages emitted in stream order (assistant tool
+  call + tool result + assistant final reply)
+- `test_chatgpt_web_f_sse_extracts_model_slug` — `resolved_model_slug`
+  vs `model_slug` priority (resolved wins)
+- `test_chatgpt_web_f_sse_returns_none_when_no_deltas` — handoff-only
+  envelope returns None (caller falls back)
+- `test_chatgpt_web_f_sse_returns_none_for_empty_or_garbage` — `""`,
+  `"not sse at all"`, `"data: [DONE]"` all return None
+- `test_chatgpt_web_f_sse_multimodal_parts` — `content_type=multimodal_text`
+  + `parts: [str | {text}]` concatenated
+- `test_chatgpt_web_f_sse_real_fixture` — the actual captured
+  15829-byte body from row `62f1686f...` reassembles into 3+ messages
+  with the Chinese-language assistant reply visible
+- `test_openai_normalizer_handles_f_conversation_path` — full
+  `OpenAIChatNormalizer.normalize()` flow against the fixture, asserts
+  session_key, roles, confidence
+
+### Fixtures
+
+`tests/fixtures/`:
+- `chatgpt_f_conversation_response.txt` — real 15829-byte SSE body
+  (39 deltas, search tool call → tool error → Chinese markdown reply)
+- `chatgpt_f_conversation_request.json` — matching 882-byte request
+  body with `conversation_id` for session_key extraction
+
+Both pulled from the local `~/.pce/data/pce.db` `raw_captures` table
+(pair_id `a4453864d5b64ffd`).
+
+### Regression
+
+| Test set | Result | Time |
+|---|---|---|
+| `test_sse_and_pipeline.py` | 20 PASS / 0 FAIL | 0.12 s |
+| Direct relevance (D04 + normalizer + confidence + reconciler + rich_content + sse_pipeline + g4 branch + g6 c07/c08 + retention) | 128 PASS / 0 FAIL | 12.4 s |
+| P5.C 156-test matrix (conductor + health_beacon + p5c3_tools + adapter_loader + llm_repair) | 156 PASS / 0 FAIL | 11.9 s |
+
+Combined: **304 tests PASS / 0 FAIL / 0 regression**. Test pollution
+in `test_e2e_full::test_t2_mitmproxy` when run after 692 prior tests
+in a single suite is an environmental issue (port binding race),
+unrelated — it passes in isolation under this branch in 8.3 s.
+
+### Files modified
+
+- `pce_core/normalizer/sse.py` — +290 LOC (new function +
+  3 helpers + 30-line design comment block)
+- `pce_core/normalizer/openai.py` — +12 LOC (path-conditional
+  routing before the standard SSE assembler in the fallback path)
+- `tests/test_sse_and_pipeline.py` — +220 LOC (9 new tests + runner
+  block updates + fixture path constant)
+- `tests/fixtures/chatgpt_f_conversation_request.json` — NEW, 940 B
+- `tests/fixtures/chatgpt_f_conversation_response.txt` — NEW, 15.9 KB
+
+### What this closes / opens
+
+**Closes**:
+- P2 D02 (ChatGPT Desktop assistant message capture) — the headline
+  blocker since 2026-05-10.
+- MATRIX §4.2 "Stage 4 normalizer impl is the only remaining work"
+  callout from the 2026-05-12 RECON revision.
+
+**Opens (carry-forward to next session)**:
+- Live sweep verification — owner needs to run ChatGPT Desktop with
+  pce_proxy active, send a fresh prompt, confirm `messages` table
+  populates with both user + assistant rows + non-empty `content_text`.
+  ~30 seconds of owner time. Will produce the `HANDOFF-P2-CHATGPT-DESKTOP-FIRST-SWEEP.md`
+  evidence package + close §5 Q1-Q5 (text variant / legacy path /
+  multimodal / conversation_id stability / cancel-mid-stream).
+- P5 Q1 (content_type=text variant) and Q2 (legacy
+  `/backend-api/conversation`) coverage in the test suite — currently
+  exercised by `test_chatgpt_web_f_sse_minimal` using content_type=text
+  but not via the real fixture (the captured turn was content_type=code
+  / search tool call). Live sweep §5 Q1 closure will yield a second
+  fixture with the simple text path.
+- P2 tag (e.g. `v1.1.6` or `v1.1.0-alpha.16-p2-unblock`) — depends on
+  live sweep PASS.
+
 ## [Unreleased] - 2026-05-12 — docs(research/stability): P2 ChatGPT Desktop RECON closure — split-channel WSS hypothesis rebutted
 
 Closes Stage 2 (RECON) of P2 ChatGPT Desktop onboarding per

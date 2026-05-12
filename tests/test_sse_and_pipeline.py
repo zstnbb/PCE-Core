@@ -3,10 +3,19 @@
 
 import json
 import time
-from pce_core.normalizer.sse import is_sse_text, assemble_sse_response, assemble_anthropic_sse, assemble_any_sse
+from pathlib import Path
+from pce_core.normalizer.sse import (
+    is_sse_text,
+    assemble_sse_response,
+    assemble_anthropic_sse,
+    assemble_any_sse,
+    assemble_chatgpt_web_f_sse,
+)
 from pce_core.normalizer.openai import OpenAIChatNormalizer
 from pce_core.normalizer.conversation import ConversationNormalizer
 from pce_core.normalizer.pipeline import _normalize_network_intercept, _try_generic_normalize
+
+_FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
 # ---------------------------------------------------------------------------
@@ -218,6 +227,227 @@ def test_generic_fallback():
     print("[PASS] test_generic_fallback")
 
 
+# ---------------------------------------------------------------------------
+# ChatGPT Web /backend-api/f/conversation JSON-patch SSE assembler
+# (Stage 4 P2 ChatGPT Desktop closure — see
+#  Docs/research/2026-05-12-chatgpt-desktop-f-endpoint-recon-findings.md)
+# ---------------------------------------------------------------------------
+
+def test_chatgpt_web_f_sse_minimal():
+    """Single-message stream: root-add + appends + bare-v + complete."""
+    sse = "\n".join([
+        'event: delta_encoding',
+        'data: "v1"',
+        '',
+        'event: delta',
+        'data: {"p":"","o":"add","v":{"message":{"id":"m1","author":{"role":"assistant"},"content":{"content_type":"text","text":""}},"conversation_id":"conv-A"}}',
+        '',
+        'event: delta',
+        'data: {"p":"/message/content/text","o":"append","v":"Hello"}',
+        '',
+        'event: delta',
+        'data: {"v":" "}',
+        '',
+        'event: delta',
+        'data: {"v":"world"}',
+        '',
+        'data: {"type":"message_stream_complete","conversation_id":"conv-A"}',
+        '',
+        'data: [DONE]',
+        '',
+    ])
+    result = assemble_chatgpt_web_f_sse(sse)
+    assert result is not None
+    assert result["conversation_id"] == "conv-A"
+    assert len(result["choices"]) == 1
+    msg = result["choices"][0]["message"]
+    assert msg["role"] == "assistant"
+    assert msg["content"] == "Hello world"
+    print("[PASS] test_chatgpt_web_f_sse_minimal")
+
+
+def test_chatgpt_web_f_sse_bare_v_continuation():
+    """A long stream of bare-v deltas after one append must concatenate."""
+    deltas = [
+        'event: delta',
+        'data: {"p":"","o":"add","v":{"message":{"id":"m1","author":{"role":"assistant"},"content":{"content_type":"text","text":""}}}}',
+    ]
+    expected = ""
+    for tok in ["The", " ", "quick", " ", "brown", " ", "fox"]:
+        if not expected:
+            deltas += ['', 'event: delta', f'data: {{"p":"/message/content/text","o":"append","v":"{tok}"}}']
+        else:
+            deltas += ['', 'event: delta', f'data: {{"v":"{tok}"}}']
+        expected += tok
+    deltas.append('')
+    sse = "\n".join(deltas)
+    result = assemble_chatgpt_web_f_sse(sse)
+    assert result is not None
+    assert result["choices"][0]["message"]["content"] == expected
+    print("[PASS] test_chatgpt_web_f_sse_bare_v_continuation")
+
+
+def test_chatgpt_web_f_sse_multiple_messages():
+    """Two consecutive `{"p":"","o":"add"}` deltas → 2 messages emitted in order."""
+    sse = "\n".join([
+        'event: delta',
+        'data: {"p":"","o":"add","v":{"message":{"author":{"role":"assistant"},"content":{"content_type":"code","text":""}}}}',
+        '',
+        'event: delta',
+        'data: {"p":"/message/content/text","o":"append","v":"{\\"tool\\":\\"x\\"}"}',
+        '',
+        'event: delta',
+        'data: {"p":"","o":"add","v":{"message":{"author":{"role":"tool"},"content":{"content_type":"text","text":""}}}}',
+        '',
+        'event: delta',
+        'data: {"p":"/message/content/text","o":"append","v":"tool result"}',
+        '',
+        'event: delta',
+        'data: {"p":"","o":"add","v":{"message":{"author":{"role":"assistant"},"content":{"content_type":"text","text":""}}}}',
+        '',
+        'event: delta',
+        'data: {"p":"/message/content/text","o":"append","v":"final answer"}',
+        '',
+        'data: {"type":"message_stream_complete"}',
+        '',
+        'data: [DONE]',
+        '',
+    ])
+    result = assemble_chatgpt_web_f_sse(sse)
+    assert result is not None
+    assert len(result["choices"]) == 3
+    assert result["choices"][0]["message"]["role"] == "assistant"
+    assert result["choices"][0]["message"]["content"] == '{"tool":"x"}'
+    assert result["choices"][1]["message"]["role"] == "tool"
+    assert result["choices"][1]["message"]["content"] == "tool result"
+    assert result["choices"][2]["message"]["role"] == "assistant"
+    assert result["choices"][2]["message"]["content"] == "final answer"
+    print("[PASS] test_chatgpt_web_f_sse_multiple_messages")
+
+
+def test_chatgpt_web_f_sse_extracts_model_slug():
+    """resolved_model_slug from the metadata is surfaced as result['model']."""
+    sse = "\n".join([
+        'event: delta',
+        'data: {"p":"","o":"add","v":{"message":{"author":{"role":"assistant"},"content":{"content_type":"text","text":""},"metadata":{"resolved_model_slug":"i-5-mini","model_slug":"gpt-5-3-mini"}}}}',
+        '',
+        'event: delta',
+        'data: {"p":"/message/content/text","o":"append","v":"hi"}',
+        '',
+        'data: [DONE]',
+        '',
+    ])
+    result = assemble_chatgpt_web_f_sse(sse)
+    assert result is not None
+    # resolved_model_slug wins over model_slug (per implementation)
+    assert result["model"] == "i-5-mini"
+    print("[PASS] test_chatgpt_web_f_sse_extracts_model_slug")
+
+
+def test_chatgpt_web_f_sse_returns_none_when_no_deltas():
+    """Body without any event:delta frames (e.g. 567-byte handoff envelope)
+    returns None — caller falls back to standard SSE assembler.
+    """
+    sse = "\n".join([
+        'event: delta_encoding',
+        'data: "v1"',
+        '',
+        'data: {"type":"resume_conversation_token","token":"X","conversation_id":"c"}',
+        '',
+        'data: {"type":"stream_handoff","conversation_id":"c","options":[{"type":"subscribe_ws_topic","topic_id":"t"}]}',
+        '',
+        'data: [DONE]',
+        '',
+    ])
+    assert assemble_chatgpt_web_f_sse(sse) is None
+    print("[PASS] test_chatgpt_web_f_sse_returns_none_when_no_deltas")
+
+
+def test_chatgpt_web_f_sse_returns_none_for_empty_or_garbage():
+    assert assemble_chatgpt_web_f_sse("") is None
+    assert assemble_chatgpt_web_f_sse("not sse at all") is None
+    assert assemble_chatgpt_web_f_sse("data: [DONE]") is None
+    print("[PASS] test_chatgpt_web_f_sse_returns_none_for_empty_or_garbage")
+
+
+def test_chatgpt_web_f_sse_multimodal_parts():
+    """content_type=multimodal_text + parts list — text parts concatenated."""
+    sse = "\n".join([
+        'event: delta',
+        'data: {"p":"","o":"add","v":{"message":{"author":{"role":"assistant"},"content":{"content_type":"multimodal_text","parts":["alpha"," beta"]}}}}',
+        '',
+        'data: [DONE]',
+        '',
+    ])
+    result = assemble_chatgpt_web_f_sse(sse)
+    assert result is not None
+    assert result["choices"][0]["message"]["content"] == "alpha beta"
+    print("[PASS] test_chatgpt_web_f_sse_multimodal_parts")
+
+
+def test_chatgpt_web_f_sse_real_fixture():
+    """Real captured 15829-byte body from row 62f1686f... (ChatGPT Desktop, 2026-05-12).
+
+    Empirical: 39 event:delta frames → 3 messages (search tool call,
+    tool error, final assistant reply in zh-CN).
+    """
+    fixture = _FIXTURES_DIR / "chatgpt_f_conversation_response.txt"
+    if not fixture.exists():
+        print(f"[SKIP] fixture missing: {fixture}")
+        return
+    body = fixture.read_text(encoding="utf-8")
+    result = assemble_chatgpt_web_f_sse(body)
+    assert result is not None, "real fixture must assemble"
+    assert result["model"] == "i-5-mini" or result["model"] == "gpt-5-3-mini"  # one of the two slugs
+    assert result.get("conversation_id") == "69ff3abc-9598-83ea-993f-8f3c5854a2eb"
+    assert len(result["choices"]) >= 2  # at least 2 messages assembled
+    # Some message should contain the user-visible Chinese reply substring
+    final_assistant = [c for c in result["choices"] if c["message"]["role"] == "assistant"]
+    assert len(final_assistant) >= 1
+    last = final_assistant[-1]["message"]["content"]
+    # Real reply contains a markdown structure with Chinese text
+    assert len(last) > 100
+    assert "Claude" in last or "礼品卡" in last or "明白" in last
+    print(f"[PASS] test_chatgpt_web_f_sse_real_fixture (assembled {len(result['choices'])} msgs, "
+          f"last assistant len={len(last)})")
+
+
+def test_openai_normalizer_handles_f_conversation_path():
+    """End-to-end: OpenAIChatNormalizer.normalize() against the fixture.
+
+    Validates the wire-up in openai.py — when path matches
+    /backend-api/f/conversation, the SSE fallback routes to the
+    ChatGPT Web assembler instead of the OpenAI-API assembler.
+    """
+    req_path = _FIXTURES_DIR / "chatgpt_f_conversation_request.json"
+    resp_path = _FIXTURES_DIR / "chatgpt_f_conversation_response.txt"
+    if not req_path.exists() or not resp_path.exists():
+        print(f"[SKIP] fixtures missing")
+        return
+    req = req_path.read_text(encoding="utf-8")
+    resp = resp_path.read_text(encoding="utf-8")
+    n = OpenAIChatNormalizer()
+    assert n.can_handle("openai", "chatgpt.com", "/backend-api/f/conversation")
+    result = n.normalize(
+        request_body=req,
+        response_body=resp,
+        provider="openai",
+        host="chatgpt.com",
+        path="/backend-api/f/conversation",
+    )
+    assert result is not None, "f/conversation normalize must succeed"
+    assert result.provider == "openai"
+    # session_key should come from the request body's conversation_id
+    assert result.session_key == "69ff3abc-9598-83ea-993f-8f3c5854a2eb"
+    # At minimum 1 user + 1 assistant message
+    roles = [m.role for m in result.messages]
+    assert "user" in roles and "assistant" in roles
+    # Confidence should be reasonable (>= 0.4 — has structured req + resp)
+    assert (result.confidence or 0) >= 0.4
+    print(f"[PASS] test_openai_normalizer_handles_f_conversation_path "
+          f"({len(result.messages)} msgs, confidence={result.confidence:.2f})")
+
+
 if __name__ == "__main__":
     test_is_sse_text()
     test_assemble_sse_basic()
@@ -230,4 +460,14 @@ if __name__ == "__main__":
     test_conversation_catch_all()
     test_pipeline_network_intercept_sse()
     test_generic_fallback()
+    # ChatGPT Web f-conversation JSON-patch SSE (P2 Stage 4 closure)
+    test_chatgpt_web_f_sse_minimal()
+    test_chatgpt_web_f_sse_bare_v_continuation()
+    test_chatgpt_web_f_sse_multiple_messages()
+    test_chatgpt_web_f_sse_extracts_model_slug()
+    test_chatgpt_web_f_sse_returns_none_when_no_deltas()
+    test_chatgpt_web_f_sse_returns_none_for_empty_or_garbage()
+    test_chatgpt_web_f_sse_multimodal_parts()
+    test_chatgpt_web_f_sse_real_fixture()
+    test_openai_normalizer_handles_f_conversation_path()
     print("\n=== ALL TESTS PASSED ===")

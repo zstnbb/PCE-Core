@@ -356,3 +356,339 @@ def assemble_any_sse(sse_text: str) -> Optional[dict]:
 
     # Default: try OpenAI format
     return assemble_sse_response(sse_text)
+
+
+# ---------------------------------------------------------------------------
+# ChatGPT Web / Desktop ``/backend-api/f/conversation`` SSE assembler
+# ---------------------------------------------------------------------------
+#
+# Per ``Docs/research/2026-05-12-chatgpt-desktop-f-endpoint-recon-findings.md``,
+# ChatGPT Web (and Desktop, which embeds the same web app) ships its
+# assistant stream as **JSON-patch SSE deltas** rather than the OpenAI-API
+# ``choices[].delta.content`` shape. Wire format::
+#
+#     event: delta
+#     data: {"p":"", "o":"add", "v":{"message":{...skeleton...}, "conversation_id":"..."}}
+#
+#     event: delta
+#     data: {"p":"/message/content/text", "o":"append", "v":"<first-tok>"}
+#
+#     event: delta
+#     data: {"v":"<next-tok>"}        # bare v — continues last (p,o)
+#
+#     ... (N more deltas) ...
+#     data: {"type":"message_stream_complete", ...}
+#     data: [DONE]
+#
+# The standard ``assemble_sse_response`` above does NOT handle this — it
+# expects ``choices[].delta.content`` and finds no chunks here, returning
+# None. The 2026-05-10 P2 empirical run mistook this as "no assistant
+# content captured" and built a now-rebutted "split-channel WSS"
+# hypothesis around it.
+#
+# This assembler closes the P2 D02 blocker: it walks SSE events, applies
+# JSON-patch ops against an in-memory message tree, and returns an
+# OpenAI-compatible dict so the existing ``OpenAIChatNormalizer``
+# pipeline flows unchanged.
+
+def assemble_chatgpt_web_f_sse(sse_text: str) -> Optional[dict]:
+    """Assemble ChatGPT Web ``/backend-api/f/conversation`` JSON-patch SSE.
+
+    Returns an OpenAI-compatible response dict::
+
+        {"choices": [{"message": {"role": "assistant", "content": "..."}}],
+         "model": "<resolved_model_slug or model_slug>"}
+
+    so callers can flow through the existing
+    ``OpenAIChatNormalizer.normalize()`` path that already handles
+    ``choices[0].message.content`` extraction. Returns None when:
+
+    - the body has no SSE structure
+    - no ``event: delta`` frames present (e.g. a 567-byte handoff envelope
+      from the legacy / pre-rollout branch — those should be handled
+      elsewhere or ignored)
+    - no assembled message has non-empty text content
+
+    Multi-message streams (e.g. tool call then reply) emit one ``choices``
+    entry per message in stream order. Each ``{"p":"", "o":"add"}`` delta
+    starts a fresh message; the previous one is committed.
+
+    Reference: ``Docs/research/2026-05-12-chatgpt-desktop-f-endpoint-recon-findings.md``
+    §2 "Wire format" + §4 "Stage 4 work to implement".
+    """
+    if not sse_text:
+        return None
+
+    events = _parse_sse_events(sse_text)
+    if not events:
+        return None
+
+    messages: list[dict] = []  # list of completed message tree dicts
+    state: Optional[dict] = None  # current message tree
+    last_path: Optional[str] = None
+    last_op: Optional[str] = None
+    saw_delta = False
+
+    for event_type, data_str in events:
+        if not data_str or data_str == "[DONE]":
+            continue
+        # Skip non-JSON scalar payloads like the leading `data: "v1"` after
+        # `event: delta_encoding`.
+        try:
+            data = json.loads(data_str)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+
+        if event_type == "delta":
+            saw_delta = True
+            # Determine path + op
+            if "p" in data or "o" in data:
+                p = data.get("p", "")
+                o = data.get("o", "add")
+                last_path = p
+                last_op = o
+            else:
+                # bare {"v": "..."} — must reuse last (p, o)
+                if last_path is None:
+                    # Stream started with bare v — treat as append to root text
+                    continue
+                p = last_path
+                o = last_op or "append"
+            v = data.get("v")
+
+            # Root-add: starts a fresh message tree, commit any previous one
+            if p == "" and o == "add":
+                if state is not None and isinstance(state, dict) and state.get("message"):
+                    messages.append(state)
+                state = dict(v) if isinstance(v, dict) else {}
+                continue
+
+            # Sub-path op against current state
+            if state is None:
+                # Defensive: deltas before any root-add — synthesize empty
+                state = {}
+            _apply_patch_op(state, p, o, v)
+        else:
+            # Non-delta data line. We only care about message_stream_complete
+            # for committing the current state. Other types we ignore:
+            #   resume_conversation_token, input_message, message_marker,
+            #   server_ste_metadata, beacon_ui_response, ...
+            t = data.get("type", "")
+            if t == "message_stream_complete":
+                if state is not None and isinstance(state, dict) and state.get("message"):
+                    messages.append(state)
+                    state = None
+                    last_path = None
+                    last_op = None
+
+    # Flush any remaining in-progress state at end of stream
+    if state is not None and isinstance(state, dict) and state.get("message"):
+        messages.append(state)
+
+    if not saw_delta or not messages:
+        return None
+
+    # Extract content from each message tree → OpenAI-compatible choices
+    choices: list[dict] = []
+    model_slug: Optional[str] = None
+    conversation_id: Optional[str] = None
+
+    for m in messages:
+        if not conversation_id:
+            cid = m.get("conversation_id")
+            if isinstance(cid, str) and cid:
+                conversation_id = cid
+
+        msg = m.get("message")
+        if not isinstance(msg, dict):
+            continue
+
+        author = msg.get("author")
+        role = "assistant"
+        if isinstance(author, dict) and isinstance(author.get("role"), str):
+            role = author["role"]
+
+        text = _extract_message_text(msg.get("content"))
+        if not text:
+            continue
+
+        # Pull model slug from metadata if we don't have one yet.
+        meta = msg.get("metadata")
+        if isinstance(meta, dict) and not model_slug:
+            slug = meta.get("resolved_model_slug") or meta.get("model_slug")
+            if isinstance(slug, str) and slug:
+                model_slug = slug
+
+        choices.append({"message": {"role": role, "content": text}})
+
+    if not choices:
+        return None
+
+    result: dict = {"choices": choices}
+    if model_slug:
+        result["model"] = model_slug
+    if conversation_id:
+        # Surface conversation_id so OpenAIChatNormalizer can fall back to
+        # it for session_key extraction when the request body's
+        # ``conversation_id`` field is missing (rare, but seen in some
+        # legacy / a-b-test request shapes).
+        result["conversation_id"] = conversation_id
+    return result
+
+
+def _parse_sse_events(body: str) -> list[tuple[Optional[str], str]]:
+    """Parse an SSE body into ``[(event_type, data_str), ...]`` pairs.
+
+    Each event ends at a blank line per the SSE spec. ``event_type`` is
+    the value of an ``event:`` line within the event, or None if absent.
+    ``data_str`` is the concatenation of all ``data:`` lines in that
+    event (joined with ``\\n`` per spec, though ChatGPT's stream uses
+    one data line per event).
+    """
+    out: list[tuple[Optional[str], str]] = []
+    current_event: Optional[str] = None
+    current_data: list[str] = []
+    for line in body.splitlines():
+        if line == "":
+            if current_data:
+                out.append((current_event, "\n".join(current_data)))
+            current_event = None
+            current_data = []
+            continue
+        if line.startswith(":"):
+            # SSE comment line
+            continue
+        if line.startswith("event:"):
+            current_event = line[6:].strip()
+        elif line.startswith("data:"):
+            # Strip the leading "data:" + optional single space (per spec)
+            payload = line[5:]
+            if payload.startswith(" "):
+                payload = payload[1:]
+            current_data.append(payload)
+    # Flush trailing event without blank line
+    if current_data:
+        out.append((current_event, "\n".join(current_data)))
+    return out
+
+
+def _apply_patch_op(state: dict, p: str, o: str, v) -> None:
+    """Apply one JSON-patch-style op to ``state`` in place.
+
+    Supported ops: ``add``, ``replace``, ``append``, ``remove``,
+    ``patch`` (bulk: v is a list of sub-ops). ``append`` on a string
+    field concatenates, on a list appends an element. JSON-patch
+    escapes ``~1`` → ``/`` and ``~0`` → ``~`` are honoured.
+    """
+    if not isinstance(state, dict):
+        return
+
+    if o == "patch" and isinstance(v, list):
+        for sub in v:
+            if isinstance(sub, dict):
+                _apply_patch_op(
+                    state,
+                    sub.get("p", "") or "",
+                    sub.get("o", "add") or "add",
+                    sub.get("v"),
+                )
+        return
+
+    parts = [seg for seg in (p.split("/") if p else []) if seg]
+
+    if not parts:
+        # Root op (caller normally short-circuits these for `add`, but
+        # honour `replace` here for completeness).
+        if o in ("add", "replace") and isinstance(v, dict):
+            state.clear()
+            state.update(v)
+        return
+
+    cur: object = state
+    for seg in parts[:-1]:
+        seg = seg.replace("~1", "/").replace("~0", "~")
+        if isinstance(cur, list):
+            try:
+                idx = int(seg)
+            except ValueError:
+                return
+            if 0 <= idx < len(cur):
+                cur = cur[idx]
+            else:
+                return
+        elif isinstance(cur, dict):
+            existing = cur.get(seg)
+            if not isinstance(existing, (dict, list)):
+                cur[seg] = {}
+            cur = cur[seg]
+        else:
+            return
+
+    leaf = parts[-1].replace("~1", "/").replace("~0", "~")
+
+    if isinstance(cur, list):
+        try:
+            idx = int(leaf)
+        except ValueError:
+            return
+        if o == "append":
+            cur.append(v)
+        elif o in ("add", "replace"):
+            if idx == len(cur):
+                cur.append(v)
+            elif 0 <= idx < len(cur):
+                cur[idx] = v
+        elif o == "remove":
+            if 0 <= idx < len(cur):
+                cur.pop(idx)
+        return
+
+    if isinstance(cur, dict):
+        if o in ("add", "replace"):
+            cur[leaf] = v
+        elif o == "append":
+            existing = cur.get(leaf, "")
+            if isinstance(existing, str) and isinstance(v, str):
+                cur[leaf] = existing + v
+            else:
+                # Fallback for non-string append: replace
+                cur[leaf] = v
+        elif o == "remove":
+            cur.pop(leaf, None)
+
+
+def _extract_message_text(content) -> str:
+    """Extract human-readable text from a ChatGPT Web ``message.content`` dict.
+
+    Two main shapes observed:
+
+    - ``{"content_type": "text"|"code", "text": "..."}`` — plain
+      string under ``text``. ``code`` content_type is used when the
+      assistant emits a tool call payload (e.g. ``search_query`` JSON);
+      we still return the text faithfully — downstream consumers
+      decide whether to re-parse.
+    - ``{"content_type": "multimodal_text", "parts": [<str|dict>, ...]}``
+      — concatenate string parts; for dict parts with a ``text`` field,
+      pull that out. Image / audio parts are skipped (they get
+      attachments downstream via ``_extract_rich_content``).
+    """
+    if not isinstance(content, dict):
+        return ""
+    text_val = content.get("text")
+    if isinstance(text_val, str) and text_val:
+        return text_val
+
+    parts = content.get("parts")
+    if isinstance(parts, list):
+        out: list[str] = []
+        for part in parts:
+            if isinstance(part, str) and part:
+                out.append(part)
+            elif isinstance(part, dict):
+                pt = part.get("text")
+                if isinstance(pt, str) and pt:
+                    out.append(pt)
+        return "".join(out)
+    return ""

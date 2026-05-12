@@ -153,9 +153,22 @@ class OpenAIChatNormalizer(BaseNormalizer):
 
         # SSE fallback: if response isn't valid JSON, try assembling SSE chunks
         if resp_data is None and response_body:
-            from .sse import is_sse_text, assemble_sse_response
+            from .sse import (
+                is_sse_text,
+                assemble_sse_response,
+                assemble_chatgpt_web_f_sse,
+            )
             if is_sse_text(response_body):
-                resp_data = assemble_sse_response(response_body)
+                # ChatGPT Web / Desktop ``/backend-api/f/conversation`` uses
+                # JSON-patch SSE deltas, NOT OpenAI-API ``choices[].delta.content``.
+                # Try the ChatGPT Web assembler first when the path matches; the
+                # legacy ``/backend-api/conversation`` (no `/f/`) used the same
+                # delta encoding on older builds, so we try it there too.
+                # See ``Docs/research/2026-05-12-chatgpt-desktop-f-endpoint-recon-findings.md``.
+                if "/backend-api/f/conversation" in path or path == "/backend-api/conversation" or path.startswith("/backend-api/conversation/"):
+                    resp_data = assemble_chatgpt_web_f_sse(response_body)
+                if resp_data is None:
+                    resp_data = assemble_sse_response(response_body)
 
         if resp_data and isinstance(resp_data, dict):
             resp_model = resp_data.get("model", model)
