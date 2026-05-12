@@ -19,6 +19,10 @@ Cowork-region modes (P5.B.5 RECON; closes §5.B.2 questions Q1/Q3):
     python -m tests.e2e_desktop_ui.scripts.dump_uia open-scheduled # click 'Scheduled' sidebar entry, dump
     python -m tests.e2e_desktop_ui.scripts.dump_uia open-customize # click 'Customize' entry, dump cowork settings panel
 
+E10 permission-dialog RECON (§5.C.2 Q2 closer):
+
+    python -m tests.e2e_desktop_ui.scripts.dump_uia recon-permission  # operator pre-step: open Code tab in default mode + send tool prompt + WAIT for dialog visible, then run this
+
 Use ``--kw`` to filter the output by case-insensitive substring against
 ``name``, ``automation_id``, ``control_type``, or ``value``. Comma-
 separated.
@@ -58,6 +62,8 @@ def main() -> int:
             "open-dispatch",
             "open-scheduled",
             "open-customize",
+            # E10 permission-dialog RECON (§5.C.2 Q2):
+            "recon-permission",
         ),
     )
     p.add_argument(
@@ -229,6 +235,48 @@ def main() -> int:
             print("[dump_uia] open-customize: no 'Customize' / 'Settings' "
                   "entry found; falling back to plain idle dump",
                   file=sys.stderr)
+    elif args.mode == "recon-permission":
+        # E10 RECON closer (§5.C.2 Q2): the operator has already
+        # 1) launched Claude Desktop in `permissionMode=default`,
+        # 2) opened the Code tab,
+        # 3) sent a prompt that triggers a tool (`Bash`/`Read`/`Write`),
+        # 4) waited for the permission dialog to render on screen.
+        #
+        # This mode does NOT click or send keystrokes — it just dumps
+        # the current UIA tree filtered to button/menu-item shapes
+        # and the keywords most likely to match the dialog buttons,
+        # so the operator can verify the existing
+        # ``ClaudeDesktopDriver.accept_permission_dialog()`` candidate
+        # name list (claude_desktop.py:1927-1939) covers this build.
+        #
+        # If a button name DOES NOT appear in the existing candidates,
+        # paste the dump back and we add the missing string in a
+        # 1-line follow-up commit.
+        print(
+            "\n[dump_uia/recon-permission] dumping current UIA tree.\n"
+            "  PRE-FLIGHT CHECKLIST (operator must have done these):\n"
+            "    1. Claude Desktop running, account logged in.\n"
+            "    2. Code tab open.\n"
+            "    3. Session is in permissionMode=default (NOT acceptEdits).\n"
+            "    4. A prompt was sent that triggers Bash/Read/Write tool.\n"
+            "    5. The permission dialog is currently visible on screen.\n"
+            "  If any item above is FALSE, the dump will be empty / wrong.\n",
+            file=sys.stderr,
+        )
+        # Force button/menu/dialog control types and likely-name keywords
+        # so the dump foregrounds the buttons we care about. Operator
+        # can override with --kw/--ct on the command line.
+        if not keywords:
+            keywords = [
+                "allow", "deny", "approve", "reject", "accept",
+                "permission", "always", "once", "yes", "no",
+                "tool", "trust",
+            ]
+        if not control_types:
+            control_types = ["Button", "MenuItem", "Pane", "Custom",
+                             "Window", "Dialog", "Group"]
+        # No focus-stealing: the dialog is the active foreground; touching
+        # focus could dismiss it. Just enumerate.
 
     rows = drv.dump_tree(keywords=keywords, control_types=control_types)
     print(f"[dump_uia] mode={args.mode} kw={keywords} ct={control_types} "
@@ -251,6 +299,9 @@ def main() -> int:
     # user on the new pane intentionally — RECON usually wants to
     # follow up with another dump from there. open-customize is
     # popup-shaped on this build but harmless to ESC.
+    # recon-permission is INTENTIONALLY excluded — pressing ESC could
+    # dismiss the permission dialog and force the operator to re-trigger
+    # the tool to redump.
     if args.mode in (
         "open-attach", "open-style", "open-model",
         "open-skills", "open-customize",
