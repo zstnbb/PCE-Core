@@ -274,12 +274,19 @@ class ChromiumStateObserver:
                 triggered_normalize = True
             elif rec.kind == "user_state_snapshot":
                 # P5.B.7.P2 (2026-05-12) — user-home JSON snapshots.
-                # The ``todos`` surface emits one record per file so
-                # the path includes the filename to keep records
-                # distinct in raw_captures; other surfaces are
-                # singleton snapshots whose surface name suffices.
+                # Multi-file surfaces (todos, pid_session [P2.1],
+                # agents [P2.1], plugins [P2.1]) need a filename
+                # suffix in the path to keep per-file records
+                # distinct in raw_captures; the other surfaces
+                # (global, settings, settings_local) are singleton
+                # snapshots whose surface name suffices on its own.
                 host = "local-config"
-                if rec.surface == "user_state_todos":
+                if rec.surface in (
+                    "user_state_todos",
+                    "user_state_pid_session",
+                    "user_state_agents",
+                    "user_state_plugins",
+                ):
                     key_suffix = f"/{rec.source_path.name}"
                 else:
                     key_suffix = ""
@@ -288,8 +295,9 @@ class ChromiumStateObserver:
                     f"{rec.surface or 'unknown'}{key_suffix}"
                 )
                 # Todos carry a derived session_id (parsed from the
-                # filename ``<sessId>-agent-<agentId>.json``); other
-                # surfaces have no native session affinity.
+                # filename ``<sessId>-agent-<agentId>.json``);
+                # pid_session carries the body's ``sessionId`` field;
+                # agents + plugins have no native session affinity.
                 session_hint = rec.session_id
             elif rec.kind == "user_state_line":
                 # P5.B.7.P2 (2026-05-12) — ``history.jsonl`` per-line.

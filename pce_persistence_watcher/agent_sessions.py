@@ -78,7 +78,8 @@ class AgentSessionRecord:
       P5.B.7.P2 user-home surfaces. See
       ``claude_user_state.iter_claude_user_state_records`` for the
       full surface list. Snapshots are point-in-time JSON files
-      (``~/.claude.json`` + ``settings*.json`` + ``todos/*.json``);
+      (``~/.claude.json`` + ``settings*.json`` + ``todos/*.json``
+      + ``sessions/<pid>.json`` + ``agents/*.md`` + ``plugins/*.json``);
       lines are per-line ``history.jsonl`` records.
 
     The observer uses ``kind`` to route the record into the right
@@ -89,7 +90,8 @@ class AgentSessionRecord:
     ``"device_id"``. For ``user_state_snapshot`` / ``user_state_line``:
     one of ``"user_state_global"``, ``"user_state_settings"``,
     ``"user_state_settings_local"``, ``"user_state_todos"``,
-    ``"user_state_history"``.
+    ``"user_state_history"``, ``"user_state_pid_session"`` (P2.1),
+    ``"user_state_agents"`` (P2.1), ``"user_state_plugins"`` (P2.1).
 
     ``line_uuid`` and ``line_index`` are set for line-oriented kinds
     (``"transcript_line"`` and ``"user_state_line"``). They were

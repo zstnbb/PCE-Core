@@ -9,7 +9,10 @@ transcripts in ``~/.claude/projects/`` (already captured by
 Desktop-side session pointers in ``claude-code-sessions/`` (captured
 by ``agent_sessions.iter_code_tab_pointer_records``).
 
-This module emits records for FIVE surfaces:
+This module emits records for EIGHT surfaces (P2.1 audit 2026-05-12
+extended the original five with three more after a full
+``Get-ChildItem ~/.claude`` walk found surfaces missed by the
+documented-state-only RECON):
 
 1. **Global state** (``~/.claude.json``, ~10 KB JSON). Top-level
    config for Claude Code / Desktop. Carries ``mcpServers``,
@@ -36,6 +39,31 @@ This module emits records for FIVE surfaces:
    One line per prompt submission, including ``/clear`` etc. Fields:
    ``{display, pastedContents, timestamp, project, sessionId}``.
 
+6. **PID-keyed session metadata** (``~/.claude/sessions/<pid>.json``,
+   P2.1). One small (~228 B) JSON per recently-active CLI / Code-tab
+   process. Body shape: ``{pid, sessionId, cwd, startedAt,
+   procStart, version, peerProtocol, kind, entrypoint}``. This is
+   the **PID ↔ sessionId Rosetta Stone** — the only on-disk surface
+   that ties an OS process to a Claude session, and the
+   ``entrypoint`` field directly discriminates desktop vs. CLI
+   without re-reading the transcript JSONL.
+
+7. **User-defined sub-agents** (``~/.claude/agents/<name>.md``,
+   P2.1). User-authored markdown files with YAML frontmatter
+   defining a custom Task-tool sub-agent (name, description, model,
+   colour, tools). The body is the system prompt. Treated as
+   user-content; not redacted.
+
+8. **Plugin install state** (``~/.claude/plugins/{installed_plugins,
+   blocklist,known_marketplaces,config}.json``, P2.1). Four JSON
+   files at the plugins/ root: which plugins the user has
+   installed (per-project), which marketplaces are configured,
+   which plugins are on the user's blocklist (with reasons), and
+   the active repository config. The ``cache/``, ``repos/``,
+   ``marketplaces/`` subdirs are NOT walked - they hold ~3 MB of
+   plugin source files that mirror upstream git repos and offer no
+   PCE-specific signal.
+
 Redaction policy
 ----------------
 Secrets are scrubbed at the walker boundary, **before** records
@@ -56,14 +84,27 @@ Rules:
   own task descriptions / prompts. Operators who need stricter
   hygiene can use the watcher's ``--no-bodies`` flag to drop
   bodies entirely.
+- ``~/.claude/sessions/<pid>.json``, ``~/.claude/agents/*.md``,
+  and ``~/.claude/plugins/*.json`` (P2.1) are NOT redacted - the
+  RECON on the reference machine confirmed none of them carry
+  secret-shaped fields. (``sessions/<pid>.json`` is purely
+  structural metadata; ``agents/*.md`` is user-authored content
+  by definition; ``plugins/*.json`` carries install paths +
+  blocklist reasons but no credentials.) If future Claude
+  versions add secrets to any of these the redactor must be
+  extended; the unit tests in ``test_p2_user_state_and_subagent``
+  pin this assumption.
 
 Record kinds emitted
 --------------------
 - ``kind="user_state_snapshot"`` with ``surface`` in
   {``"user_state_global"``, ``"user_state_settings"``,
-  ``"user_state_settings_local"``, ``"user_state_todos"``} -
-  point-in-time JSON snapshots; the capture observer dedups by
-  content hash so an unchanged file is only emitted once.
+  ``"user_state_settings_local"``, ``"user_state_todos"``,
+  ``"user_state_pid_session"`` (P2.1),
+  ``"user_state_agents"`` (P2.1),
+  ``"user_state_plugins"`` (P2.1)} - point-in-time JSON
+  snapshots; the capture observer dedups by content hash so an
+  unchanged file is only emitted once.
 
 - ``kind="user_state_line"`` with ``surface="user_state_history"``
   - one record per non-blank line of ``history.jsonl``; dedup
@@ -396,6 +437,227 @@ def _emit_history(claude_home: Path) -> Iterator[AgentSessionRecord]:
 
 
 # ---------------------------------------------------------------------------
+# P2.1 surfaces (2026-05-12) — sessions/<pid>.json, agents/*.md, plugins/*.json
+# ---------------------------------------------------------------------------
+
+
+# Plugin-state files are a fixed allow-list at the plugins/ root.
+# We deliberately exclude ``cache/``, ``repos/``, ``marketplaces/``
+# subdirs (they hold ~3 MB of mirrored upstream plugin source and
+# would be high-volume + low-signal in raw_captures).
+_PLUGIN_STATE_FILES: tuple[str, ...] = (
+    "installed_plugins.json",
+    "blocklist.json",
+    "known_marketplaces.json",
+    "config.json",
+)
+
+
+def _parse_md_frontmatter(text: str) -> tuple[dict[str, str], str]:
+    """Parse simple YAML-style frontmatter from a markdown file.
+
+    Returns ``(frontmatter_dict, body_text)``. Frontmatter is the
+    block delimited by leading and trailing ``---`` lines (Jekyll /
+    Claude Code agent file convention). Each non-indented
+    ``key: value`` line becomes a dict entry; indented or
+    continuation lines are appended to the previous key's value
+    (lenient YAML subset — sufficient for the
+    ``{name, description, model, color, tools}`` shape Claude Code
+    emits).
+
+    If no opening ``---`` is found, returns ``({}, text)`` (whole
+    file becomes body). If the opening ``---`` is found but the
+    closing ``---`` is missing, returns ``({}, text)`` as well —
+    we don't want to swallow the entire file as frontmatter on a
+    truncated parse.
+
+    No external YAML dependency: we don't add ``pyyaml`` for the
+    handful of trivial key:value lines Claude Code writes here.
+    """
+    if not isinstance(text, str):
+        return {}, ""
+    lines = text.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return {}, text
+    fm: dict[str, str] = {}
+    last_key: Optional[str] = None
+    end_idx = -1
+    for i in range(1, len(lines)):
+        line = lines[i]
+        if line.strip() == "---":
+            end_idx = i
+            break
+        # Top-level key (no leading whitespace, contains ``:``).
+        if line and not line[0].isspace():
+            parts = line.split(":", 1)
+            if len(parts) == 2 and parts[0].strip():
+                k = parts[0].strip()
+                v = parts[1].strip()
+                fm[k] = v
+                last_key = k
+                continue
+        # Continuation line — append to last key's value.
+        if last_key is not None:
+            fm[last_key] = (fm[last_key] + "\n" + line).rstrip()
+    if end_idx < 0:
+        # No closing ``---``; treat as malformed and don't strip.
+        return {}, text
+    body = "\n".join(lines[end_idx + 1:]).lstrip("\n")
+    return fm, body
+
+
+def _emit_pid_sessions(claude_home: Path) -> Iterator[AgentSessionRecord]:
+    """Yield one record per ``~/.claude/sessions/<pid>.json``.
+
+    Each file is small (~228 B) and carries the body shape
+    ``{pid, sessionId, cwd, startedAt, procStart, version,
+    peerProtocol, kind, entrypoint}`` (P2.1 RECON 2026-05-12).
+    The ``sessionId`` field is propagated to ``rec.session_id`` so
+    the dashboard can JOIN this PID-keyed snapshot back to the
+    actual session row materialised by the transcript walker.
+
+    Filename filter: only ``<integer>.json`` files (defensive
+    against Claude writing other shapes here in the future).
+    """
+    sessions_dir = claude_home / "sessions"
+    if not sessions_dir.is_dir():
+        return
+    try:
+        files = list(sessions_dir.iterdir())
+    except OSError:
+        return
+    for f in files:
+        if not f.is_file() or f.suffix != ".json":
+            continue
+        # Only ``<pid>.json`` — pid is a positive integer.
+        if not f.stem.isdigit():
+            continue
+        body = _safe_read_json(f)
+        if not isinstance(body, dict):
+            continue
+        stat = _stat_safe(f)
+        if stat is None:
+            continue
+        mtime_ns, size = stat
+        sess_id = body.get("sessionId")
+        if not isinstance(sess_id, str):
+            sess_id = None
+        started_at = body.get("startedAt")
+        last_updated_ms = started_at if isinstance(started_at, int) else None
+        yield AgentSessionRecord(
+            kind="user_state_snapshot",
+            session_id=sess_id,
+            source_path=f,
+            mtime_ns=mtime_ns,
+            size_bytes=size,
+            body_json=body,
+            last_updated_ms=last_updated_ms,
+            surface="user_state_pid_session",
+        )
+
+
+def _emit_user_agents(claude_home: Path) -> Iterator[AgentSessionRecord]:
+    """Yield one record per ``~/.claude/agents/<name>.md``.
+
+    User-defined sub-agent prompts. Each file is markdown with
+    YAML frontmatter; body is the system prompt.
+
+    Emitted body shape::
+
+        {
+            "name": "<frontmatter.name or filename stem>",
+            "filename": "<basename>",
+            "frontmatter": {<parsed key:value pairs>},
+            "system_prompt": "<body text after the closing --->",
+        }
+
+    Not redacted — the content is user-authored by definition.
+    """
+    agents_dir = claude_home / "agents"
+    if not agents_dir.is_dir():
+        return
+    try:
+        files = list(agents_dir.iterdir())
+    except OSError:
+        return
+    for f in files:
+        if not f.is_file() or f.suffix.lower() != ".md":
+            continue
+        try:
+            text = f.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            logger.debug("cannot read agent file %s: %s", f, exc)
+            continue
+        stat = _stat_safe(f)
+        if stat is None:
+            continue
+        mtime_ns, size = stat
+        fm, body_text = _parse_md_frontmatter(text)
+        name = fm.get("name") or f.stem
+        body: dict[str, Any] = {
+            "name": name,
+            "filename": f.name,
+            "frontmatter": fm,
+            "system_prompt": body_text,
+        }
+        yield AgentSessionRecord(
+            kind="user_state_snapshot",
+            session_id=None,
+            source_path=f,
+            mtime_ns=mtime_ns,
+            size_bytes=size,
+            body_json=body,
+            last_updated_ms=None,
+            surface="user_state_agents",
+        )
+
+
+def _emit_plugin_state(claude_home: Path) -> Iterator[AgentSessionRecord]:
+    """Yield one record per top-level plugin-state JSON file.
+
+    Walks the four files in :data:`_PLUGIN_STATE_FILES` only:
+    ``installed_plugins.json``, ``blocklist.json``,
+    ``known_marketplaces.json``, ``config.json``. Subdirs
+    (``cache/``, ``repos/``, ``marketplaces/``) are intentionally
+    skipped — they're plugin source mirrors, not PCE-relevant
+    state.
+
+    Emitted body wraps the parsed JSON under
+    ``{"filename": "<name>.json", "data": <parsed>}`` so multiple
+    plugin-state captures can be distinguished without
+    re-parsing their path.
+
+    Not redacted — RECON 2026-05-12 confirmed no secret-shaped
+    fields in any of the four files on the reference machine.
+    """
+    plugins_dir = claude_home / "plugins"
+    if not plugins_dir.is_dir():
+        return
+    for fname in _PLUGIN_STATE_FILES:
+        f = plugins_dir / fname
+        if not f.is_file():
+            continue
+        body = _safe_read_json(f)
+        if body is None:
+            continue
+        stat = _stat_safe(f)
+        if stat is None:
+            continue
+        mtime_ns, size = stat
+        wrapped: dict[str, Any] = {"filename": fname, "data": body}
+        yield AgentSessionRecord(
+            kind="user_state_snapshot",
+            session_id=None,
+            source_path=f,
+            mtime_ns=mtime_ns,
+            size_bytes=size,
+            body_json=wrapped,
+            last_updated_ms=None,
+            surface="user_state_plugins",
+        )
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -413,7 +675,8 @@ def iter_claude_user_state_records(
     Yields records of two kinds:
 
     - ``"user_state_snapshot"`` for point-in-time JSON surfaces
-      (global state, settings, settings.local, todos).
+      (global state, settings, settings.local, todos, pid_session,
+      agents, plugins).
     - ``"user_state_line"`` for ``history.jsonl`` lines.
 
     Returns silently if ``claude_home`` does not exist.
@@ -424,6 +687,10 @@ def iter_claude_user_state_records(
     yield from _emit_settings(claude_home)
     yield from _emit_todos(claude_home)
     yield from _emit_history(claude_home)
+    # P2.1 (2026-05-12) — surfaces caught by the post-P2 audit.
+    yield from _emit_pid_sessions(claude_home)
+    yield from _emit_user_agents(claude_home)
+    yield from _emit_plugin_state(claude_home)
 
 
 def count_claude_user_state(claude_home: Path) -> dict[str, int]:
