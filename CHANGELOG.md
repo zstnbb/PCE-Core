@@ -5,6 +5,108 @@ All notable changes to PCE (core + browser extension) are documented in this fil
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-05-12 — P5.C.1 Health beacon skeleton (Meta-Pipeline pillar 3 of 3)
+
+Implements the **health-as-data** contract defined in P5.C.0
+(`Docs/stability/PCE-PIPELINE-HEALTH-MATRIX.md`). This is the third
+pillar of the Meta-Pipeline three-piece契约 (capture / verification /
+health-as-data). All four lanes (browser / desktop / cli / mcp) now
+emit health beacons at the canonical hook sites.
+
+### New module — `pce_core/health.py` (~860 LOC)
+
+- `HealthBeacon` dataclass (canonical schema per HEALTH-MATRIX §2.1)
+- `validate_beacon` — lane / layer / status / target / case_id enums + regex,
+  ts-skew check (±300s), PII deny-list (recursive: rejects `api_key`,
+  `cookie`, `body`, `user_email`, ...), meta size cap (4 KB)
+- `record_beacon(beacon)` — single write path; returns rowid or `BeaconRejection`
+- `emit_beacon(...)` — best-effort wrapper for lane hook sites (swallows
+  all exceptions, never raises — host capture path stays robust)
+- `get_beacon` / `list_beacons` — read API with filters
+- `compute_matrix(window_hours)` — cross-lane × target colour matrix
+  (HEALTH-MATRIX §5.1 rules: green / yellow / red / grey based on
+  pass_rate + plane redundancy + fail counts + tier requirement)
+- `compute_timeseries(lane, target, hours, bucket_s)` — wall-clock-aligned
+  bucketed counts for dashboard charts
+- `purge_old_beacons(retention_days=90)` — daily sweep helper
+- In-memory rate limiter — heartbeat 1/min per (lane, target), case-bound
+  10/sec per (lane, target). 3-tuple bucket key keeps the two windows
+  independent so a heartbeat doesn't blow a case-bound quota
+
+### New migration — `0013_health_beacons` (additive, idempotent)
+
+- `health_beacons` table: id / lane / layer / target / case_id / status /
+  ts / elapsed_ms / meta_json / selector_hits_json / created_at
+- 3 indexes: `(lane, target, ts DESC)`, `(status, ts DESC)`, partial
+  `(target, case_id, ts DESC) WHERE case_id IS NOT NULL`
+- `EXPECTED_SCHEMA_VERSION` bumped 12 → 13
+
+### New endpoints — `pce_core/server.py`
+
+- `POST /api/v1/health/beacon` → 200 / 400 (pii_detected, ts_skew, …) / 429 (rate_limited)
+- `GET  /api/v1/health/matrix?window_hours=24`
+- `GET  /api/v1/health/timeseries?lane=&target=&hours=24&bucket_s=3600`
+- `GET  /api/v1/health/beacon/{id}` → single-row drill-down
+
+`HealthBeaconIn` / `HealthBeaconRecord` / `HealthBeaconAccepted` added to
+`pce_core/models.py`.
+
+### 4 lane beacon hooks (all best-effort, never break the host)
+
+| Lane | Hook site | Layer | Status logic |
+|---|---|---|---|
+| **Browser** | `capture-runtime.ts::captureNow` after `sendMessage` callback; forwarded via `background.ts::handleHealthBeacon` → `POST /api/v1/health/beacon` | L3a | pass on response.ok, fail on lastError / response.ok=false / sendMessage throw |
+| **Desktop** | `tests/e2e_desktop_ui/drivers/base.py::DesktopDriver.emit_health_beacon` (helper for case files) | L3d default / overridable per driver | caller decides (pass / fail / skip / infra_error) |
+| **CLI** | `pce_cli_wrapper/capture.py::CliWrapperObserver.emit` after every relay invocation | L3h | pass on `write_ok AND exit_code == 0`; fail otherwise |
+| **MCP** | `pce_mcp_proxy/capture.py::JsonRpcObserver._write` per frame (rate-limited heartbeat) | L3f | fail on jsonrpc error or write failure; pass otherwise |
+
+Target slug normalisers in `pce_cli_wrapper/capture.py::_normalize_cli_target`
+and `pce_mcp_proxy/capture.py::_normalize_mcp_target` so dashboard cells
+are deterministic across `claude-code` → `claude_code` style spellings.
+
+### Dashboard — Lane Health view
+
+- New nav link "Lane Health" (`data-view="lane-health"`) — kept separate
+  from the existing pipeline-Health view (`data-view="health"`) to
+  avoid breaking the established route
+- 3 sub-sections: Lane roll-up cards (one per lane, max-severity colour)
+  / Targets table (lane × target with tier / planes / pass-rate /
+  counts / last-pass) / Recent Beacons (top 20 case-bound, ts DESC)
+- Window selector: 1h / 6h / 24h / 7d; auto-refresh every 30s while visible
+- Implemented in `pce_core/dashboard/lane_health.js` (~280 LOC, self-
+  contained — no `app.js` touch); CSS rules appended at end of
+  `style.css`
+
+### Tests — `tests/test_health_beacon.py` (31 tests, all PASS)
+
+10 validation paths (happy / invalid lane/layer/status/target/case_id,
+PII top-level + nested, ts skew, meta too large) · 3 record+list paths
+· 5 matrix colour rules (empty=grey, 4-lane-one-target shape,
+three-D0-fails=red, plane-count-below-required=red, two-planes-high-
+pass-rate=green) · 1 timeseries · 1 retention · 2 rate-limit
+(heartbeat collapse + case-bound 10/sec burst) · 2 emit_beacon
+swallow-error · 4 lane smoke (cli observer / mcp observer / desktop
+driver / browser via TestClient HTTP) · 3 endpoint behaviour
+(pii→400 / matrix-after-record / 404 for missing beacon).
+
+Regression check: existing `tests/e2e_cli` + `tests/e2e_mcp` = 125 GREEN;
+migrations 12 → 13 bump verified additive.
+
+### Acceptance gate (HANDOFF-META-PIPELINE-KICKOFF §4.P5.C.1)
+
+- [x] `migrate.py` runs through 0013, table + 3 indexes created
+- [x] `POST /api/v1/health/beacon` accepts beacons from all 4 lanes
+- [x] Dashboard `/dashboard/lane-health` renders 4-lane colour matrix
+- [x] Browser ext + Desktop driver each demonstrably produce ≥ 1 real beacon
+- [x] ≥ 8 tests GREEN (31 actually shipped)
+
+### Out of scope (P5.C.2+)
+
+- Test Conductor `propose_patch` LLM integration → P5.C.4
+- Nightly probe + auto-issue → P5.C.3
+- "I have API key" fallback channel (D-3 decision) → P5.C.4
+- Pro repo manifest dispatch → P6+
+
 ## [Unreleased] - 2026-05-12 — P5.C.0 Contract freeze (kickoff for P5.C Meta-Pipeline)
 
 P5.C kickoff: 0 lines of code, 6 canonical markdown documents that

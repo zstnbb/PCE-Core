@@ -45,6 +45,7 @@ import {
 
 const PCE_INGEST_URL = DEFAULT_PCE_INGEST_URL;
 const PCE_HEALTH_URL = `${DEFAULT_PCE_SERVER_ORIGIN}/api/v1/health`;
+const PCE_HEALTH_BEACON_URL = `${DEFAULT_PCE_SERVER_ORIGIN}/api/v1/health/beacon`;
 const PCE_SNIPPETS_URL = `${DEFAULT_PCE_SERVER_ORIGIN}/api/v1/snippets`;
 const PCE_DOMAINS_URL = `${DEFAULT_PCE_SERVER_ORIGIN}/api/v1/domains`;
 
@@ -469,6 +470,57 @@ async function handleNetworkCapture(
   return postToIngestAPI(body, payload.provider);
 }
 
+// ---------------------------------------------------------------------------
+// Health beacon (P5.C.1 Meta-Pipeline — browser lane health-as-data hook)
+// ---------------------------------------------------------------------------
+
+interface HealthBeaconPayload {
+  lane?: string;
+  layer?: string;
+  target?: string;
+  status?: string;
+  case_id?: string | null;
+  elapsed_ms?: number | null;
+  ts?: number;
+  meta?: Record<string, unknown>;
+  dom_selector_hits?: Record<string, number> | null;
+}
+
+async function handleHealthBeacon(
+  payload: HealthBeaconPayload,
+): Promise<{ ok: boolean; id?: number; error?: string }> {
+  // Best-effort: never throw. The browser lane writing health to PCE is
+  // an opt-in observability path and must never break ingest/snippet.
+  const body = {
+    lane: payload.lane || "browser",
+    layer: payload.layer || "L3a",
+    target: payload.target || "unknown",
+    status: payload.status || "pass",
+    ts: typeof payload.ts === "number" ? payload.ts : Date.now() / 1000,
+    case_id: payload.case_id ?? null,
+    elapsed_ms: typeof payload.elapsed_ms === "number" ? payload.elapsed_ms : null,
+    meta: payload.meta || {},
+    dom_selector_hits: payload.dom_selector_hits ?? null,
+  };
+  try {
+    const resp = await fetch(PCE_HEALTH_BEACON_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(3_000),
+    });
+    if (!resp.ok) {
+      // 400 / 429 are non-fatal — beacon is dropped, caller continues.
+      return { ok: false, error: `HTTP ${resp.status}` };
+    }
+    const result = (await resp.json()) as { id?: number };
+    return { ok: true, id: result.id };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+
 async function handleSnippet(
   payload: SnippetPayload,
 ): Promise<{ id?: string; skipped?: boolean; reason?: string }> {
@@ -704,6 +756,19 @@ export default defineBackground({
           }
           handleSnippet(message.payload as SnippetPayload)
             .then((result) => sendResponse({ ok: true, ...result }))
+            .catch((err: Error) =>
+              sendResponse({ ok: false, error: err.message }),
+            );
+          return true;
+        }
+
+        if (message.type === "PCE_HEALTH_BEACON") {
+          // P5.C.1 — forward content-script beacons to PCE Core's
+          // /api/v1/health/beacon endpoint. Async, fire-and-forget
+          // from the caller's perspective (handleHealthBeacon is
+          // best-effort and never throws).
+          handleHealthBeacon(message.payload as HealthBeaconPayload)
+            .then((result) => sendResponse(result))
             .catch((err: Error) =>
               sendResponse({ ok: false, error: err.message }),
             );

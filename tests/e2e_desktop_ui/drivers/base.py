@@ -18,11 +18,17 @@ Concrete drivers may add app-specific helpers (e.g. attachment upload).
 The abstract layer defines no UI specifics — those vary per app — but
 ensures cases can be written against an interface, not against
 ``pywinauto`` / ``win32gui`` directly.
+
+In P5.C.1 the base class also gained a ``emit_health_beacon`` helper
+that case files call to record per-case health-as-data signals
+(per ``Docs/stability/PCE-PIPELINE-HEALTH-MATRIX.md`` §3 lane = desktop).
+The helper is best-effort: drivers / cases never crash on a beacon
+failure.
 """
 from __future__ import annotations
 
 import abc
-from typing import Optional
+from typing import Any, Optional
 
 
 class DesktopDriver(abc.ABC):
@@ -34,6 +40,51 @@ class DesktopDriver(abc.ABC):
     #: Host string the product talks to (used by DB-poll helpers to
     #: filter raw_captures rows).
     PRODUCT_HOST: str = ""
+
+    #: Canonical health beacon target slug, e.g. "claude_desktop" /
+    #: "chatgpt_desktop" / "cursor" / "windsurf". Concrete drivers
+    #: override this so dashboard renders deterministic per-product
+    #: cells in the Lane Health matrix.
+    HEALTH_TARGET: str = "unknown_desktop"
+
+    #: Primary UCS sub-layer of this driver. Most desktop drivers are
+    #: L3d (CDP launcher) or L3g (persistence watcher). Override if
+    #: different (e.g. L3f for MCP middleware-driven UIs).
+    HEALTH_LAYER: str = "L3d"
+
+    # ------------------------------------------------------------------
+    # Health beacon helper (P5.C.1 Meta-Pipeline)
+    # ------------------------------------------------------------------
+
+    def emit_health_beacon(
+        self,
+        *,
+        status: str,
+        case_id: Optional[str] = None,
+        elapsed_ms: Optional[int] = None,
+        meta: Optional[dict[str, Any]] = None,
+        layer: Optional[str] = None,
+        target: Optional[str] = None,
+    ) -> Optional[int]:
+        """Record one health beacon tagged ``lane=desktop`` for this driver.
+
+        Case files call this at setup / case-end / teardown to give the
+        Lane Health matrix per-case PASS/FAIL/SKIP rows. The helper
+        delegates to ``pce_core.health.emit_beacon`` which is itself
+        best-effort — any failure is swallowed so the test never breaks
+        due to a missing health table.
+        """
+        from pce_core.health import emit_beacon
+
+        return emit_beacon(
+            lane="desktop",
+            layer=layer or self.HEALTH_LAYER,
+            target=target or self.HEALTH_TARGET,
+            status=status,
+            case_id=case_id,
+            elapsed_ms=elapsed_ms,
+            meta=meta or {},
+        )
 
     @abc.abstractmethod
     def focus(self) -> None:

@@ -345,3 +345,59 @@ class HealthOut(BaseModel):
     version: str
     db_path: str
     total_captures: int
+
+
+# ---------------------------------------------------------------------------
+# Health beacon (P5.C.1 Meta-Pipeline) — see Docs/stability/PCE-PIPELINE-HEALTH-MATRIX.md
+# ---------------------------------------------------------------------------
+
+class HealthBeaconIn(BaseModel):
+    """Payload accepted by POST /api/v1/health/beacon.
+
+    Mirrors the canonical ``HealthBeacon`` dataclass in
+    ``pce_core/health.py``. Validation (lane / layer / status enums,
+    target/case_id regex, PII deny-list, ts skew, meta size) happens
+    server-side in ``record_beacon`` so this Pydantic model is
+    intentionally permissive — the goal is to *receive* a poorly-formed
+    beacon and return a clean ``400 {"error": "<code>"}`` rather than
+    Pydantic-422 the caller into confusion.
+    """
+
+    lane: str = Field(..., description="browser | desktop | cli | mcp")
+    layer: str = Field(..., description="L0..L4 (UCS sub-layer)")
+    target: str = Field(..., max_length=128, description="short product id, e.g. 'chatgpt'")
+    status: str = Field(..., description="pass | fail | skip | degraded | infra_error")
+    ts: float = Field(..., description="client-side unix epoch seconds")
+    case_id: Optional[str] = Field(default=None, description="e.g. 'T01' / 'D03' / null")
+    elapsed_ms: Optional[int] = Field(default=None, ge=0)
+    meta: Optional[dict] = Field(
+        default=None,
+        description="Lane-specific metadata. Must not contain PII / secrets / business body.",
+    )
+    dom_selector_hits: Optional[dict] = Field(
+        default=None,
+        description="Browser/Desktop only — selector → hit-count map.",
+    )
+
+
+class HealthBeaconRecord(BaseModel):
+    """A single health_beacons row, as returned by GET /api/v1/health/beacon/{id}."""
+
+    id: int
+    lane: str
+    layer: str
+    target: str
+    case_id: Optional[str] = None
+    status: str
+    ts: float
+    elapsed_ms: Optional[int] = None
+    meta: dict = Field(default_factory=dict)
+    dom_selector_hits: Optional[dict] = None
+    created_at: float
+
+
+class HealthBeaconAccepted(BaseModel):
+    """Response returned after a successful beacon insert."""
+
+    id: int
+    accepted: bool = True

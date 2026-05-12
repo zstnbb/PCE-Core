@@ -38,8 +38,32 @@ from pce_core.db import (
     insert_capture,
     new_pair_id,
 )
+from pce_core.health import emit_beacon
 
 logger = logging.getLogger("pce.cli_wrapper.capture")
+
+
+# Map RelayResult to a stable target identifier for health beacons.
+# Keep small / explicit — unknown ``target_id`` values fall back to
+# ``unknown_cli`` so they're never silently misattributed.
+_CLI_TARGET_MAP: dict[str, str] = {
+    "claude-code": "claude_code",
+    "claude_code": "claude_code",
+    "codex": "codex_cli",
+    "codex-cli": "codex_cli",
+    "codex_cli": "codex_cli",
+    "gemini": "gemini_cli",
+    "gemini-cli": "gemini_cli",
+    "gemini_cli": "gemini_cli",
+}
+
+
+def _normalize_cli_target(target_id: str) -> str:
+    """Project a raw RelayResult.target_id to a stable health target slug."""
+    if not target_id:
+        return "unknown_cli"
+    key = target_id.strip().lower()
+    return _CLI_TARGET_MAP.get(key, key.replace("-", "_"))
 
 
 # ---------------------------------------------------------------------------
@@ -121,6 +145,7 @@ class CliWrapperObserver:
             self.stats["rows_written"] += 1
             return
 
+        write_ok = False
         try:
             pair_id = new_pair_id()
             self.last_capture_id = pair_id
@@ -143,6 +168,7 @@ class CliWrapperObserver:
                 session_hint=pair_id,
             )
             self.stats["rows_written"] += 1
+            write_ok = True
         except Exception as exc:  # pragma: no cover — defensive guard
             self.stats["write_failures"] += 1
             logger.warning(
@@ -156,6 +182,29 @@ class CliWrapperObserver:
                     },
                 },
             )
+
+        # P5.C.1 — emit a health beacon for the cli lane.
+        # ``emit_beacon`` is best-effort: never raises, so the wrap path
+        # remains transparent to the user even if the health table is
+        # missing or PCE Core is mid-migration.
+        beacon_status = "pass" if (write_ok and result.exit_code == 0) else "fail"
+        emit_beacon(
+            lane="cli",
+            layer="L3h",
+            target=_normalize_cli_target(result.target_id),
+            status=beacon_status,
+            elapsed_ms=_latency_ms(result),
+            meta={
+                "exit_code": int(result.exit_code),
+                "target_version": result.target_version or "",
+                "wrap_mode": "shim",
+                "timed_out": bool(result.timed_out),
+                "tty_passthrough": bool(result.tty_passthrough),
+                "stdout_bytes": len(result.stdout_bytes),
+                "stderr_bytes": len(result.stderr_bytes),
+            },
+            db_path=self.db_path,
+        )
 
     # ------------------------------------------------------------------
     # Internals

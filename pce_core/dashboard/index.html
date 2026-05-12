@@ -53,6 +53,10 @@
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
           <span>Health</span>
         </a></li>
+        <li><a href="#" data-view="lane-health">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><circle cx="6.5" cy="6.5" r="1"/><circle cx="17.5" cy="6.5" r="1"/><circle cx="6.5" cy="17.5" r="1"/><circle cx="17.5" cy="17.5" r="1"/></svg>
+          <span>Lane Health</span>
+        </a></li>
       </ul>
       <div class="server-info">
         <div class="status-dot" id="status-dot"></div>
@@ -404,9 +408,58 @@
           <pre id="health-raw" class="health-raw">Loading&hellip;</pre>
         </div>
       </section>
+
+      <!-- Lane Health View (P5.C.1 Meta-Pipeline lane × target health matrix) -->
+      <section id="view-lane-health" class="view">
+        <div class="view-header">
+          <h2>
+            <svg class="header-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+            Lane Health Matrix
+          </h2>
+          <div class="filters-bar" style="margin-bottom:0">
+            <label class="lane-health-window">
+              Window:
+              <select id="lane-health-window">
+                <option value="1">1h</option>
+                <option value="6">6h</option>
+                <option value="24" selected>24h</option>
+                <option value="168">7d</option>
+              </select>
+            </label>
+            <span id="lane-health-updated" class="health-updated"></span>
+            <button id="lane-health-refresh" class="btn-sm">Refresh</button>
+          </div>
+        </div>
+        <p class="health-desc">
+          Cross-lane × target health-as-data matrix (P5.C.1 Meta-Pipeline).
+          Each cell rolls up <code>health_beacons</code> within the window,
+          coloured by per-target rules in
+          <code>Docs/stability/PCE-PIPELINE-HEALTH-MATRIX.md</code> §5.1
+          (green &ge; 90% pass + plane redundancy met; yellow if 1&ndash;2
+          D0/S0 fails or pass-rate &lt; 80%; red if &ge;3 fails or
+          plane_count &lt; tier requirement; grey if no beacon).
+          Auto-refreshes every 30 s while visible.
+        </p>
+
+        <div class="settings-section">
+          <h3>Lane Roll-up</h3>
+          <div id="lane-health-lanes" class="lane-health-lanes"></div>
+        </div>
+
+        <div class="settings-section">
+          <h3>Targets</h3>
+          <div id="lane-health-targets" class="lane-health-targets"></div>
+        </div>
+
+        <div class="settings-section">
+          <h3>Recent Beacons</h3>
+          <div id="lane-health-recent" class="lane-health-recent"></div>
+        </div>
+      </section>
     </main>
   </div>
   <script src="/dashboard/app.js?v=7"></script>
   <script src="/dashboard/health.js?v=1"></script>
+  <script src="/dashboard/lane_health.js?v=1"></script>
 </body>
 </html>

@@ -402,15 +402,18 @@ export function createCaptureRuntime(
       return;
     }
 
+    const captureStartedAt = Date.now();
     try {
       chromeRuntime.sendMessage(
         { type: "PCE_CAPTURE", payload },
         (response: unknown) => {
           const lastError = chromeRuntime.lastError;
+          const elapsedMs = Date.now() - captureStartedAt;
           if (lastError) {
             log.error(TAG, "Send failed:", lastError.message || "unknown");
             sentFingerprint = prevFingerprint;
             sentCount = prevCount;
+            emitHealthBeacon("fail", elapsedMs, payloadMsgs.length, allMsgs.length);
             return;
           }
           const resp = (response || {}) as { ok?: boolean };
@@ -419,10 +422,12 @@ export function createCaptureRuntime(
               TAG,
               `+${payloadMsgs.length} msg(s) captured (total ${allMsgs.length})`,
             );
+            emitHealthBeacon("pass", elapsedMs, payloadMsgs.length, allMsgs.length);
           } else {
             log.log(TAG, "Capture not ok:", response);
             sentFingerprint = prevFingerprint;
             sentCount = prevCount;
+            emitHealthBeacon("fail", elapsedMs, payloadMsgs.length, allMsgs.length);
           }
         },
       );
@@ -430,6 +435,63 @@ export function createCaptureRuntime(
       log.error(TAG, "sendMessage threw:", (err as Error).message);
       sentFingerprint = prevFingerprint;
       sentCount = prevCount;
+      emitHealthBeacon(
+        "fail",
+        Date.now() - captureStartedAt,
+        payloadMsgs.length,
+        allMsgs.length,
+      );
+    }
+  }
+
+  // --- Health beacon (P5.C.1 Meta-Pipeline browser lane hook) -----
+  //
+  // Sends a heartbeat-style beacon (no case_id) tagged with the
+  // ``provider`` slug after every PCE_CAPTURE round-trip. The
+  // background script forwards it to ``/api/v1/health/beacon``.
+  // Best-effort: any error is swallowed; the capture path is not
+  // affected.
+
+  function emitHealthBeacon(
+    status: "pass" | "fail",
+    elapsedMs: number,
+    newMessageCount: number,
+    totalMessageCount: number,
+  ): void {
+    if (!chromeRuntime) return;
+    const target = (options.provider || "unknown")
+      .toLowerCase()
+      .replace(/[^a-z0-9_\-]/g, "_");
+    const beaconPayload = {
+      lane: "browser",
+      layer: "L3a",
+      target,
+      status,
+      ts: Date.now() / 1000,
+      elapsed_ms: Math.max(0, Math.round(elapsedMs)),
+      meta: {
+        site_name: options.siteName,
+        extraction_strategy: options.extractionStrategy,
+        capture_mode: options.captureMode,
+        new_message_count: newMessageCount,
+        total_message_count: totalMessageCount,
+      },
+    };
+    try {
+      chromeRuntime.sendMessage(
+        { type: "PCE_HEALTH_BEACON", payload: beaconPayload },
+        () => {
+          if (chromeRuntime.lastError) {
+            log.debug?.(
+              TAG,
+              "health beacon dropped:",
+              chromeRuntime.lastError.message || "unknown",
+            );
+          }
+        },
+      );
+    } catch (err) {
+      log.debug?.(TAG, "emitHealthBeacon threw (swallowed):", (err as Error).message);
     }
   }
 

@@ -54,9 +54,17 @@ from pce_core.db import (
     insert_capture,
     new_pair_id,
 )
+from pce_core.health import emit_beacon
 from pce_core.normalizer.pipeline import try_normalize_pair
 
 logger = logging.getLogger("pce.mcp_proxy.capture")
+
+
+def _normalize_mcp_target(upstream_name: str) -> str:
+    """Project a raw upstream MCP server name to a stable beacon target slug."""
+    if not upstream_name:
+        return "unknown_mcp"
+    return upstream_name.strip().lower().replace("-", "_")
 
 
 class JsonRpcObserver:
@@ -266,6 +274,7 @@ class JsonRpcObserver:
                 meta["jsonrpc_error_code"] = err.get("code")
                 meta["jsonrpc_error_message"] = err.get("message")
 
+        write_ok = False
         try:
             insert_capture(
                 direction=direction,
@@ -284,6 +293,7 @@ class JsonRpcObserver:
                 agent_name="pce-mcp-proxy",
                 db_path=self.db_path,
             )
+            write_ok = True
         except Exception as exc:  # pragma: no cover — defensive guard
             self._stats["capture_failures"] += 1
             logger.warning(
@@ -297,6 +307,27 @@ class JsonRpcObserver:
                     },
                 },
             )
+
+        # P5.C.1 — emit a health beacon for the mcp lane.
+        # Per HEALTH-MATRIX §3.1 every frame produces a beacon (no
+        # case_id, so this is heartbeat-style; the rate limiter in
+        # ``emit_beacon`` collapses these to 1/min per (lane, target)).
+        # An error response (status=500) marks the beacon as fail.
+        beacon_status = "fail" if (is_error or not write_ok) else "pass"
+        emit_beacon(
+            lane="mcp",
+            layer="L3f",
+            target=_normalize_mcp_target(self.upstream_name),
+            status=beacon_status,
+            elapsed_ms=int(latency) if latency is not None else None,
+            meta={
+                "kind": kind,
+                "jsonrpc_method": method or "",
+                "direction": direction,
+                "is_error": bool(is_error),
+            },
+            db_path=self.db_path,
+        )
 
     def _try_normalize(self, pair_id: str) -> None:
         """Best-effort Tier 1 normalisation. Errors are swallowed."""

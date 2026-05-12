@@ -86,6 +86,9 @@ from .models import (
     CaptureIn,
     CaptureOut,
     CaptureRecord,
+    HealthBeaconAccepted,
+    HealthBeaconIn,
+    HealthBeaconRecord,
     HealthOut,
     HostPinningStats,
     McpCaptureIn,
@@ -97,6 +100,14 @@ from .models import (
     SnippetIn,
     SnippetRecord,
     StatsOut,
+)
+from .health import (
+    BeaconRejection,
+    HealthBeacon,
+    compute_matrix,
+    compute_timeseries,
+    get_beacon,
+    record_beacon,
 )
 from .capture_event import (
     CaptureEventIngestResponse,
@@ -355,6 +366,133 @@ def pinning_status(
             suspected_pinning_count=0,
             hosts=[],
         )
+
+
+# ---------------------------------------------------------------------------
+# Health beacons (P5.C.1 Meta-Pipeline, ADR-019 § 3.1 契约 A — health-as-data)
+#
+# These endpoints implement the canonical health-as-data contract defined
+# in ``Docs/stability/PCE-PIPELINE-HEALTH-MATRIX.md``:
+#
+#   POST /api/v1/health/beacon            — ingest one beacon
+#   GET  /api/v1/health/matrix            — cross-lane × target color matrix
+#   GET  /api/v1/health/timeseries        — bucketed counts for charting
+#   GET  /api/v1/health/beacon/{id}       — single-row drill-down
+#
+# Validation (PII deny-list, ts skew, meta size, rate limiting) lives in
+# ``pce_core.health`` so this transport layer is just shape conversion +
+# HTTP status mapping.
+# ---------------------------------------------------------------------------
+
+# Map BeaconRejection.code → HTTP status. ``rate_limited`` is 429, every
+# other validation error is 400 (client misconfiguration, not server fault).
+_BEACON_REJECTION_STATUS: dict[str, int] = {
+    "rate_limited": 429,
+}
+
+
+@app.post(
+    "/api/v1/health/beacon",
+    response_model=HealthBeaconAccepted,
+    responses={400: {"description": "validation_failed"}, 429: {"description": "rate_limited"}},
+)
+def ingest_health_beacon(payload: HealthBeaconIn) -> HealthBeaconAccepted:
+    """Persist one health beacon from any lane (P5.C.1).
+
+    Per HEALTH-MATRIX §2.1: beacons must not carry PII / API keys / user
+    message bodies. The server-side validator in ``health.record_beacon``
+    enforces this — a violating beacon yields 400 ``pii_detected`` rather
+    than being silently coerced.
+    """
+    beacon = HealthBeacon(
+        lane=payload.lane,
+        layer=payload.layer,
+        target=payload.target,
+        status=payload.status,
+        ts=payload.ts,
+        case_id=payload.case_id,
+        elapsed_ms=payload.elapsed_ms,
+        meta=payload.meta or {},
+        dom_selector_hits=payload.dom_selector_hits,
+    )
+    result = record_beacon(beacon)
+    if isinstance(result, BeaconRejection):
+        status = _BEACON_REJECTION_STATUS.get(result.code, 400)
+        logger.debug(
+            "health beacon rejected",
+            extra={"event": "health.beacon.reject", "pce_fields": {
+                "code": result.code, "lane": payload.lane, "target": payload.target,
+            }},
+        )
+        raise HTTPException(status_code=status, detail={"error": result.code, "message": result.message})
+    return HealthBeaconAccepted(id=int(result), accepted=True)
+
+
+@app.get("/api/v1/health/matrix")
+def health_matrix(window_hours: float = 24.0) -> dict:
+    """Return the cross-lane × target health color matrix.
+
+    Aggregates the last ``window_hours`` of beacons. Each lane has a
+    rolled-up color (max severity of its targets); each target carries
+    counts, pass-rate, plane redundancy state, and a per-case latest
+    status. Empty lanes degrade to ``grey`` (health_unknown).
+
+    Consumed by the dashboard "Lane Health" view and (in P5.C.3) by
+    nightly auto-issue triggers.
+    """
+    try:
+        return compute_matrix(window_hours=window_hours)
+    except Exception:
+        logger.exception("compute_matrix failed – returning empty matrix")
+        return {
+            "lanes": {lane: {"targets": {}, "color": "grey"}
+                      for lane in ("browser", "desktop", "cli", "mcp")},
+            "computed_at": time.time(),
+            "window_hours": window_hours,
+            "schema_version": 1,
+            "error": "matrix_compute_failed",
+        }
+
+
+@app.get("/api/v1/health/timeseries")
+def health_timeseries(
+    lane: str,
+    target: str,
+    hours: float = 24.0,
+    bucket_s: int = 3600,
+) -> dict:
+    """Return bucketed counts for one (lane, target) over a time window.
+
+    Used by the dashboard target-detail view to render per-case time-line
+    charts. ``bucket_s`` is wall-clock-aligned (not since-now), so two
+    calls at different times produce stable x-axes — clients can cache.
+    """
+    try:
+        return compute_timeseries(
+            lane=lane,
+            target=target,
+            hours=hours,
+            bucket_s=int(bucket_s),
+        )
+    except Exception:
+        logger.exception("compute_timeseries failed")
+        return {
+            "lane": lane,
+            "target": target,
+            "buckets": [],
+            "bucket_size_s": int(bucket_s),
+            "window_hours": float(hours),
+            "error": "timeseries_compute_failed",
+        }
+
+
+@app.get("/api/v1/health/beacon/{beacon_id}", response_model=HealthBeaconRecord)
+def health_beacon_detail(beacon_id: int) -> HealthBeaconRecord:
+    """Single-row drill-down for the dashboard "View raw beacon" link."""
+    row = get_beacon(beacon_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail={"error": "beacon_not_found"})
+    return HealthBeaconRecord(**row)
 
 
 # ---------------------------------------------------------------------------
