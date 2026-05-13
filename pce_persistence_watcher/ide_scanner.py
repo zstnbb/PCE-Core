@@ -294,6 +294,68 @@ def _emit_session(
 
 
 # ---------------------------------------------------------------------------
+# Codex CLI scanner
+# ---------------------------------------------------------------------------
+
+
+def _scan_codex(state: _ScanState, db_path: Optional[Path], dry_run: bool) -> dict[str, int]:
+    stats = {"seen": 0, "emitted": 0, "deduped": 0, "errors": 0}
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from scripts.harvest.l3g_codex import read_codex_sessions
+    import dataclasses
+
+    sessions = read_codex_sessions()
+    if not sessions:
+        return stats
+
+    for session in sessions:
+        stats["seen"] += 1
+
+        data = {
+            "session_id": session.session_id,
+            "model": session.model,
+            "cwd": session.cwd,
+            "cli_version": session.cli_version,
+            "originator": session.originator,
+            "git_repo": session.git_repo,
+            "git_branch": session.git_branch,
+            "turns": [
+                {"role": t.role, "content_text": t.content_text, "timestamp": t.timestamp}
+                for t in session.turns
+            ],
+        }
+
+        body_str = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+        content_hash = hashlib.sha256(body_str.encode("utf-8")).hexdigest()[:16]
+        fp = _fingerprint("codex", session.session_id, content_hash)
+
+        if fp in state.entries:
+            stats["deduped"] += 1
+            continue
+
+        if not dry_run:
+            ok = _emit_session(
+                host="local-codex-cli",
+                path=f"/{session.session_id}",
+                provider="openai",
+                session_id=session.session_id,
+                body_str=body_str,
+                source_path=str(session.source_path or ""),
+                db_path=db_path,
+            )
+            if ok:
+                state.entries[fp] = {"emitted_at": time.time(), "app": "codex"}
+                stats["emitted"] += 1
+            else:
+                stats["errors"] += 1
+        else:
+            stats["emitted"] += 1
+
+    return stats
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -326,11 +388,12 @@ def scan(db_path: Optional[Path] = None, dry_run: bool = False) -> dict:
 
     copilot_stats = _scan_copilot(state, db_path, dry_run)
     cursor_stats = _scan_cursor(state, db_path, dry_run)
+    codex_stats = _scan_codex(state, db_path, dry_run)
 
     if not dry_run:
         _save_state(state, state_path)
 
-    return {"copilot": copilot_stats, "cursor": cursor_stats}
+    return {"copilot": copilot_stats, "cursor": cursor_stats, "codex": codex_stats}
 
 
 def watch(db_path: Optional[Path] = None, poll_interval: float = 10.0) -> None:
@@ -347,6 +410,7 @@ def watch(db_path: Optional[Path] = None, poll_interval: float = 10.0) -> None:
         stats = scan(db_path=db_path)
         total_emitted = (
             stats["copilot"]["emitted"] + stats["cursor"]["emitted"]
+            + stats["codex"]["emitted"]
         )
         if total_emitted > 0:
             sys.stderr.write(

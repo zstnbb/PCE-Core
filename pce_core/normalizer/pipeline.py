@@ -339,7 +339,7 @@ def normalize_conversation(
                     created_at=capture_row.get("created_at"),
                 )
             elif capture_row.get("host") in (
-                "local-copilot-chat", "local-cursor-chat"
+                "local-copilot-chat", "local-cursor-chat", "local-codex-cli",
             ):
                 # L3g IDE chat sessions (P3 Cursor, P5 Copilot).
                 # Body is the full session state as JSON.
