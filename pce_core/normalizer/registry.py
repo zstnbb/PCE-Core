@@ -45,6 +45,9 @@ def _auto_register():
     from .conversation import ConversationNormalizer
     from .mcp_jsonrpc import MCPJsonRpcNormalizer
     from .local_persistence import LocalPersistenceNormalizer
+    from .copilot_chat import CopilotChatNormalizer
+    from .cursor_chat import CursorChatNormalizer
+    from .windsurf_management import WindsurfManagementNormalizer
 
     register_normalizer(OpenAIChatNormalizer())
     register_normalizer(AnthropicMessagesNormalizer())
@@ -57,6 +60,11 @@ def _auto_register():
     # ``/<app_id>/agent-transcript/...``, so ordering is moot. Kept
     # before Conversation (catch-all) for clarity.
     register_normalizer(LocalPersistenceNormalizer())
+    # L3g IDE chat normalizers — read from local storage, specific hosts.
+    register_normalizer(CopilotChatNormalizer())
+    register_normalizer(CursorChatNormalizer())
+    # Windsurf/Codeium management plane (gRPC metadata, not chat).
+    register_normalizer(WindsurfManagementNormalizer())
     # Conversation normalizer is registered last as a catch-all for
     # browser extension DOM-extracted captures (DeepSeek, Gemini, etc.)
     register_normalizer(ConversationNormalizer())

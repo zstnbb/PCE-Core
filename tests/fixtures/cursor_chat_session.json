@@ -1,0 +1,89 @@
+{
+  "composer_id": "26c80266-3499-48a0-94fa-fc93ea2a8be1",
+  "name": "Basic arithmetic question",
+  "model_config": {
+    "modelName": "default",
+    "maxMode": true,
+    "selectedModels": [
+      {
+        "modelId": "default",
+        "parameters": []
+      }
+    ]
+  },
+  "conversation_headers": [
+    {
+      "bubbleId": "da742b77-23f2-4921-adaf-80645db161b7",
+      "type": 1,
+      "grouping": {
+        "isRenderable": true,
+        "hasText": true,
+        "isShortPlainText": true
+      }
+    },
+    {
+      "bubbleId": "cb992072-1977-45d9-b9c3-2dd8d8668973",
+      "type": 2,
+      "grouping": {
+        "isRenderable": true,
+        "hasText": true,
+        "isShortPlainText": true,
+        "turnDurationMs": 989,
+        "isKeptFinalAiVisibleOutsideWorkedForGroup": true
+      }
+    },
+    {
+      "bubbleId": "3ab4c73e-0d6b-41a0-9af6-b51c1eec89ff",
+      "type": 1,
+      "grouping": {
+        "isRenderable": true,
+        "hasText": true,
+        "isShortPlainText": true
+      }
+    },
+    {
+      "bubbleId": "b334908b-7d1d-4a88-ac7a-181443bb73e2",
+      "type": 2,
+      "grouping": {
+        "isRenderable": true,
+        "hasText": true,
+        "turnDurationMs": 1171,
+        "isKeptFinalAiVisibleOutsideWorkedForGroup": true
+      }
+    }
+  ],
+  "bubbles": [
+    {
+      "bubble_id": "da742b77-23f2-4921-adaf-80645db161b7",
+      "composer_id": "26c80266-3499-48a0-94fa-fc93ea2a8be1",
+      "bubble_type": 1,
+      "text": "What is 2+2?",
+      "rich_text": "{\"root\":{\"children\":[{\"children\":[{\"detail\":0,\"format\":0,\"mode\":\"normal\",\"style\":\"\",\"text\":\"What is 2+2?\",\"type\":\"text\",\"version\":1}],\"direction\":\"ltr\",\"format\":\"\",\"indent\":0,\"type\":\"paragraph\",\"versi",
+      "context": {}
+    },
+    {
+      "bubble_id": "cb992072-1977-45d9-b9c3-2dd8d8668973",
+      "composer_id": "26c80266-3499-48a0-94fa-fc93ea2a8be1",
+      "bubble_type": 2,
+      "text": "**2 + 2 = 4**",
+      "rich_text": null,
+      "context": {}
+    },
+    {
+      "bubble_id": "3ab4c73e-0d6b-41a0-9af6-b51c1eec89ff",
+      "composer_id": "26c80266-3499-48a0-94fa-fc93ea2a8be1",
+      "bubble_type": 1,
+      "text": "Write me a 1-line Python function that adds two numbers",
+      "rich_text": "{\"root\":{\"children\":[{\"children\":[{\"detail\":0,\"format\":0,\"mode\":\"normal\",\"style\":\"\",\"text\":\"Write me a 1-line Python function that adds two numbers\",\"type\":\"text\",\"version\":1}],\"direction\":\"ltr\",\"form",
+      "context": {}
+    },
+    {
+      "bubble_id": "b334908b-7d1d-4a88-ac7a-181443bb73e2",
+      "composer_id": "26c80266-3499-48a0-94fa-fc93ea2a8be1",
+      "bubble_type": 2,
+      "text": "```python\ndef add(a, b): return a + b\n```",
+      "rich_text": null,
+      "context": {}
+    }
+  ]
+}

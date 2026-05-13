@@ -136,9 +136,13 @@ class CopilotRequest:
                 lang = b.get("language", "")
                 code = b.get("code", "")
                 parts.append(f"```{lang}\n{code}\n```")
-            elif kind == "thinking":
-                # exclude chain-of-thought from the public reply
+            elif kind in ("thinking", "mcpServersStarting", "progressMessage",
+                          "toolInvocationSerialized"):
                 continue
+            elif kind is None and "value" in b:
+                # Copilot v0.31+ emits content blocks without a kind field;
+                # the text lives directly in "value".
+                parts.append(b.get("value", ""))
         return "\n".join(p for p in parts if p)
 
 

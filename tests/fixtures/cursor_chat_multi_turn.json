@@ -1,0 +1,176 @@
+{
+  "composer_id": "multi-turn-test-0001",
+  "name": "Multi-turn conversation",
+  "model_config": {
+    "modelName": "claude-sonnet-4-6",
+    "selectedModels": [
+      {
+        "modelId": "claude-sonnet-4-6",
+        "parameters": []
+      }
+    ]
+  },
+  "conversation_headers": [],
+  "bubbles": [
+    {
+      "bubble_id": "user-000",
+      "composer_id": "multi-turn-test-0001",
+      "bubble_type": 1,
+      "text": "Question 1: What is 1 + 1?",
+      "rich_text": null,
+      "context": {}
+    },
+    {
+      "bubble_id": "asst-000",
+      "composer_id": "multi-turn-test-0001",
+      "bubble_type": 2,
+      "text": "2. The answer to 1 + 1 is 2.",
+      "rich_text": null,
+      "context": {}
+    },
+    {
+      "bubble_id": "user-001",
+      "composer_id": "multi-turn-test-0001",
+      "bubble_type": 1,
+      "text": "Question 2: What is 2 + 2?",
+      "rich_text": null,
+      "context": {}
+    },
+    {
+      "bubble_id": "asst-001",
+      "composer_id": "multi-turn-test-0001",
+      "bubble_type": 2,
+      "text": "4. The answer to 2 + 2 is 4.",
+      "rich_text": null,
+      "context": {}
+    },
+    {
+      "bubble_id": "user-002",
+      "composer_id": "multi-turn-test-0001",
+      "bubble_type": 1,
+      "text": "Question 3: What is 3 + 3?",
+      "rich_text": null,
+      "context": {}
+    },
+    {
+      "bubble_id": "asst-002",
+      "composer_id": "multi-turn-test-0001",
+      "bubble_type": 2,
+      "text": "6. The answer to 3 + 3 is 6.",
+      "rich_text": null,
+      "context": {}
+    },
+    {
+      "bubble_id": "user-003",
+      "composer_id": "multi-turn-test-0001",
+      "bubble_type": 1,
+      "text": "Question 4: What is 4 + 4?",
+      "rich_text": null,
+      "context": {}
+    },
+    {
+      "bubble_id": "asst-003",
+      "composer_id": "multi-turn-test-0001",
+      "bubble_type": 2,
+      "text": "8. The answer to 4 + 4 is 8.",
+      "rich_text": null,
+      "context": {}
+    },
+    {
+      "bubble_id": "user-004",
+      "composer_id": "multi-turn-test-0001",
+      "bubble_type": 1,
+      "text": "Question 5: What is 5 + 5?",
+      "rich_text": null,
+      "context": {}
+    },
+    {
+      "bubble_id": "asst-004",
+      "composer_id": "multi-turn-test-0001",
+      "bubble_type": 2,
+      "text": "10. The answer to 5 + 5 is 10.",
+      "rich_text": null,
+      "context": {}
+    },
+    {
+      "bubble_id": "user-005",
+      "composer_id": "multi-turn-test-0001",
+      "bubble_type": 1,
+      "text": "Question 6: What is 6 + 6?",
+      "rich_text": null,
+      "context": {}
+    },
+    {
+      "bubble_id": "asst-005",
+      "composer_id": "multi-turn-test-0001",
+      "bubble_type": 2,
+      "text": "12. The answer to 6 + 6 is 12.",
+      "rich_text": null,
+      "context": {}
+    },
+    {
+      "bubble_id": "user-006",
+      "composer_id": "multi-turn-test-0001",
+      "bubble_type": 1,
+      "text": "Question 7: What is 7 + 7?",
+      "rich_text": null,
+      "context": {}
+    },
+    {
+      "bubble_id": "asst-006",
+      "composer_id": "multi-turn-test-0001",
+      "bubble_type": 2,
+      "text": "14. The answer to 7 + 7 is 14.",
+      "rich_text": null,
+      "context": {}
+    },
+    {
+      "bubble_id": "user-007",
+      "composer_id": "multi-turn-test-0001",
+      "bubble_type": 1,
+      "text": "Question 8: What is 8 + 8?",
+      "rich_text": null,
+      "context": {}
+    },
+    {
+      "bubble_id": "asst-007",
+      "composer_id": "multi-turn-test-0001",
+      "bubble_type": 2,
+      "text": "16. The answer to 8 + 8 is 16.",
+      "rich_text": null,
+      "context": {}
+    },
+    {
+      "bubble_id": "user-008",
+      "composer_id": "multi-turn-test-0001",
+      "bubble_type": 1,
+      "text": "Question 9: What is 9 + 9?",
+      "rich_text": null,
+      "context": {}
+    },
+    {
+      "bubble_id": "asst-008",
+      "composer_id": "multi-turn-test-0001",
+      "bubble_type": 2,
+      "text": "18. The answer to 9 + 9 is 18.",
+      "rich_text": null,
+      "context": {}
+    },
+    {
+      "bubble_id": "user-009",
+      "composer_id": "multi-turn-test-0001",
+      "bubble_type": 1,
+      "text": "Question 10: What is 10 + 10?",
+      "rich_text": null,
+      "context": {}
+    },
+    {
+      "bubble_id": "asst-009",
+      "composer_id": "multi-turn-test-0001",
+      "bubble_type": 2,
+      "text": "20. The answer to 10 + 10 is 20.",
+      "rich_text": null,
+      "context": {}
+    }
+  ]
+}

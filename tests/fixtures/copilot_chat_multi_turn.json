@@ -1,0 +1,296 @@
+{
+  "version": 3,
+  "creationDate": 1715500000000,
+  "initialLocation": "panel",
+  "responderUsername": "GitHub Copilot",
+  "sessionId": "multi-turn-test-copilot-0001",
+  "hasPendingEdits": false,
+  "customTitle": "Multi-turn math session",
+  "inputState": {
+    "selectedModel": {
+      "identifier": "copilot/gpt-5-mini"
+    }
+  },
+  "requests": [
+    {
+      "requestId": "request_000",
+      "timestamp": 1715500000000,
+      "agent": {
+        "id": "github.copilot.chat"
+      },
+      "message": {
+        "text": "What is 1 * 1?",
+        "parts": []
+      },
+      "variableData": {
+        "variables": []
+      },
+      "response": [
+        {
+          "kind": "mcpServersStarting",
+          "didStartServerIds": []
+        },
+        {
+          "kind": "thinking",
+          "value": "Computing 1 * 1...",
+          "id": "think-0"
+        },
+        {
+          "value": "1"
+        }
+      ],
+      "result": {
+        "timings": {},
+        "metadata": {}
+      },
+      "completionTokens": 50,
+      "elapsedMs": 2000,
+      "followups": [],
+      "modelState": {}
+    },
+    {
+      "requestId": "request_001",
+      "timestamp": 1715500010000,
+      "agent": {
+        "id": "github.copilot.chat"
+      },
+      "message": {
+        "text": "What is 2 * 2?",
+        "parts": []
+      },
+      "variableData": {
+        "variables": []
+      },
+      "response": [
+        {
+          "kind": "mcpServersStarting",
+          "didStartServerIds": []
+        },
+        {
+          "kind": "thinking",
+          "value": "Computing 2 * 2...",
+          "id": "think-1"
+        },
+        {
+          "value": "4"
+        }
+      ],
+      "result": {
+        "timings": {},
+        "metadata": {}
+      },
+      "completionTokens": 60,
+      "elapsedMs": 2500,
+      "followups": [],
+      "modelState": {}
+    },
+    {
+      "requestId": "request_002",
+      "timestamp": 1715500020000,
+      "agent": {
+        "id": "github.copilot.chat"
+      },
+      "message": {
+        "text": "What is 3 * 3?",
+        "parts": []
+      },
+      "variableData": {
+        "variables": []
+      },
+      "response": [
+        {
+          "kind": "mcpServersStarting",
+          "didStartServerIds": []
+        },
+        {
+          "kind": "thinking",
+          "value": "Computing 3 * 3...",
+          "id": "think-2"
+        },
+        {
+          "value": "9"
+        }
+      ],
+      "result": {
+        "timings": {},
+        "metadata": {}
+      },
+      "completionTokens": 70,
+      "elapsedMs": 3000,
+      "followups": [],
+      "modelState": {}
+    },
+    {
+      "requestId": "request_003",
+      "timestamp": 1715500030000,
+      "agent": {
+        "id": "github.copilot.chat"
+      },
+      "message": {
+        "text": "What is 4 * 4?",
+        "parts": []
+      },
+      "variableData": {
+        "variables": []
+      },
+      "response": [
+        {
+          "kind": "mcpServersStarting",
+          "didStartServerIds": []
+        },
+        {
+          "kind": "thinking",
+          "value": "Computing 4 * 4...",
+          "id": "think-3"
+        },
+        {
+          "value": "16"
+        }
+      ],
+      "result": {
+        "timings": {},
+        "metadata": {}
+      },
+      "completionTokens": 80,
+      "elapsedMs": 3500,
+      "followups": [],
+      "modelState": {}
+    },
+    {
+      "requestId": "request_004",
+      "timestamp": 1715500040000,
+      "agent": {
+        "id": "github.copilot.chat"
+      },
+      "message": {
+        "text": "What is 5 * 5?",
+        "parts": []
+      },
+      "variableData": {
+        "variables": []
+      },
+      "response": [
+        {
+          "kind": "mcpServersStarting",
+          "didStartServerIds": []
+        },
+        {
+          "kind": "thinking",
+          "value": "Computing 5 * 5...",
+          "id": "think-4"
+        },
+        {
+          "value": "25"
+        }
+      ],
+      "result": {
+        "timings": {},
+        "metadata": {}
+      },
+      "completionTokens": 90,
+      "elapsedMs": 4000,
+      "followups": [],
+      "modelState": {}
+    },
+    {
+      "requestId": "request_005",
+      "timestamp": 1715500050000,
+      "agent": {
+        "id": "github.copilot.chat"
+      },
+      "message": {
+        "text": "What is 6 * 6?",
+        "parts": []
+      },
+      "variableData": {
+        "variables": []
+      },
+      "response": [
+        {
+          "kind": "mcpServersStarting",
+          "didStartServerIds": []
+        },
+        {
+          "kind": "thinking",
+          "value": "Computing 6 * 6...",
+          "id": "think-5"
+        },
+        {
+          "value": "36"
+        }
+      ],
+      "result": {
+        "timings": {},
+        "metadata": {}
+      },
+      "completionTokens": 100,
+      "elapsedMs": 4500,
+      "followups": [],
+      "modelState": {}
+    },
+    {
+      "requestId": "request_cancelled",
+      "timestamp": 1715500070000,
+      "agent": {
+        "id": "github.copilot.chat"
+      },
+      "message": {
+        "text": "This was cancelled mid-stream",
+        "parts": []
+      },
+      "variableData": {
+        "variables": []
+      },
+      "response": [
+        {
+          "kind": "mcpServersStarting",
+          "didStartServerIds": []
+        },
+        {
+          "kind": "progressMessage",
+          "value": ""
+        }
+      ],
+      "result": {},
+      "completionTokens": null,
+      "elapsedMs": null,
+      "followups": [],
+      "modelState": {}
+    },
+    {
+      "requestId": "request_code",
+      "timestamp": 1715500080000,
+      "agent": {
+        "id": "github.copilot.chat"
+      },
+      "message": {
+        "text": "Write a hello world in Python",
+        "parts": []
+      },
+      "variableData": {
+        "variables": []
+      },
+      "response": [
+        {
+          "value": "Here is a simple hello world:"
+        },
+        {
+          "kind": "codeblock",
+          "language": "python",
+          "code": "print(\"Hello, World!\")"
+        },
+        {
+          "value": "This prints the greeting to stdout."
+        }
+      ],
+      "result": {
+        "timings": {},
+        "metadata": {}
+      },
+      "completionTokens": 120,
+      "elapsedMs": 3500,
+      "followups": [],
+      "modelState": {}
+    }
+  ]
+}

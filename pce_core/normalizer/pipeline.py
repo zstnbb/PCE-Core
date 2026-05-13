@@ -338,6 +338,26 @@ def normalize_conversation(
                     model_name=capture_row.get("model_name"),
                     created_at=capture_row.get("created_at"),
                 )
+            elif capture_row.get("host") in (
+                "local-copilot-chat", "local-cursor-chat"
+            ):
+                # L3g IDE chat sessions (P3 Cursor, P5 Copilot).
+                # Body is the full session state as JSON.
+                from .registry import get_normalizer as _get_norm
+                host = capture_row.get("host", "")
+                norm = _get_norm(
+                    capture_row.get("provider", ""), host,
+                    capture_row.get("path", ""),
+                )
+                body = capture_row.get("body_text_or_json", "") or ""
+                result = norm.normalize(
+                    body, body,
+                    provider=capture_row.get("provider", ""),
+                    host=host,
+                    path=capture_row.get("path", ""),
+                    model_name=capture_row.get("model_name"),
+                    created_at=capture_row.get("created_at"),
+                ) if norm else None
             else:
                 # For conversation captures (DOM extraction), use ConversationNormalizer
                 # directly.  Going through the registry would pick OpenAIChatNormalizer
