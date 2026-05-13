@@ -91,8 +91,13 @@ ALLOWED_HOSTS: set[str] = {
     # api.codeium.com is REST control plane; inference.codeium.com is
     # the GPU inference; windsurf-server is desktop-specific; web-backend
     # is the editor settings/sync backend.
+    # Post-Cognition acquisition (2026): self-serve.windsurf.com replaces
+    # server.codeium.com for some endpoints; app.devin.ai is the Devin
+    # integration WebSocket (ACP live session).
     "api.codeium.com",
     "server.codeium.com",
+    "server.self-serve.windsurf.com",  # post-acquisition Cascade endpoint
+    "app.devin.ai",                 # Devin integration (WebSocket ACP)
     "inference.codeium.com",
     "windsurf-server.codeium.com",
     "web-backend.codeium.com",
