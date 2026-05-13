@@ -103,9 +103,7 @@ _TOOL_FAMILY_DEFAULT = "cowork-local-agent"
 # JSONL store") for empirical evidence and reasoning.
 _TOOL_FAMILY_BY_ENTRYPOINT: dict[str, str] = {
     "claude-desktop": "claude-desktop-code",
-    # Add more mappings here when P6 stand-alone CLI work resumes
-    # ("cli": "claude-code-cli"). Keeping the dict minimal for now
-    # to avoid surprise re-classification of existing data.
+    "cli": "claude-code-cli",
 }
 
 _PROVIDER = "anthropic"
