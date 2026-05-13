@@ -50,6 +50,7 @@ def _auto_register():
     from .windsurf_management import WindsurfManagementNormalizer
     from .windsurf_cascade import WindsurfCascadeNormalizer
     from .codex_cli import CodexCliNormalizer
+    from .gemini_cli import GeminiCliNormalizer
 
     # L3g host-specific normalizers registered BEFORE broad provider
     # matchers (OpenAI/Anthropic) so they win on host discrimination.
@@ -58,6 +59,7 @@ def _auto_register():
     register_normalizer(WindsurfCascadeNormalizer())
     register_normalizer(WindsurfManagementNormalizer())
     register_normalizer(CodexCliNormalizer())
+    register_normalizer(GeminiCliNormalizer())
     # Network normalizers (broad provider match).
     register_normalizer(OpenAIChatNormalizer())
     register_normalizer(AnthropicMessagesNormalizer())

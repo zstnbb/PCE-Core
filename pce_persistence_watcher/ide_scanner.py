@@ -356,6 +356,77 @@ def _scan_codex(state: _ScanState, db_path: Optional[Path], dry_run: bool) -> di
 
 
 # ---------------------------------------------------------------------------
+# Gemini CLI scanner
+# ---------------------------------------------------------------------------
+
+
+def _scan_gemini(state: _ScanState, db_path: Optional[Path], dry_run: bool) -> dict[str, int]:
+    stats = {"seen": 0, "emitted": 0, "deduped": 0, "errors": 0}
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from scripts.harvest.l3g_gemini import discover_sessions, read_session
+
+    session_files = discover_sessions()
+    if not session_files:
+        return stats
+
+    for jsonl_path in session_files:
+        stats["seen"] += 1
+
+        session = read_session(jsonl_path)
+        if session is None or not session.messages:
+            continue
+
+        data = {
+            "session_id": session.session_id,
+            "project_hash": session.project_hash,
+            "start_time": session.start_time,
+            "kind": session.kind,
+            "model": session.model,
+            "messages": [
+                {
+                    "id": m.id,
+                    "timestamp": m.timestamp,
+                    "type": "user" if m.role == "user" else "gemini",
+                    "content": m.content,
+                    "model": m.model,
+                    "thoughts": m.thoughts if m.thoughts else None,
+                    "tokens": m.tokens,
+                }
+                for m in session.messages
+            ],
+        }
+
+        body_str = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+        content_hash = hashlib.sha256(body_str.encode("utf-8")).hexdigest()[:16]
+        fp = _fingerprint("gemini", session.session_id, content_hash)
+
+        if fp in state.entries:
+            stats["deduped"] += 1
+            continue
+
+        if not dry_run:
+            ok = _emit_session(
+                host="local-gemini-cli",
+                path=f"/{session.session_id}",
+                provider="google",
+                session_id=session.session_id,
+                body_str=body_str,
+                source_path=str(jsonl_path),
+                db_path=db_path,
+            )
+            if ok:
+                state.entries[fp] = {"emitted_at": time.time(), "app": "gemini"}
+                stats["emitted"] += 1
+            else:
+                stats["errors"] += 1
+        else:
+            stats["emitted"] += 1
+
+    return stats
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -389,11 +460,12 @@ def scan(db_path: Optional[Path] = None, dry_run: bool = False) -> dict:
     copilot_stats = _scan_copilot(state, db_path, dry_run)
     cursor_stats = _scan_cursor(state, db_path, dry_run)
     codex_stats = _scan_codex(state, db_path, dry_run)
+    gemini_stats = _scan_gemini(state, db_path, dry_run)
 
     if not dry_run:
         _save_state(state, state_path)
 
-    return {"copilot": copilot_stats, "cursor": cursor_stats, "codex": codex_stats}
+    return {"copilot": copilot_stats, "cursor": cursor_stats, "codex": codex_stats, "gemini": gemini_stats}
 
 
 def watch(db_path: Optional[Path] = None, poll_interval: float = 10.0) -> None:
