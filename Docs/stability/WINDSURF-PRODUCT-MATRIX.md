@@ -66,7 +66,7 @@ that are valuable for replay and analysis.
 | W03 | multi-turn conversation | Same `session_id` for all messages in one trajectory (trajectory_id as session_key) | ✅ PASS | trajectory_id grouping works |
 | W04 | trajectory_id session key | `sessions.session_key` matches the UUID trajectory_id from protobuf | ✅ PASS | — |
 | W05 | thinking capture | Assistant `interaction_kind='thinking'` rows contain reasoning text | ✅ PASS | "The user is asking..." |
-| W06 | code generation | Code blocks in assistant response captured as content_text | 🟡 PENDING | Needs longer prompt test |
+| W06 | code generation | Code blocks in assistant response captured as content_text | ✅ PASS | Live verified: fibonacci function |
 | W07 | tool use (file edit) | Cascade Write mode file edits appear as trajectory steps | 🟡 PENDING | Needs Write mode test |
 | W08 | error handling | Rate limit / error messages captured with error context | ✅ PASS | `resource_exhausted` captured |
 | W09 | management metadata | GetUserStatus / GetCliTeamSettings parsed into layer_meta | ✅ PASS | email, plan, models |
@@ -82,7 +82,7 @@ that are valuable for replay and analysis.
 
 ## §6 Release gates
 
-- **Ship bar**: ≥ 7/10 cases PASS (currently 7/10 = 70%, need W06 or W07 for 80%)
+- **Ship bar**: ≥ 7/10 cases PASS (currently 8/10 = 80% ✅ SHIP-READY)
 - **No regressions**: existing 137+ tests must stay green
 - **Install doc**: ✅ shipped
 
