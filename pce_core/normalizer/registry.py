@@ -48,12 +48,14 @@ def _auto_register():
     from .copilot_chat import CopilotChatNormalizer
     from .cursor_chat import CursorChatNormalizer
     from .windsurf_management import WindsurfManagementNormalizer
+    from .windsurf_cascade import WindsurfCascadeNormalizer
     from .codex_cli import CodexCliNormalizer
 
     # L3g host-specific normalizers registered BEFORE broad provider
     # matchers (OpenAI/Anthropic) so they win on host discrimination.
     register_normalizer(CopilotChatNormalizer())
     register_normalizer(CursorChatNormalizer())
+    register_normalizer(WindsurfCascadeNormalizer())
     register_normalizer(WindsurfManagementNormalizer())
     register_normalizer(CodexCliNormalizer())
     # Network normalizers (broad provider match).

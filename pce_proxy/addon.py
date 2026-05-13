@@ -242,6 +242,7 @@ STREAMING_CONTENT_TYPE_PREFIXES = (
 STREAMING_HOSTS: set[str] = {
     "agent.api5.cursor.sh",
     "server.codeium.com",
+    "server.self-serve.windsurf.com",
     "inference.codeium.com",
     "chatgpt.com",
     "chat.openai.com",

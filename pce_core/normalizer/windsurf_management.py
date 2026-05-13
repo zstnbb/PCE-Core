@@ -24,6 +24,7 @@ from .base import BaseNormalizer, NormalizedMessage, NormalizedResult
 logger = logging.getLogger("pce.normalizer.windsurf_management")
 
 _HOST = "server.codeium.com"
+_HOST_NEW = "server.self-serve.windsurf.com"
 _PROVIDER = "codeium"
 _TOOL_FAMILY = "windsurf-management"
 
@@ -93,7 +94,7 @@ class WindsurfManagementNormalizer(BaseNormalizer):
     """Normalise Windsurf/Codeium management plane gRPC into metadata."""
 
     def can_handle(self, provider: str, host: str, path: str) -> bool:
-        return host == _HOST and path in _MANAGEMENT_PATHS
+        return (host == _HOST or host == _HOST_NEW) and path in _MANAGEMENT_PATHS
 
     def normalize(
         self,
