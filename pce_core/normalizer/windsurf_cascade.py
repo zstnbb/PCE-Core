@@ -129,6 +129,16 @@ def _extract_user_prompt_from_trajectory_step(text: str) -> Optional[str]:
         )):
             return candidate
 
+    # Strategy 1.6: Look for "asked" + quoted text pattern
+    # e.g. 'has asked "What is 2+2?"'
+    asked_match = re.search(r'(?:asked|asking)\s+["\u201c]([^"\u201d]{3,200})["\u201d]', text)
+    if asked_match:
+        candidate = asked_match.group(1).strip()
+        if not any(skip in candidate.lower() for skip in (
+            "windsurf", "codeium", "devin", "windows",
+        )):
+            return candidate
+
     # Strategy 2: Find repeated strings that look like user prompts.
     # In RecordCortexTrajectoryStep, the user prompt appears multiple
     # times (in the step content + in the message history echo).
@@ -147,6 +157,7 @@ def _extract_user_prompt_from_trajectory_step(text: str) -> Optional[str]:
             "numcores", "numsockets", "numthreads", "vendorid",
             "productname", "majorversion", "minorversion",
             "memory", "build", "arch", "amd64",
+            "resource_exhausted", "error", "failed",
         )):
             continue
         if _MODEL_PATTERNS.match(s_stripped):
@@ -155,6 +166,9 @@ def _extract_user_prompt_from_trajectory_step(text: str) -> Optional[str]:
             continue
         # Skip hex strings (encrypted data / hashes)
         if re.match(r'^[0-9a-f]{20,}$', s_stripped):
+            continue
+        # Skip strings that start with $ (variable references)
+        if s_stripped.startswith("$"):
             continue
         seen[s_stripped] = seen.get(s_stripped, 0) + 1
 
@@ -192,6 +206,7 @@ def _extract_assistant_response(text: str) -> Optional[str]:
             "windsurf", "windows", "chisel", "codeium",
             "GenuineIntel", "AppData", "file:///",
             "REDACTED", "devin-session-token",
+            "resource_exhausted", "CORTEX_STEP_",
         )):
             continue
         if _MODEL_PATTERNS.match(s_stripped):
