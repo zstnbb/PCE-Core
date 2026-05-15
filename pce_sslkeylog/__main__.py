@@ -201,7 +201,15 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
 
 def _cmd_setup_env(args: argparse.Namespace) -> int:
-    """Set the SSLKEYLOGFILE env var (user or machine scope on Windows)."""
+    """Set the SSLKEYLOGFILE env var (user or machine scope on Windows).
+
+    Also, unless ``--no-node-options`` is passed, sets ``NODE_OPTIONS``
+    to include ``--tls-keylog=<keylog>``. This is what makes A2 work
+    for Node-based CLIs and apps (gemini-cli, npm-installed MCP
+    servers, anything using ``node``'s native TLS stack) — Chromium
+    apps read SSLKEYLOGFILE on their own, but Node only writes session
+    keys when given an explicit ``--tls-keylog`` flag.
+    """
     keylog = _resolve_keylog_path(args.keylog)
     keylog.parent.mkdir(parents=True, exist_ok=True)
     # Touch the file so tshark probe doesn't fail on first run
@@ -209,7 +217,6 @@ def _cmd_setup_env(args: argparse.Namespace) -> int:
         keylog.touch()
     if sys.platform == "win32":
         scope = "Machine" if args.machine else "User"
-        # PowerShell -Command for setEnvironmentVariable
         import subprocess
         ps_cmd = (
             f"[Environment]::SetEnvironmentVariable("
@@ -220,22 +227,67 @@ def _cmd_setup_env(args: argparse.Namespace) -> int:
             capture_output=True, text=True, timeout=10,
         )
         if result.returncode != 0:
-            print(f"ERROR: setEnvironmentVariable failed:\n{result.stderr}",
+            print(f"ERROR: setEnvironmentVariable SSLKEYLOGFILE failed:\n{result.stderr}",
                   file=sys.stderr)
             return 1
-        print(f"SSLKEYLOGFILE set in {scope} scope to: {keylog}")
+        _safe_print(f"SSLKEYLOGFILE set in {scope} scope to: {keylog}")
+
+        if not getattr(args, "no_node_options", False):
+            # Read existing NODE_OPTIONS (if any) and append --tls-keylog.
+            # We preserve other flags the user may have set so we don't
+            # clobber tooling (e.g. ``--max-old-space-size``).
+            get_existing = (
+                f"[Environment]::GetEnvironmentVariable('NODE_OPTIONS','{scope}')"
+            )
+            existing_proc = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-Command", get_existing],
+                capture_output=True, timeout=10,
+            )
+            existing = (existing_proc.stdout or b"").decode("utf-8",
+                                                             errors="replace").strip()
+            keylog_flag = f"--tls-keylog={keylog}"
+            if existing and keylog_flag in existing:
+                merged = existing
+            elif existing:
+                # Strip any prior --tls-keylog= the user may have set,
+                # then append ours
+                tokens = [t for t in existing.split() if not t.startswith("--tls-keylog=")]
+                tokens.append(keylog_flag)
+                merged = " ".join(tokens)
+            else:
+                merged = keylog_flag
+            ps_node = (
+                f"[Environment]::SetEnvironmentVariable("
+                f"'NODE_OPTIONS','{merged}','{scope}')"
+            )
+            r2 = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-Command", ps_node],
+                capture_output=True, timeout=10,
+            )
+            if r2.returncode != 0:
+                err = (r2.stderr or b"").decode("utf-8", errors="replace")
+                print(f"WARN: NODE_OPTIONS update failed (continuing):\n{err}",
+                      file=sys.stderr)
+            else:
+                _safe_print(f"NODE_OPTIONS set in {scope} scope to: {merged}")
+
         print(
-            "\nIMPORTANT: this env var is read by Chromium at process start.\n"
-            "  Restart any open Chromium-based AI apps (Chrome / Edge / Claude /\n"
-            "  Cursor / Windsurf / VS Code / Electron AI apps) so they pick up\n"
-            "  the new value. New processes will start writing TLS session\n"
-            "  keys to this file.\n"
+            "\nIMPORTANT: env vars are read at process start.\n"
+            "  - Chromium / Electron AI apps (Chrome, Claude Desktop, ChatGPT\n"
+            "    Desktop, Cursor, Windsurf, VS Code) → read SSLKEYLOGFILE\n"
+            "    at launch; restart them to pick up the new value.\n"
+            "  - Node-based CLIs (gemini-cli, npm-installed MCP servers) →\n"
+            "    read NODE_OPTIONS at `node` startup; opening a fresh\n"
+            "    terminal is enough.\n"
         )
     else:
+        keylog_flag = f"--tls-keylog={keylog}"
         print(
-            "On POSIX, add the following to your shell rc file (~/.bashrc, etc):\n"
+            "On POSIX, add to your shell rc file (~/.bashrc, ~/.zshrc, etc):\n"
             f"  export SSLKEYLOGFILE='{keylog}'\n"
-            "Then restart your Chromium-based apps."
+            f"  export NODE_OPTIONS=\"$NODE_OPTIONS {keylog_flag}\"\n"
+            "Then restart your Chromium-based apps + open a fresh terminal\n"
+            "for Node CLIs to pick up the new value."
         )
     return 0
 
@@ -249,6 +301,77 @@ def _safe_print(s: str) -> None:
     except UnicodeEncodeError:
         enc = (sys.stdout.encoding or "utf-8")
         sys.stdout.buffer.write(s.encode(enc, errors="replace") + b"\n")
+
+
+def _cmd_stats(args: argparse.Namespace) -> int:
+    """Show stats for source_id='sslkeylog-default' rows in pce.db."""
+    from pce_core.db import init_db, get_connection
+
+    init_db()
+    conn = get_connection()
+    where = "source_id='sslkeylog-default'"
+    params: list = []
+    if args.host:
+        where += " AND host = ?"
+        params.append(args.host)
+
+    total = conn.execute(
+        f"SELECT COUNT(*) FROM raw_captures WHERE {where}", params,
+    ).fetchone()[0]
+    distinct_hosts = conn.execute(
+        f"SELECT COUNT(DISTINCT host) FROM raw_captures WHERE {where} "
+        "AND host IS NOT NULL AND host != ''", params,
+    ).fetchone()[0]
+    distinct_pairs = conn.execute(
+        f"SELECT COUNT(DISTINCT pair_id) FROM raw_captures WHERE {where}", params,
+    ).fetchone()[0]
+    bodies_nonempty = conn.execute(
+        f"SELECT COUNT(*) FROM raw_captures WHERE {where} "
+        "AND length(COALESCE(body_text_or_json,'')) > 0", params,
+    ).fetchone()[0]
+
+    _safe_print(f"=== source_id='sslkeylog-default' captured rows ===")
+    if args.host:
+        _safe_print(f"  filter: host = {args.host!r}")
+    _safe_print(f"  total rows:           {total}")
+    _safe_print(f"  distinct pairs:       {distinct_pairs}")
+    _safe_print(f"  distinct hosts:       {distinct_hosts}")
+    _safe_print(f"  rows with body bytes: {bodies_nonempty}")
+
+    if not args.host:
+        host_rows = conn.execute(
+            f"SELECT host, COUNT(*) AS n FROM raw_captures WHERE {where} "
+            "AND host IS NOT NULL AND host != '' "
+            "GROUP BY host ORDER BY n DESC LIMIT 30",
+        ).fetchall()
+        if host_rows:
+            _safe_print("\n=== top hosts (request side) ===")
+            for h, n in host_rows:
+                _safe_print(f"  {n:5d}  {h}")
+
+    rows = conn.execute(
+        f"SELECT created_at, direction, host, path, method, status_code, "
+        f"length(COALESCE(body_text_or_json,'')) AS body_len, provider "
+        f"FROM raw_captures WHERE {where} ORDER BY created_at DESC LIMIT ?",
+        [*params, args.limit],
+    ).fetchall()
+    if rows:
+        _safe_print(f"\n=== most recent {len(rows)} rows ===")
+        for r in rows:
+            ts = r[0]
+            from datetime import datetime
+            ts_str = datetime.fromtimestamp(ts).strftime("%H:%M:%S") if ts else ""
+            host = (r[2] or "")[:35]
+            path = (r[3] or "")[:35]
+            method = r[4] or "-"
+            status = r[5] if r[5] is not None else "-"
+            body_len = r[6]
+            prov = (r[7] or "")[:14]
+            _safe_print(
+                f"  {ts_str}  {r[1]:8s}  {host:35s}  {method:7s} "
+                f"{path:35s}  status={status!s:4s}  body={body_len:6d}  prov={prov}"
+            )
+    return 0
 
 
 def _cmd_service(args: argparse.Namespace) -> int:
@@ -526,10 +649,38 @@ def main(argv: Optional[list[str]] = None) -> int:
     probe_p.add_argument("--allow-no-keylog", action="store_true",
                          help="Don't fail if keylog file is missing")
 
-    setup_p = sub.add_parser("setup-env", help="Set SSLKEYLOGFILE env var")
+    setup_p = sub.add_parser(
+        "setup-env",
+        help="Set SSLKEYLOGFILE env var (+ NODE_OPTIONS unless --no-node-options)",
+        description="Configures the two environment variables that make A2 "
+                    "capture work for the maximum surface: SSLKEYLOGFILE "
+                    "(Chromium / Electron / Chrome / Claude Desktop / "
+                    "Cursor / Windsurf / VS Code) and NODE_OPTIONS with "
+                    "--tls-keylog (Node-based CLIs and MCP servers like "
+                    "gemini-cli).",
+    )
     setup_p.add_argument("--machine", action="store_true",
                          help="Set machine-wide (requires admin); "
                               "default is user-scope")
+    setup_p.add_argument("--no-node-options", action="store_true",
+                         help="Skip the NODE_OPTIONS update. Use this if "
+                              "your environment requires special NODE_OPTIONS "
+                              "handling that this script's append logic "
+                              "doesn't cover.")
+
+    stats_p = sub.add_parser(
+        "stats",
+        help="Show captured-row stats for source_id='sslkeylog-default'",
+        description="Quick operator-facing inspection of what the A2 daemon "
+                    "has captured. Prints total row count, distinct hosts, "
+                    "recent rows with status / method / body length, and "
+                    "any unmatched-body / insert-error counters that point "
+                    "at degraded captures.",
+    )
+    stats_p.add_argument("--limit", type=int, default=20,
+                         help="Number of recent rows to list (default 20)")
+    stats_p.add_argument("--host", default=None,
+                         help="Filter to a single host (e.g. claude.ai)")
 
     svc_p = sub.add_parser(
         "service",
@@ -565,6 +716,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         return _cmd_setup_env(args)
     if args.cmd == "service":
         return _cmd_service(args)
+    if args.cmd == "stats":
+        return _cmd_stats(args)
     parser.print_help()
     return 2
 

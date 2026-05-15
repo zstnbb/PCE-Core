@@ -169,6 +169,18 @@ def _windows_default_route_iface() -> Optional[str]:
     return alias or None
 
 
+# Virtual TUN / TAP / VPN / proxy adapters that often carry AI traffic on
+# Windows when a user has Clash / Mihomo / sing-box / WireGuard / OpenVPN
+# / etc. running. The default-route table can still say "WLAN" but the
+# VPN client may intercept TCP at a lower layer (NDIS / WFP / TUN) so the
+# packets never touch WLAN. Auto-detect adds any of these (case-insensitive
+# substring match) so the daemon catches that path without operator help.
+_VIRTUAL_INTERFACE_HINTS: tuple[str, ...] = (
+    "clash", "mihomo", "sing-box", "v2ray", "tap-windows", "tun",
+    "wireguard", "openvpn", "shadow", "proxifier",
+)
+
+
 def detect_capture_interfaces(tshark: Path) -> list[str]:
     """Auto-select a reasonable interface set for the current host.
 
@@ -178,6 +190,11 @@ def detect_capture_interfaces(tshark: Path) -> list[str]:
       - Plus the default-route interface (WLAN / 以太网 / Ethernet)
         which catches apps that bypass the system proxy (Cursor, codex
         CLI, gemini CLI, MCP clients, Node undici, etc.)
+      - Plus any VPN / TUN / proxy adapters whose alias contains
+        ``clash`` / ``tap`` / ``tun`` / ``wireguard`` etc. These often
+        carry AI traffic when the user has Clash / Mihomo / sing-box
+        active (Node CLIs whose TLS gets intercepted by the VPN's WFP
+        / NDIS hooks but never appear on WLAN).
     POSIX:
       - Just ``any`` (Linux's pseudo-interface for all-interface capture).
     """
@@ -185,25 +202,36 @@ def detect_capture_interfaces(tshark: Path) -> list[str]:
         return ["any"]
     aliases = list_tshark_interfaces(tshark)
     chosen: list[str] = []
-    # Loopback first
+    seen: set[str] = set()
+
+    def _add(name: str) -> None:
+        if name and name not in seen:
+            chosen.append(name)
+            seen.add(name)
+
+    # 1. Loopback (Chromium / Electron apps via system proxy)
     for a in aliases:
         if "loopback" in a.lower():
-            chosen.append(a)
+            _add(a)
             break
-    # Then the default-route interface
+    # 2. Default-route interface (direct WAN)
     default_alias = _windows_default_route_iface()
-    if default_alias and default_alias not in chosen:
-        chosen.append(default_alias)
-    # Fallback if both detections failed
+    if default_alias:
+        _add(default_alias)
+    # 3. Virtual TUN / VPN / proxy adapters (Clash / WireGuard / etc.)
+    for a in aliases:
+        la = a.lower()
+        if any(hint in la for hint in _VIRTUAL_INTERFACE_HINTS):
+            _add(a)
+    # Fallback if all detections failed
     if not chosen:
-        # Take everything except virtual/management adapters
         for a in aliases:
             la = a.lower()
             if any(skip in la for skip in (
-                "vethernet", "etwdump", "本地连接",
+                "vethernet", "etwdump",
             )):
                 continue
-            chosen.append(a)
+            _add(a)
     return chosen
 
 

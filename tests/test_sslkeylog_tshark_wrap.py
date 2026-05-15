@@ -139,6 +139,79 @@ def test_find_tshark_env_override_ignored_if_missing(monkeypatch, tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# detect_capture_interfaces — Windows multi-iface auto-detect
+# ---------------------------------------------------------------------------
+
+
+def test_detect_capture_interfaces_includes_loopback_default_and_clash(monkeypatch):
+    """W2.1.2: when a Clash-style TUN adapter is present (common on
+    Windows hosts with system-proxy AI access), auto-detect must include
+    it. Otherwise Node-based CLIs whose TLS gets intercepted by Clash's
+    WFP/NDIS hooks (e.g. gemini-cli) would never produce captures."""
+    from pce_sslkeylog import tshark_wrap
+
+    monkeypatch.setattr(tshark_wrap, "sys", type("s", (), {"platform": "win32"}))
+    monkeypatch.setattr(
+        tshark_wrap, "list_tshark_interfaces",
+        lambda _t: [
+            "vEthernet (Default Switch)",
+            "WLAN",
+            "Clash",
+            "Adapter for loopback traffic capture",
+            "以太网",
+            "etwdump (Event Tracing for Windows (ETW) reader)",
+        ],
+    )
+    monkeypatch.setattr(
+        tshark_wrap, "_windows_default_route_iface",
+        lambda: "WLAN",
+    )
+    ifaces = tshark_wrap.detect_capture_interfaces(Path("tshark"))
+    assert "Adapter for loopback traffic capture" in ifaces
+    assert "WLAN" in ifaces
+    assert "Clash" in ifaces, (
+        "Clash TUN adapter must be in auto-detect, otherwise Node-CLI "
+        "traffic intercepted by Clash never reaches our daemon"
+    )
+    # vEthernet (Hyper-V Default Switch) and etwdump should NOT be
+    # picked unless we have nothing else.
+    assert "vEthernet (Default Switch)" not in ifaces
+    assert "etwdump (Event Tracing for Windows (ETW) reader)" not in ifaces
+
+
+def test_detect_capture_interfaces_no_duplicates(monkeypatch):
+    """If the default-route iface name happens to also match the
+    Loopback / virtual hint check, we must not list it twice."""
+    from pce_sslkeylog import tshark_wrap
+
+    monkeypatch.setattr(tshark_wrap, "sys", type("s", (), {"platform": "win32"}))
+    monkeypatch.setattr(
+        tshark_wrap, "list_tshark_interfaces",
+        lambda _t: ["WLAN", "Adapter for loopback traffic capture"],
+    )
+    # default-route reports a NAME ALREADY in the loopback / list
+    monkeypatch.setattr(
+        tshark_wrap, "_windows_default_route_iface",
+        lambda: "Adapter for loopback traffic capture",
+    )
+    ifaces = tshark_wrap.detect_capture_interfaces(Path("tshark"))
+    assert ifaces.count("Adapter for loopback traffic capture") == 1
+
+
+def test_detect_capture_interfaces_posix():
+    """On POSIX, auto-detect returns the ``any`` pseudo-interface that
+    Linux's libpcap supports for all-iface capture."""
+    from pce_sslkeylog import tshark_wrap
+    import sys as _sys
+    if _sys.platform == "win32":
+        # Can't easily monkey-patch sys.platform globally here; rely on
+        # the Windows-specific tests above. Skip on Windows hosts.
+        pytest.skip("POSIX-only test")
+    ifaces = tshark_wrap.detect_capture_interfaces(Path("tshark"))
+    assert ifaces == ["any"]
+
+
+# ---------------------------------------------------------------------------
 # Service install / print-unit (W2.3)
 # ---------------------------------------------------------------------------
 
@@ -162,6 +235,31 @@ def test_service_print_unit_windows(capsys, monkeypatch):
     # not the earlier PT30S which schtasks rejected as an XML validation
     # error)
     assert "PT1M" in out
+
+
+def test_stats_subcommand_runs_clean(capsys):
+    """``stats`` should print at least the header + row counts without
+    crashing, even when the DB is freshly initialised and has 0 rows
+    of source_id='sslkeylog-default'."""
+    from pce_sslkeylog.__main__ import main
+    rc = main(["stats", "--limit", "0"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "source_id='sslkeylog-default'" in out
+    assert "total rows:" in out
+    assert "distinct pairs:" in out
+
+
+def test_stats_subcommand_host_filter(capsys):
+    """``stats --host`` should narrow the totals to a single host
+    (filter applied to all counters)."""
+    from pce_sslkeylog.__main__ import main
+    rc = main(["stats", "--host", "totally-fake-host-no-rows.example", "--limit", "0"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "totally-fake-host-no-rows.example" in out
+    # Totals should be 0 for a nonexistent host
+    assert "total rows:           0" in out
 
 
 def test_service_print_unit_posix(capsys, monkeypatch):

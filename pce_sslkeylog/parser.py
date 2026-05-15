@@ -651,7 +651,18 @@ def _decompress_body(body: bytes, content_encoding: str) -> bytes:
             return brotli.decompress(body)
         if enc == "zstd":
             import zstandard  # type: ignore[import-not-found]
-            return zstandard.ZstdDecompressor().decompress(body)
+            # ``decompress(body)`` requires the zstd frame to declare its
+            # uncompressed size, which web servers often omit (esp. when
+            # streaming). Use ``stream_reader`` to decompress with no
+            # size hint. Cap at 64 MiB to avoid a malicious server
+            # blowing up memory.
+            dctx = zstandard.ZstdDecompressor()
+            try:
+                return dctx.decompress(body)
+            except zstandard.ZstdError:
+                import io
+                with dctx.stream_reader(io.BytesIO(body)) as reader:
+                    return reader.read(64 * 1024 * 1024)
     except Exception as exc:  # noqa: BLE001
         logger.warning("body decompress failed (encoding=%s, size=%d): %s",
                        enc, len(body), exc)
@@ -665,6 +676,12 @@ def _provider_from_host(host: str) -> str:
     if not host:
         return ""
     h = host.lower()
+    # Check Copilot before "openai" — Copilot Chat uses OpenAI-compatible
+    # schema and ``api.githubcopilot.com`` would match the OpenAI heuristic
+    # otherwise. The provider matters for billing / rate-limit attribution
+    # so we keep them distinct.
+    if "githubcopilot" in h or "copilot-proxy.githubusercontent" in h:
+        return "github-copilot"
     if "anthropic" in h or "claude.ai" in h:
         return "anthropic"
     if "openai" in h or "chatgpt" in h:
@@ -675,6 +692,10 @@ def _provider_from_host(host: str) -> str:
         return "xai"
     if "perplexity" in h:
         return "perplexity"
+    if "cursor" in h:
+        return "cursor"
+    if "codeium" in h or "windsurf" in h:
+        return "codeium"
     return ""
 
 

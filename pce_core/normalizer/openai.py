@@ -68,6 +68,12 @@ _COMPATIBLE_HOSTS = {
     "open.bigmodel.cn", "chat.z.ai", "chatglm.cn", "chat.zhipuai.cn", "maas.aminer.cn",
     # Moonshot / Kimi
     "api.moonshot.cn", "kimi.moonshot.cn", "www.kimi.com", "kimi.com",
+    # GitHub Copilot Chat (uses OpenAI chat-completions schema with GitHub auth)
+    # — VS Code & VS Code Insiders dispatch chat through here; the request/response
+    # structure is identical to api.openai.com so the same normalizer handles
+    # both. Added 2026-05-15 (W6 scaffolding).
+    "api.githubcopilot.com",
+    "copilot-proxy.githubusercontent.com",
     # Local
     "localhost", "127.0.0.1",
 }

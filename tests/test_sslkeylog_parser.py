@@ -473,6 +473,44 @@ def test_build_capture_decompress_failure_keeps_raw_bytes():
     assert "not actually gzip" in body_text
 
 
+def test_build_capture_decompresses_zstd_body_without_content_size():
+    """Zstd frames don't always declare their uncompressed size; the
+    parser must fall back to stream_reader when ``decompress(body)``
+    fails with ZstdError 'could not determine content size in frame
+    header'. Regression for a real-world failure in W2.2 live captures
+    where Claude.ai / Cloudflare zstd responses produced empty bodies."""
+    try:
+        import zstandard
+    except ImportError:
+        pytest.skip("zstandard not installed")
+    import io
+    plaintext = b'{"text": "hello from zstd"}' * 50  # > a few KB
+    # Build a zstd frame WITHOUT declaring content size — this is what
+    # streaming servers (Cloudflare, etc.) emit. The ``stream_writer``
+    # API doesn't auto-fill content_size unless size is provided up
+    # front; equivalent of feeding chunks to a wire pipe.
+    cctx = zstandard.ZstdCompressor()
+    buf = io.BytesIO()
+    with cctx.stream_writer(buf, closefd=False) as writer:
+        writer.write(plaintext)
+    zstd_bytes = buf.getvalue()
+    resp_ev = TsharkEvent(
+        direction="response", host="", path="", method="",
+        status_code=200,
+        headers={"content-encoding": "zstd", "content-type": "application/json"},
+        body=zstd_bytes,
+        stream_id="1", tcp_stream="10",
+        timestamp="2026-05-15T10:00:00",
+        is_http2=True,
+    )
+    rows = build_capture_from_pair(None, resp_ev, pair_id="p")
+    body_text = rows[0]["body_text_or_json"]
+    assert "hello from zstd" in body_text, (
+        f"zstd without content-size header should decompress via "
+        f"stream_reader; got {body_text[:80]!r}"
+    )
+
+
 def test_build_capture_identity_encoding_passthrough():
     """Content-Encoding: identity (or empty) should leave the body alone."""
     resp_ev = TsharkEvent(

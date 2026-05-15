@@ -87,13 +87,31 @@ def _resolve_host(flow: http.HTTPFlow) -> str | None:
 
 
 def _provider_from_host(host: str) -> str:
-    """Derive a short provider label from hostname."""
-    if "openai" in host:
+    """Derive a short provider label from hostname.
+
+    Order matters: Copilot is checked before OpenAI because Copilot Chat
+    uses an OpenAI-compatible wire format, but billing / auth / rate
+    limits live on GitHub's side so we keep the provider distinct.
+    """
+    if not host:
+        return ""
+    h = host.lower()
+    if "githubcopilot" in h or "copilot-proxy.githubusercontent" in h:
+        return "github-copilot"
+    if "openai" in h or "chatgpt" in h:
         return "openai"
-    if "anthropic" in host:
+    if "anthropic" in h or "claude.ai" in h:
         return "anthropic"
-    if "googleapis" in host:
+    if "googleapis" in h or "gemini" in h or "aistudio.google" in h:
         return "google"
+    if "x.ai" in h or "grok.com" in h:
+        return "xai"
+    if "perplexity" in h:
+        return "perplexity"
+    if "cursor" in h:
+        return "cursor"
+    if "codeium" in h or "windsurf" in h:
+        return "codeium"
     return host
 
 
