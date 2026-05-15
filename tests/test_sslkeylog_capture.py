@@ -20,7 +20,11 @@ from pce_sslkeylog.capture import PairingCaptureSink
 
 
 def _h2_request_line(stream_id: str, tcp_stream: str, host: str, path: str,
-                      body: str = "") -> str:
+                      body: str = "", end_stream: bool = True) -> str:
+    """Synthesise one tshark EK line representing an HTTP/2 request HEADERS
+    frame. ``end_stream`` defaults to True so tests that don't care about
+    body buffering work without extra setup (the new state machine waits
+    for END_STREAM on h2 streams before emitting the pair)."""
     return json.dumps({
         "timestamp": "2026-05-15T10:00:00",
         "layers": {
@@ -30,13 +34,18 @@ def _h2_request_line(stream_id: str, tcp_stream: str, host: str, path: str,
                 "http2_http2_header_name": [":method", ":authority", ":path"],
                 "http2_http2_header_value": ["POST", host, path],
                 "http2_http2_body_fragment": body,
+                "http2_http2_flags_end_stream": end_stream,
             },
         },
     })
 
 
 def _h2_response_line(stream_id: str, tcp_stream: str, status: str = "200",
-                      body: str = "") -> str:
+                      body: str = "", end_stream: bool = True) -> str:
+    """Synthesise one tshark EK line representing an HTTP/2 response
+    HEADERS frame. ``end_stream`` defaults to True for the same reason as
+    :func:`_h2_request_line` — tests that don't drive DATA frames want
+    immediate emission."""
     return json.dumps({
         "timestamp": "2026-05-15T10:00:01",
         "layers": {
@@ -46,6 +55,28 @@ def _h2_response_line(stream_id: str, tcp_stream: str, status: str = "200",
                 "http2_http2_header_name": [":status"],
                 "http2_http2_header_value": [status],
                 "http2_http2_body_fragment": body,
+                "http2_http2_flags_end_stream": end_stream,
+            },
+        },
+    })
+
+
+def _h2_data_line(stream_id: str, tcp_stream: str, body: bytes,
+                   end_stream: bool = True) -> str:
+    """Synthesise an HTTP/2 DATA frame with reassembled body bytes.
+    tshark formats binary fields as colon-separated hex pairs."""
+    hex_str = ":".join(f"{b:02x}" for b in body)
+    return json.dumps({
+        "timestamp": "2026-05-15T10:00:02",
+        "layers": {
+            "tcp": {"tcp_tcp_stream": tcp_stream},
+            "http2": {
+                "http2_http2_streamid": stream_id,
+                "http2_http2_type": "0",
+                "http2_http2_length": str(len(body)),
+                "http2_http2_flags_end_stream": end_stream,
+                "http2_http2_body_reassembled_data": hex_str,
+                "http2_http2_body_reassembled_length": str(len(body)),
             },
         },
     })
@@ -320,6 +351,80 @@ def test_sink_normalize_called_after_pair_complete():
     pid, kwargs = normalize_calls[0]
     assert kwargs.get("source_id") == "sslkeylog-default"
     assert kwargs.get("created_via") == "sslkeylog"
+
+
+def test_sink_h2_body_attached_via_data_frame():
+    """An HTTP/2 exchange where the response HEADERS arrives *without*
+    END_STREAM (body coming) and the body is delivered later via a DATA
+    frame with reassembled bytes + END_STREAM should produce a single
+    pair whose response body equals the DATA frame's bytes."""
+    insert = MockInsertCapture()
+    sink = PairingCaptureSink(
+        insert_capture_fn=insert,
+        new_pair_id_fn=MockNewPairId(),
+        try_normalize_pair_fn=lambda *a, **k: None,
+    )
+    sink.handle_line(_h2_request_line("1", "10", "api.anthropic.com",
+                                       "/v1/messages", end_stream=False))
+    # Response HEADERS, no end_stream yet — pair should NOT emit
+    sink.handle_line(_h2_response_line("1", "10", "200", end_stream=False))
+    assert sink.stats.pairs_emitted == 0, (
+        "h2 response without END_STREAM should defer emission until DATA"
+    )
+    # DATA frame carrying body + END_STREAM
+    body_bytes = b'{"id":"msg_123","content":"hello"}'
+    sink.handle_line(_h2_data_line("1", "10", body_bytes, end_stream=True))
+    assert sink.stats.pairs_emitted == 1
+    assert sink.stats.bodies_attached == 1
+    # Verify response row got the body
+    resp_rows = [c for c in insert.calls if c["direction"] == "response"]
+    assert len(resp_rows) == 1
+    # body_text_or_json should contain the decoded JSON
+    body_field = resp_rows[0].get("body_text_or_json") or ""
+    assert "msg_123" in body_field, (
+        f"expected response body bytes attached; got {body_field!r}"
+    )
+
+
+def test_sink_h2_body_unmatched_data_counts_correctly():
+    """A DATA frame on a stream we have no pending pair for should
+    increment ``bodies_unmatched`` but not crash."""
+    insert = MockInsertCapture()
+    sink = PairingCaptureSink(
+        insert_capture_fn=insert,
+        new_pair_id_fn=MockNewPairId(),
+        try_normalize_pair_fn=lambda *a, **k: None,
+    )
+    sink.handle_line(_h2_data_line("99", "55", b"orphan body", end_stream=True))
+    assert sink.stats.bodies_unmatched == 1
+    assert sink.stats.pairs_emitted == 0
+    assert sink.stats.bodies_attached == 0
+
+
+def test_sink_h2_pair_flushed_on_ttl_with_partial_body():
+    """If the DATA END_STREAM never arrives but response HEADERS did,
+    the TTL sweep should still emit the pair with whatever body bytes
+    accumulated (or empty if none). Loss is preferred to silently
+    holding the response forever."""
+    insert = MockInsertCapture()
+    sink = PairingCaptureSink(
+        insert_capture_fn=insert,
+        new_pair_id_fn=MockNewPairId(),
+        try_normalize_pair_fn=lambda *a, **k: None,
+        pending_ttl_s=0.05,
+    )
+    sink.handle_line(_h2_request_line("1", "10", "claude.ai", "/api/chat",
+                                       end_stream=False))
+    sink.handle_line(_h2_response_line("1", "10", "200", end_stream=False))
+    # Send a DATA frame with body but NO end_stream → pair still pending
+    sink.handle_line(_h2_data_line("1", "10", b"partial", end_stream=False))
+    assert sink.stats.pairs_emitted == 0
+    time.sleep(0.1)  # exceed TTL
+    # Any new event triggers _sweep_expired_pending
+    sink.handle_line(_h2_request_line("2", "11", "api.anthropic.com", "/x"))
+    assert sink.stats.pairs_emitted >= 1, (
+        "TTL sweep should flush the deferred h2 pair"
+    )
 
 
 def test_sink_insert_failure_does_not_crash():

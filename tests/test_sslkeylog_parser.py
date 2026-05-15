@@ -427,6 +427,67 @@ def test_build_capture_redacts_secret_headers():
     assert "Chrome/148.0" in headers_json  # non-secret header preserved
 
 
+def test_build_capture_decompresses_gzip_body():
+    """A response whose body is gzip-compressed (Content-Encoding: gzip)
+    should land as decoded plaintext in body_text_or_json, not as the
+    binary gzip bytes interpreted as UTF-8 (which would be a wall of
+    replacement chars)."""
+    import gzip
+    plaintext = b'{"id":"msg_42","content":"hello world"}'
+    gz_body = gzip.compress(plaintext)
+    # Build a response event with the gzip body + matching Content-Encoding
+    resp_ev = TsharkEvent(
+        direction="response", host="", path="", method="",
+        status_code=200,
+        headers={"content-encoding": "gzip", "content-type": "application/json"},
+        body=gz_body,
+        stream_id="1", tcp_stream="10",
+        timestamp="2026-05-15T10:00:00",
+        is_http2=True,
+    )
+    rows = build_capture_from_pair(None, resp_ev, pair_id="p")
+    assert len(rows) == 1
+    body_text = rows[0]["body_text_or_json"]
+    assert "msg_42" in body_text, (
+        f"expected gzip body to be decompressed; got {body_text!r}"
+    )
+    assert rows[0]["body_format"] == "json"
+
+
+def test_build_capture_decompress_failure_keeps_raw_bytes():
+    """If decompression fails (e.g. truncated gzip), the raw bytes should
+    survive into body_text_or_json (as replacement chars). We must not
+    drop the row or raise."""
+    resp_ev = TsharkEvent(
+        direction="response", host="", path="", method="",
+        status_code=200,
+        headers={"content-encoding": "gzip"},
+        body=b"not actually gzip",  # invalid gzip
+        stream_id="1", tcp_stream="10",
+        timestamp="2026-05-15T10:00:00",
+        is_http2=True,
+    )
+    rows = build_capture_from_pair(None, resp_ev, pair_id="p")
+    assert len(rows) == 1  # didn't crash
+    body_text = rows[0]["body_text_or_json"]
+    assert "not actually gzip" in body_text
+
+
+def test_build_capture_identity_encoding_passthrough():
+    """Content-Encoding: identity (or empty) should leave the body alone."""
+    resp_ev = TsharkEvent(
+        direction="response", host="", path="", method="",
+        status_code=200,
+        headers={"content-encoding": "identity"},
+        body=b"plain {\"x\": 1}",
+        stream_id="1", tcp_stream="10",
+        timestamp="2026-05-15T10:00:00",
+        is_http2=True,
+    )
+    rows = build_capture_from_pair(None, resp_ev, pair_id="p")
+    assert rows[0]["body_text_or_json"] == "plain {\"x\": 1}"
+
+
 def test_build_capture_meta_carries_v_green_tier():
     """meta_json marks the row as V-GREEN clean evidence (A2 path)."""
     req_ev = event_from_record(_make_http2_request_record())

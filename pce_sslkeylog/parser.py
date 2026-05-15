@@ -138,10 +138,16 @@ def parse_ek_line(line: str) -> Optional[EkRecord]:
 class TsharkEvent:
     """Structured HTTP event extracted from one tshark EK record.
 
-    Either a request or a response; ``direction`` field discriminates.
+    ``direction`` discriminates the role:
+    - ``"request"`` — HEADERS frame from client
+    - ``"response"`` — HEADERS frame from server
+    - ``"data"`` — HTTP/2 DATA frame carrying reassembled body bytes; the
+      capture sink attaches the body to a previously-seen response (or
+      request) on the same ``pair_key``. ``method`` / ``status_code`` /
+      ``host`` are all unset for data events.
     """
 
-    direction: str                  # "request" or "response"
+    direction: str                  # "request" | "response" | "data"
     host: str                       # ``Host:`` or HTTP/2 ``:authority``
     path: str                       # request path (or empty on response)
     method: str                     # GET/POST/... (only on request, otherwise "")
@@ -152,6 +158,7 @@ class TsharkEvent:
     tcp_stream: Optional[str]       # TCP "tcp.stream" index — sticky per TCP connection
     timestamp: str                  # propagated from the source record
     is_http2: bool                  # True if HTTP/2 frame
+    end_stream: bool = False        # HTTP/2 END_STREAM flag (DATA frames)
     pair_key: str = field(init=False)  # set in __post_init__
 
     def __post_init__(self) -> None:
@@ -362,64 +369,124 @@ def event_from_record(rec: EkRecord) -> Optional[TsharkEvent]:
     return None
 
 
+def _hex_colon_to_bytes(s: str) -> bytes:
+    """Decode tshark's ``aa:bb:cc:...`` hex-colon byte format into bytes.
+
+    tshark emits binary fields (TCP payload, HTTP/2 DATA payload, etc.)
+    as ``aa:bb:cc`` strings in -T ek mode. Returns b"" on malformed
+    input or empty string.
+    """
+    if not s or not isinstance(s, str):
+        return b""
+    try:
+        return bytes.fromhex(s.replace(":", ""))
+    except ValueError:
+        return b""
+
+
+def _bool_field(v: Any) -> bool:
+    """tshark booleans come through as ``True`` / ``"True"`` / ``"true"``
+    / ``"1"`` / ``1`` depending on field type. Normalise."""
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)):
+        return bool(v)
+    if isinstance(v, str):
+        return v.strip().lower() in ("true", "1", "yes")
+    return False
+
+
 def _extract_http2_event(
     layers: dict[str, Any], tcp_stream: Optional[str], timestamp: str,
 ) -> Optional[TsharkEvent]:
-    """Extract one HTTP/2 request/response event from a layers dict.
+    """Extract the most informative HTTP/2 event from a layers dict.
 
-    Returns None when the packet contains only non-HEADERS frames
-    (SETTINGS, WINDOW_UPDATE, PING, etc.) or only the HTTP/2 magic
-    preface. Called *before* the HTTP/1.x branch in ``event_from_record``
+    Returns None when the packet contains only non-substantive frames
+    (SETTINGS / WINDOW_UPDATE / PING / preface / DATA without reassembled
+    body). Called *before* the HTTP/1.x branch in ``event_from_record``
     because a CONNECT-tunnel HTTP/2 packet also has a ``http`` layer
     (the outer CONNECT metadata) — we must give HTTP/2 priority.
-    """
-    h2 = _layer_as_dict(layers["http2"], _SUBSTANTIVE_HTTP2_KEYS)
-    if not h2:
-        return None
-    h2_headers = _extract_http2_headers(h2)
-    if not h2_headers:
-        # No real HEADERS frame (only SETTINGS / WINDOW_UPDATE / etc.)
-        return None
-    stream_id = _get_field(h2, "http2_http2_streamid", "http2.streamid",
-                            "http2_streamid")
-    method = h2_headers.get(":method")
-    status = h2_headers.get(":status")
-    host = h2_headers.get(":authority") or h2_headers.get("host", "")
-    path = h2_headers.get(":path", "")
-    # HTTP/2 reassembled body — same as http.file_data when present,
-    # else look at the http2.body field
-    body_text = _get_field(
-        h2, "http2_http2_body_fragment", "http2.body.fragment",
-        "http2_body_fragment",
-    ) or ""
-    if not body_text and "http" in layers:
-        body_text = _get_field(
-            _layer_as_dict(layers["http"], _SUBSTANTIVE_HTTP_KEYS),
-            "http_http_file_data", "http.file_data",
-        ) or ""
-    body = body_text.encode("utf-8", errors="replace") if body_text else b""
-    # Normalize HTTP/2 headers (drop :pseudo-headers from the captured
-    # set since we already pull them out as fields above)
-    norm_headers = {k.lower(): v for k, v in h2_headers.items()
-                     if not k.startswith(":")}
 
-    if method:
+    Priority within a multi-frame packet:
+      1. HEADERS frame with ``:method`` or ``:status``  →  request / response event
+      2. DATA frame carrying a reassembled body (``http2_http2_body_reassembled_data``,
+         tshark sets this on the END_STREAM DATA frame after stitching
+         earlier fragments) → ``direction="data"`` event with body
+    """
+    h2_value = layers["http2"]
+    items = h2_value if isinstance(h2_value, list) else [h2_value]
+    # Pass 1: look for a real HEADERS frame.
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if not _is_substantive(item, _SUBSTANTIVE_HTTP2_KEYS):
+            continue
+        h2 = item
+        h2_headers = _extract_http2_headers(h2)
+        if not h2_headers:
+            continue
+        stream_id = _get_field(h2, "http2_http2_streamid", "http2.streamid",
+                                "http2_streamid")
+        method = h2_headers.get(":method")
+        status = h2_headers.get(":status")
+        host = h2_headers.get(":authority") or h2_headers.get("host", "")
+        path = h2_headers.get(":path", "")
+        body_text = _get_field(
+            h2, "http2_http2_body_fragment", "http2.body.fragment",
+            "http2_body_fragment",
+        ) or ""
+        if not body_text and "http" in layers:
+            body_text = _get_field(
+                _layer_as_dict(layers["http"], _SUBSTANTIVE_HTTP_KEYS),
+                "http_http_file_data", "http.file_data",
+            ) or ""
+        body = body_text.encode("utf-8", errors="replace") if body_text else b""
+        norm_headers = {k.lower(): v for k, v in h2_headers.items()
+                         if not k.startswith(":")}
+        end_stream = _bool_field(h2.get("http2_http2_flags_end_stream"))
+        if method:
+            return TsharkEvent(
+                direction="request", host=host, path=path, method=method,
+                status_code=None, headers=norm_headers, body=body,
+                stream_id=stream_id, tcp_stream=tcp_stream,
+                timestamp=timestamp, is_http2=True, end_stream=end_stream,
+            )
+        if status:
+            try:
+                sc = int(status)
+            except (TypeError, ValueError):
+                sc = None
+            return TsharkEvent(
+                direction="response", host=host, path="", method="",
+                status_code=sc, headers=norm_headers, body=body,
+                stream_id=stream_id, tcp_stream=tcp_stream,
+                timestamp=timestamp, is_http2=True, end_stream=end_stream,
+            )
+    # Pass 2: DATA frame with reassembled body (sent on the END_STREAM frame).
+    # tshark stitches all preceding DATA fragments into ``body_reassembled_data``
+    # so a single ek line gives us the full body. We emit a ``direction="data"``
+    # event; ``PairingCaptureSink`` attaches its bytes to a previously-emitted
+    # response (or request) on the same pair_key.
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if item.get("http2_http2_type") != "0":
+            continue
+        reas = item.get("http2_http2_body_reassembled_data")
+        if not reas:
+            continue
+        body = _hex_colon_to_bytes(reas if isinstance(reas, str)
+                                    else (reas[0] if isinstance(reas, list) and reas else ""))
+        if not body:
+            continue
+        stream_id = _get_field(item, "http2_http2_streamid", "http2.streamid",
+                                "http2_streamid")
+        end_stream = _bool_field(item.get("http2_http2_flags_end_stream"))
         return TsharkEvent(
-            direction="request", host=host, path=path, method=method,
-            status_code=None, headers=norm_headers, body=body,
+            direction="data", host="", path="", method="",
+            status_code=None, headers={}, body=body,
             stream_id=stream_id, tcp_stream=tcp_stream,
-            timestamp=timestamp, is_http2=True,
-        )
-    if status:
-        try:
-            sc = int(status)
-        except (TypeError, ValueError):
-            sc = None
-        return TsharkEvent(
-            direction="response", host=host, path="", method="",
-            status_code=sc, headers=norm_headers, body=body,
-            stream_id=stream_id, tcp_stream=tcp_stream,
-            timestamp=timestamp, is_http2=True,
+            timestamp=timestamp, is_http2=True, end_stream=end_stream,
         )
     return None
 
@@ -523,13 +590,22 @@ def build_capture_from_pair(
     for ev in (req, resp):
         if ev is None:
             continue
-        body_text = ev.body.decode("utf-8", errors="replace") if ev.body else ""
+        # Decompress body per Content-Encoding header (gzip / deflate /
+        # br / zstd). tshark gives us the raw, compressed bytes from the
+        # http2 DATA frame's body_reassembled_data field; without this
+        # step body_text_or_json would be a wall of binary garbage.
+        raw_body = ev.body or b""
+        content_encoding = ev.headers.get("content-encoding", "") if ev.headers else ""
+        decoded_body = _decompress_body(raw_body, content_encoding)
+        body_text = decoded_body.decode("utf-8", errors="replace") if decoded_body else ""
         # Decide body_format: JSON if body parses, else text
         body_fmt = "text"
         if body_text:
             stripped = body_text.lstrip()
             if stripped.startswith(("{", "[")):
                 body_fmt = "json"
+            elif stripped.startswith("<"):
+                body_fmt = "text"  # HTML / XML — kept as text
         out.append(dict(
             direction=ev.direction,
             pair_id=pair_id,
@@ -545,6 +621,43 @@ def build_capture_from_pair(
             meta_json=_build_meta(ev),
         ))
     return out
+
+
+def _decompress_body(body: bytes, content_encoding: str) -> bytes:
+    """Decode a Content-Encoding'd body (gzip / deflate / br / zstd).
+
+    Mirrors :func:`pce_proxy.addon._decompress_streamed_body` but kept
+    standalone here to avoid a hard dependency from pce_sslkeylog onto
+    pce_proxy (the two are separate capture legs). Returns the raw body
+    unchanged on unknown encoding or decompression failure so callers
+    always get *something* back instead of an exception aborting the
+    whole capture pair.
+    """
+    enc = (content_encoding or "").lower().strip()
+    if not body or not enc or enc in ("identity", "none"):
+        return body
+    try:
+        if enc == "gzip":
+            import gzip
+            return gzip.decompress(body)
+        if enc == "deflate":
+            import zlib
+            try:
+                return zlib.decompress(body, -zlib.MAX_WBITS)
+            except zlib.error:
+                return zlib.decompress(body)
+        if enc == "br":
+            import brotli  # type: ignore[import-not-found]
+            return brotli.decompress(body)
+        if enc == "zstd":
+            import zstandard  # type: ignore[import-not-found]
+            return zstandard.ZstdDecompressor().decompress(body)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("body decompress failed (encoding=%s, size=%d): %s",
+                       enc, len(body), exc)
+        return body
+    logger.debug("unsupported content-encoding %r — keeping raw bytes", enc)
+    return body
 
 
 def _provider_from_host(host: str) -> str:

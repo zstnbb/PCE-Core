@@ -68,6 +68,8 @@ ALLOWED_HOSTS: set[str] = {
     "claude.ai",
     "api.githubcopilot.com",
     "gemini.google.com",
+    "aistudio.google.com",          # Google AI Studio web UI (P0 per matrix §3.1 F1 GAS)
+    "grok.com",                     # xAI Grok web UI (P0 per matrix §3.1 F1 Grok Web; API is api.x.ai)
     "copilot.microsoft.com",
     # ── Vendor Relay / IDE ────────────────────────────────
     # Cursor — required-domain list pulled directly from Cursor's

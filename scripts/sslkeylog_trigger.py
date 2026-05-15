@@ -38,6 +38,14 @@ DEFAULT_URLS = [
     "https://claude.ai/",
     "https://chatgpt.com/",
     "https://generativelanguage.googleapis.com/",
+    # Web frontends that aren't APIs — useful for W2.1 V-PARTIAL→V-GREEN sweeps
+    "https://gemini.google.com/",
+    "https://grok.com/",
+    "https://aistudio.google.com/",
+    # IDE / CLI backends (typically NOT proxied via system proxy):
+    "https://api2.cursor.sh/",
+    "https://server.codeium.com/",
+    "https://api.openai.com/",
 ]
 
 
@@ -59,13 +67,21 @@ def _build_ctx() -> ssl.SSLContext:
 
 
 def main(argv: list[str]) -> int:
-    urls = argv[1:] if len(argv) > 1 else DEFAULT_URLS
+    # Parse a tiny inline arg: ``--no-proxy`` forces direct WAN
+    # connections (skip system proxy / Clash). Useful for verifying
+    # that the WLAN/ethernet leg of multi-iface tshark works.
+    no_proxy = False
+    args = list(argv[1:])
+    if "--no-proxy" in args:
+        no_proxy = True
+        args.remove("--no-proxy")
+    urls = args if args else DEFAULT_URLS
     ctx = _build_ctx()
     handlers = [urllib.request.HTTPSHandler(context=ctx)]
-    # If the system proxy points at Clash (127.0.0.1:7890), honor it so
-    # our trigger traffic flows through the same path as Chrome's.
-    proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
-    if not proxy:
+    proxy = None if no_proxy else (
+        os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+    )
+    if proxy is None and not no_proxy:
         # On Windows, system proxy is in registry; we don't read it here.
         # Default to Clash if it's listening.
         try:
@@ -82,6 +98,11 @@ def main(argv: list[str]) -> int:
         handlers.append(urllib.request.ProxyHandler({
             "http": proxy, "https": proxy,
         }))
+    elif no_proxy:
+        # Explicitly install an empty ProxyHandler so urllib won't read
+        # the registry / env on its own.
+        handlers.append(urllib.request.ProxyHandler({}))
+        print("[trigger] --no-proxy: bypassing system proxy (direct WAN)")
     opener = urllib.request.build_opener(*handlers)
 
     for url in urls:
@@ -108,9 +129,9 @@ def main(argv: list[str]) -> int:
         print("[trigger] httpx not installed; skipping HTTP/2 trigger")
         return 0
     print()
-    print("[trigger] === HTTP/2 trigger via httpx ===")
+    print(f"[trigger] === HTTP/2 trigger via httpx ({'no proxy' if no_proxy else 'via ' + (proxy or 'direct')}) ===")
     proxy_dict: dict[str, str] = {}
-    if proxy:
+    if proxy and not no_proxy:
         proxy_dict = {"http://": proxy, "https://": proxy}
     try:
         with _httpx.Client(http2=True, verify=ctx, proxies=proxy_dict,

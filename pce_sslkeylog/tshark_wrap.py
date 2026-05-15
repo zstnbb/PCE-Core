@@ -97,19 +97,114 @@ def find_tshark() -> Optional[Path]:
     return None
 
 
-def tshark_version(tshark: Path) -> Optional[str]:
-    """Return tshark's version string, or None on failure."""
+def _run_text(argv: list[str], timeout: float = 10.0) -> Optional[str]:
+    """Run a subprocess and decode stdout as UTF-8 (replace errors).
+
+    Crucial on non-English Windows where the system code page defaults to
+    something like CP936/GBK — tshark itself emits UTF-8 for non-ASCII
+    interface aliases like ``以太网``, but Python's ``text=True`` mode
+    decodes via the system default and explodes with UnicodeDecodeError.
+    """
     try:
         out = subprocess.run(
-            [str(tshark), "--version"],
-            capture_output=True, text=True, timeout=10,
+            argv, capture_output=True, timeout=timeout,
         )
-        first_line = (out.stdout or "").splitlines()
-        if first_line:
-            return first_line[0].strip()
     except (subprocess.SubprocessError, OSError) as exc:
-        logger.warning("tshark --version failed: %s", exc)
-    return None
+        logger.warning("subprocess failed: %s: %s", argv[0], exc)
+        return None
+    raw = out.stdout or b""
+    # Try UTF-8 first; if it fails, fall back to system default.
+    for enc in ("utf-8", "mbcs"):
+        try:
+            return raw.decode(enc)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return raw.decode("utf-8", errors="replace")
+
+
+def tshark_version(tshark: Path) -> Optional[str]:
+    """Return tshark's version string, or None on failure."""
+    out_text = _run_text([str(tshark), "--version"])
+    if out_text is None:
+        return None
+    first_line = out_text.splitlines()
+    return first_line[0].strip() if first_line else None
+
+
+def list_tshark_interfaces(tshark: Path) -> list[str]:
+    """Return the interface aliases that ``tshark -D`` lists, e.g.
+    ``["WLAN", "Loopback Pseudo-Interface 1", "以太网", ...]``.
+
+    Used by :func:`detect_capture_interfaces` for auto-mode selection.
+    Returns an empty list on failure (callers should fall back to "any").
+    """
+    out_text = _run_text([str(tshark), "-D"])
+    if out_text is None:
+        return []
+    # Each line looks like "  3. \Device\NPF_{GUID} (WLAN)" — extract the
+    # paren'd alias.
+    aliases: list[str] = []
+    for raw in out_text.splitlines():
+        if "(" in raw and raw.rstrip().endswith(")"):
+            alias = raw.rsplit("(", 1)[-1].rstrip(")").strip()
+            if alias:
+                aliases.append(alias)
+    return aliases
+
+
+def _windows_default_route_iface() -> Optional[str]:
+    """Use PowerShell ``Get-NetRoute`` to find the alias of the interface
+    carrying the IPv4 default route. Returns None on failure."""
+    if sys.platform != "win32":
+        return None
+    out_text = _run_text(
+        ["powershell.exe", "-NoProfile", "-Command",
+         "Get-NetRoute -DestinationPrefix '0.0.0.0/0' | "
+         "Sort-Object RouteMetric | "
+         "Select-Object -First 1 -ExpandProperty InterfaceAlias"],
+    )
+    if out_text is None:
+        return None
+    alias = out_text.strip()
+    return alias or None
+
+
+def detect_capture_interfaces(tshark: Path) -> list[str]:
+    """Auto-select a reasonable interface set for the current host.
+
+    Windows:
+      - Includes ``Adapter for loopback traffic capture`` (catches every
+        Chromium app that honors the system proxy at 127.0.0.1:7890)
+      - Plus the default-route interface (WLAN / 以太网 / Ethernet)
+        which catches apps that bypass the system proxy (Cursor, codex
+        CLI, gemini CLI, MCP clients, Node undici, etc.)
+    POSIX:
+      - Just ``any`` (Linux's pseudo-interface for all-interface capture).
+    """
+    if sys.platform != "win32":
+        return ["any"]
+    aliases = list_tshark_interfaces(tshark)
+    chosen: list[str] = []
+    # Loopback first
+    for a in aliases:
+        if "loopback" in a.lower():
+            chosen.append(a)
+            break
+    # Then the default-route interface
+    default_alias = _windows_default_route_iface()
+    if default_alias and default_alias not in chosen:
+        chosen.append(default_alias)
+    # Fallback if both detections failed
+    if not chosen:
+        # Take everything except virtual/management adapters
+        for a in aliases:
+            la = a.lower()
+            if any(skip in la for skip in (
+                "vethernet", "etwdump", "本地连接",
+            )):
+                continue
+            chosen.append(a)
+    return chosen
 
 
 @dataclass
@@ -124,9 +219,12 @@ class TsharkConfig:
         Path to the SSLKEYLOGFILE that Chromium / Electron apps write
         TLS session keys to. tshark uses this for TLS decryption via
         ``-o tls.keylog_file:<path>``.
-    interface
-        Network interface name (or ``any`` on Linux, or a device GUID
-        on Windows from ``tshark -D``). Default ``any``.
+    interfaces
+        List of network interface aliases to capture from. On Windows,
+        passing multiple gives tshark ``-i WLAN -i Loopback`` which
+        merges traffic from both. Use :func:`detect_capture_interfaces`
+        for the default Windows pair (loopback + default-route iface).
+        On POSIX, ``["any"]`` is the usual choice.
     allowed_hosts
         DNS host names to keep. Used both in capture filter ``-f`` and
         post-filter in Python. Use ``pce_core.config.ALLOWED_HOSTS``
@@ -135,14 +233,41 @@ class TsharkConfig:
 
     tshark_path: Path
     keylog_file: Path
-    interface: str = "any"
+    interfaces: list[str] = field(default_factory=lambda: ["any"])
     allowed_hosts: frozenset[str] = field(default_factory=frozenset)
+
+    # Backward-compat shim: code (and tests) written against the
+    # single-iface API can still pass ``interface=...`` as a kw arg.
+    def __init__(
+        self,
+        tshark_path: Path,
+        keylog_file: Path,
+        interfaces: Optional[list[str]] = None,
+        allowed_hosts: Optional[frozenset[str]] = None,
+        interface: Optional[str] = None,
+    ) -> None:
+        self.tshark_path = tshark_path
+        self.keylog_file = keylog_file
+        if interfaces is not None:
+            self.interfaces = list(interfaces)
+        elif interface is not None:
+            self.interfaces = [interface]
+        else:
+            self.interfaces = ["any"]
+        self.allowed_hosts = allowed_hosts or frozenset()
+
+    @property
+    def interface(self) -> str:
+        """Backward-compat: first interface (for older log strings)."""
+        return self.interfaces[0] if self.interfaces else "any"
 
     def build_argv(self) -> list[str]:
         """Render the tshark command line for this config."""
         argv: list[str] = [str(self.tshark_path)]
-        # Interface
-        argv.extend(["-i", self.interface])
+        # Interface(s) — tshark accepts multiple ``-i`` flags and merges
+        # captures from all listed interfaces into one output stream.
+        for iface in self.interfaces:
+            argv.extend(["-i", iface])
         # Display filter: only TLS-wrapped HTTP/2 or HTTP/1, drop ACK-only frames
         # tshark display filter -Y; capture filter (-f) is BPF and can't see
         # HTTP layer, so we only use -f for coarse host narrowing.
