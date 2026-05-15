@@ -404,3 +404,41 @@ def test_all():
 
 if __name__ == "__main__":
     test_all()
+
+
+def test_conversation_normalizer_preserves_single_char_assistant():
+    """Regression: a single-character substantive assistant reply
+    (e.g. "4" for "What is 2+2?") must NOT be dropped by the
+    < 2 char UI-artifact filter. Fixed 2026-05-15 after the P5.D.1
+    W1-T2 retry capture silently dropped role="assistant" content="4".
+    See HANDOFF-W1-T2-CLAUDE-DESKTOP-MCPB-2026-05-15.md follow-up."""
+    import json
+    from pce_core.normalizer.conversation import ConversationNormalizer
+
+    body = json.dumps({
+        "messages": [
+            {"role": "user", "content": "What is 2+2?"},
+            {"role": "assistant", "content": "4"},
+        ],
+    })
+    norm = ConversationNormalizer()
+    result = norm.normalize(
+        body, body,
+        provider="test", host="", path="/regression",
+        model_name="w1-t2-retry",
+    )
+    assert result is not None, "normalize returned None"
+    assert len(result.messages) == 2, (
+        f"expected 2 messages (user + assistant), got "
+        f"{len(result.messages)}: {[(m.role, m.content_text) for m in result.messages]}"
+    )
+    assert result.messages[0].role == "user"
+    assert result.messages[0].content_text == "What is 2+2?"
+    assert result.messages[1].role == "assistant"
+    assert result.messages[1].content_text == "4"
+    assert result.messages[1].model_name == "w1-t2-retry"
+
+
+if __name__ == "__main__":
+    test_conversation_normalizer_preserves_single_char_assistant()
+    print("conversation normalizer single-char assistant preservation: PASS")
