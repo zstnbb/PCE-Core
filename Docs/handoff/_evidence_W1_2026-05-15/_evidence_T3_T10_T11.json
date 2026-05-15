@@ -1,0 +1,113 @@
+{
+  "baseline": {
+    "taken_at_iso": "2026-05-15 07:11:07 UTC",
+    "raw_captures": 38467,
+    "messages": 6249,
+    "sessions": 1428
+  },
+  "current": {
+    "raw_captures": 39092,
+    "messages": 6495,
+    "sessions": 1452,
+    "per_source_id": {
+      "browser-extension-default": 6768,
+      "cdp-embedded": 102,
+      "l3g-local-persistence-default": 15584,
+      "l3h-cli-wrapper-default": 3,
+      "mcp-default": 10,
+      "proxy-default": 16625
+    }
+  },
+  "delta": {
+    "raw_captures": 625,
+    "messages": 246,
+    "sessions": 24
+  },
+  "T3": {
+    "task": "Claude Code L3h CLI wrap",
+    "captures": [
+      {
+        "id": "80be86fcce9447528f5d6515404d2b7d",
+        "host": "cli-wrapper",
+        "path": "/claude-code/claude",
+        "source_id": "l3h-cli-wrapper-default",
+        "pair_id": "10822a4a4d4c4e59",
+        "direction": "conversation",
+        "body_len": 417,
+        "meta_json": "{\"target_id\":\"claude-code\",\"command_name\":\"claude\",\"target_path\":\"C:\\\\Users\\\\ZST\\\\AppData\\\\Roaming\\\\npm\\\\claude.cmd\",\"target_version\":\"2.1.139\",\"capture_label\":\"claude-code\",\"tty_passthrough\":true,\"timed_out\":false,\"stdin_bytes\":0,\"stdout_bytes\":0,\"stderr_bytes\":0,\"stdin_truncated\":false,\"stdout_truncated\":false,\"stderr_truncated\":false,\"fingerprint\":\"d976752bb014af5e74b96ca5e91efa2a0fec529cc59faad57db13af953bb258e\",\"wrapper_version\":\"0.1.0\",\"capture_kind\":\"stdio_relay\",\"git\":{\"git_commit_sha\":\"a5d09f53037209c2139bd06327fdfb5c6e7c7435\",\"git_branch\":\"claude/priceless-proskuriakova-b37af3\",\"git_short_sha\":\"a5d09f5\"}}",
+        "created_at": 1778829415.2913733,
+        "model_name": null
+      }
+    ],
+    "pass": true
+  },
+  "T10": {
+    "task": "Gemini CLI L3h wrap",
+    "captures": [
+      {
+        "id": "75a147d5b45a47bcad79e3b49d1997a2",
+        "host": "cli-wrapper",
+        "path": "/unknown/gemini",
+        "source_id": "l3h-cli-wrapper-default",
+        "pair_id": "6037df0a67714fce",
+        "direction": "conversation",
+        "body_len": 433,
+        "meta_json": "{\"target_id\":\"unknown\",\"command_name\":\"gemini\",\"target_path\":\"C:\\\\Users\\\\ZST\\\\AppData\\\\Roaming\\\\npm\\\\gemini.cmd\",\"target_version\":null,\"capture_label\":\"gemini-cli\",\"tty_passthrough\":true,\"timed_out\":false,\"stdin_bytes\":0,\"stdout_bytes\":0,\"stderr_bytes\":0,\"stdin_truncated\":false,\"stdout_truncated\":false,\"stderr_truncated\":false,\"fingerprint\":\"6a4ae1ca4ed339204f6dda71937ef140e882b9d8559406eab688b1ccf6c5ebf1\",\"wrapper_version\":\"0.1.0\",\"capture_kind\":\"stdio_relay\",\"git\":{\"git_commit_sha\":\"a5d09f53037209c2139bd06327fdfb5c6e7c7435\",\"git_branch\":\"claude/priceless-proskuriakova-b37af3\",\"git_short_sha\":\"a5d09f5\"}}",
+        "created_at": 1778829381.2307816,
+        "model_name": null
+      }
+    ],
+    "pass": true
+  },
+  "T11": {
+    "task": "Gemini CLI L3g local persistence",
+    "captures": [
+      {
+        "id": "aeb70cd36f604d76bc1b33acb6e48b51",
+        "host": "local-gemini-cli",
+        "path": "/b1e5c0a8-4f9d-4180-b5a7-85fe2e9db3c5",
+        "source_id": "l3g-local-persistence-default",
+        "pair_id": "e9267005d8c34676",
+        "direction": "conversation",
+        "body_len": 656,
+        "meta_json": "{\"source_kind\":\"ide_chat_session\",\"source_path\":\"C:\\\\Users\\\\ZST\\\\.gemini\\\\tmp\\\\priceless-proskuriakova-b37af3\\\\chats\\\\session-2026-05-15T07-13-b1e5c0a8.jsonl\",\"scanner\":\"ide_scanner\"}",
+        "created_at": 1778829352.0523922,
+        "model_name": null,
+        "session_hint": "b1e5c0a8-4f9d-4180-b5a7-85fe2e9db3c5"
+      }
+    ],
+    "session": {
+      "id": "cda476b0bd784186a47ae6743b5b0750",
+      "session_key": "b1e5c0a8-4f9d-4180-b5a7-85fe2e9db3c5",
+      "tool_family": "gemini-cli-l3g",
+      "provider": "google",
+      "model_names": "[\"gemini-3-flash-preview\"]",
+      "message_count": 2,
+      "started_at": 1778829352.0523922
+    },
+    "messages": [
+      {
+        "id": "2aba8f01b2854ae699ba7c502dd2b7de",
+        "role": "user",
+        "model_name": "gemini-3-flash-preview",
+        "ts": 1778829352.0523922,
+        "content_len": 12,
+        "content_preview": "What is 2+2?"
+      },
+      {
+        "id": "4b07d37de7cb453e8ac02f7abc2196df",
+        "role": "assistant",
+        "model_name": "gemini-3-flash-preview",
+        "ts": 1778829352.0523922,
+        "content_len": 9,
+        "content_preview": "2 + 2 = 4"
+      }
+    ],
+    "pass": true
+  },
+  "bug_fix": {
+    "file": "pce_core/normalizer/pipeline.py",
+    "description": "Added local-gemini-cli to the L3g host list in normalize_conversation, so GeminiCliNormalizer wins over ConversationNormalizer",
+    "affected_tests": "T11 \u2014 fixes assistant role mapping + tool_family"
+  }
+}
