@@ -207,15 +207,16 @@ handoff。代码存在（V-HERMETIC ~ V-DOC-ONLY）。
 | 1' | L1 continued chat sweep | same | `HANDOFF-P1-CLAUDE-DESKTOP-CHAT-FULL-SWEEP-2026-05-10.md` + 4 续篇：合计 D00-D22 **19/22 PASS** (86%) 跨 5 sub-run | **V-GREEN**（与 #1 同基底） |
 | 2 | **L3g 持久化** | LocalCache 文件系统 | H3g scan live 于 HANDOFF-P1-N-L1 "8 captures emitted first scan, 0/8 deduped second scan, watch loop ticking"；`tests/e2e_l3g/` 8 test files + 43 tests GREEN | **V-GREEN** |
 | 3 | A2 SSLKEYLOGFILE | Chromium net stack TLS secrets | **H3 PASS 2026-05-10**: 10 TLS 1.3 sessions × 5 labels；**但 `pce_proxy/keylog_mode.py` + `cert_wizard/keylog.py` 未写**，ADR-018 §5.2 Phase 5 未实施 | **V-PARTIAL** |
-| 4 | L3f MCP (posture A `pce_mcp` `.mcpb`) | JSON-RPC over stdio | `tests/e2e_mcp/test_pce_mcp_stdio.py` E01-E11 绿但 upstream 是 `_mock_upstream.py` mock；`.mcpb` 未对真实 Claude Desktop 双击安装跑 live | **V-HERMETIC** |
-| 5 | L3f MCP (posture B `pce_mcp_proxy`) | 同上 | `test_pce_mcp_proxy_stdio.py` R01-R11 同 mock | **V-HERMETIC** |
+| 4 | L3f MCP (posture A `pce_mcp` `.mcpb`) | JSON-RPC over stdio | `HANDOFF-W1-T2-CLAUDE-DESKTOP-MCPB-2026-05-15.md` 2026-05-15 08:27 UTC: pce-mcp-0.1.0.mcpb 双击安装到真 Claude Desktop ✅, Claude UI 调用 `pce_capture` 工具落 1 行 `source_id='mcp-default'` (pair_id=`d502a3e9b7914511`, id=`62bd5f46ff9b45ba`, provider=test, model_name=w1-t2-retry, meta_json 含 test_marker/wave/issued_at). 副带证据: L1 proxy 同时见证了 `pce_stats` 调用流量 (claude.ai/api/organizations/... body 含 'pce_stats') | **V-GREEN** |
+| 5 | L3f MCP (posture B `pce_mcp_proxy`) | 同上 | `test_pce_mcp_proxy_stdio.py` R01-R11 同 mock; W1-T1 live sign-off 推到独立 RECON session | **V-HERMETIC** |
 | 6 | L3h CLI wrap | 进程 stdin/stdout | `tests/e2e_cli/` 77 tests GREEN 但 `_patch_discover(monkeypatch, [_mk_target(...)])` 合成 target；Desktop 内嵌 `claude-code\<ver>\claude.exe` 用绝对路径 spawn，PATH shim 不生效（discovery.py 已记） | **V-HERMETIC** |
 | 7 | L3b Electron preload | NODE_OPTIONS | **H4 LOCKED 2026-05-10**: `EnableNodeOptionsEnvironmentVariable=Disabled` | **V-DEAD** |
 | 8 | L3d CDP launcher | --remote-debugging-port | **MSIX 6 实验全败**（Method A-F 全挂） | **V-DEAD** |
 | 9 | L2 Frida | 进程内 TLS unwrap | ADR-018 §3.7 移到 Pro 不实施 | **V-DEAD**（主仓） |
 
-**有效 V-GREEN：2**（L1 + L3g）。A2 差 1 天实施工作可升 V-GREEN；L3f
-差 1 次 live sign-off。**目前差 1 条达到 3 条标准。**
+**有效 V-GREEN：3** ✅ ≥3 达标 (L1 + L3g + L3f .mcpb)。F4 P1 Claude Desktop
+是 P5.D.1 13 P0 中**第一个**达到 STRICT ≥3 V-GREEN 不相互依赖路线的场景。
+2026-05-15 W1-T2 retry 升级。
 
 #### P2 ChatGPT Desktop (Windows MSIX, v1.2026.119.0)
 
@@ -368,7 +369,7 @@ PROJECT.md + UCS §1.1 FR-1 显式 **T3 非目标**。无需评估。
 | F1 Gemini Web               | 1 | **2** ✅ W1-T4 | 3 | 3 | 3 | W4-T3 (L3d 或 L4a) |
 | F1 GAS                      | 1 | 1 (W1-T5 via L3a fallback, L1 仍 hermetic) | 3 | 3 | 3 | L1 sweep + W4-T3 |
 | F1 Grok Web                 | 1 | **2** ✅ W1-T6 | 3 | 3 | 3 | W4-T3 (L4a) |
-| F4 P1 Claude Desktop        | 2 | 2 (W1-T2 .mcpb 安装 OK, tool call 未触发 → PARTIAL) | 3 | 3 | 3 | W1-T2 retry + W1-T1 (proxy posture B) |
+| F4 P1 Claude Desktop        | 2 | **3** ✅ W1-T2 retry (08:27 UTC `pce_capture` PASS, pair_id=d502a3e9...) | 3 | 3 | 3 | (达标) + W1-T1 (proxy posture B for 4-leg buffer) |
 | F4 P2 ChatGPT Desktop       | 1 | 1 | 1+A2 | 3 | 3 | W2 + **W7-T2 UIA** |
 | F5 P3 Cursor                | 0 | 0 | 1 (MCP) | 3 | 3 | **W8-T1/T2/T3** |
 | F5 P4 Windsurf              | 1 | 1 (W1-T7 deferred) | 3 | 3 | 3 | W1-T7 + W4-T5 |
@@ -376,7 +377,7 @@ PROJECT.md + UCS §1.1 FR-1 显式 **T3 非目标**。无需评估。
 | F6 P6 Claude Code CLI       | 1 | **2** ✅ W1-T3 | 3 | 3 | 3 | W4-T6 (L1) |
 | F6 P7 Codex CLI             | 0 | **2** ✅ W1-T8 + W1-T9 | 3 | 3 | 3 | W4-T7 (L1) |
 | F6 P8 Gemini CLI            | 0 | **2** ✅ W1-T10 + W1-T11 (+ bug fix 097a1d2) | 3 | 3 | 3 | W4-T8 (L1) |
-| **TOTAL ≥3 V-GREEN**        | **0/13** | **0/13** | **10/13** | **13/13** | **13/13** | — |
+| **TOTAL ≥3 V-GREEN**        | **0/13** | **1/13** (P1 Claude Desktop) | **10/13** | **13/13** | **13/13** | — |
 | **TOTAL ≥2 V-GREEN**        | **6/13** | **11/13** | **13/13** | **13/13** | **13/13** | — |
 
 **STRICT MODE 不变式: Phase B 三 track (W6/W7/W8) 任一未达 ≥3 →
@@ -389,13 +390,15 @@ release 顺移. 不接受 12/13 + carry-forward 妥协.**
 > 已 alive.
 >
 > **2026-05-15 W1 sweep (单 session, owner manual + agent orchestration)**:
-> 8 件 W1 任务 PASS (T3 / T4 / T5 / T6 / T8 / T9 / T10 / T11), 1 件
-> PARTIAL (T2 .mcpb 安装 OK 但 tool call 未触发), 2 件 deferred (T1 + T7
-> 需要独立 RECON session). **+1 P8 normalizer routing bug 修复** (commit
-> 097a1d2), 否则 v1.1.6 会带着 false-positive V-GREEN 上线.
+> **9 件 W1 任务 PASS** (T2 / T3 / T4 / T5 / T6 / T8 / T9 / T10 / T11),
+> 2 件 deferred (T1 + T7 需要独立 RECON session). **+1 P8 normalizer
+> routing bug 修复** (commit 097a1d2), 否则 v1.1.6 会带着 false-positive
+> V-GREEN 上线.
 >
-> 11/13 场景已达 ≥2 V-GREEN. 剩 P3 Cursor 与 P5 Copilot 处于 0 V-GREEN
-> 等 Phase B (Wave 6 + Wave 8) 救济.
+> 13/13 场景 ≥1 V-GREEN; **11/13 场景 ≥2 V-GREEN; 1/13 场景 (P1 Claude
+> Desktop) 已达 ≥3 V-GREEN STRICT 标准** (L1 + L3g + L3f .mcpb 同 commit
+> 内升 V-GREEN). 剩 P3 Cursor 与 P5 Copilot 处于 0 V-GREEN 等 Phase B
+> (Wave 6 + Wave 8) 救济.
 
 ### 4.2 推后期 (不在 v1.1.6 范围) — 仅参考
 

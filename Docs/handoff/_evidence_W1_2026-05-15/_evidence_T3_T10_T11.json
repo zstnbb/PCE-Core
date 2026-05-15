@@ -109,5 +109,61 @@
     "file": "pce_core/normalizer/pipeline.py",
     "description": "Added local-gemini-cli to the L3g host list in normalize_conversation, so GeminiCliNormalizer wins over ConversationNormalizer",
     "affected_tests": "T11 \u2014 fixes assistant role mapping + tool_family"
+  },
+  "T2": {
+    "task": "Claude Desktop pce-mcp .mcpb posture A",
+    "sub_phases": {
+      "1_install": "PASS (07:50 UTC)",
+      "2_pce_stats_attempt": "INCONCLUSIVE \u2014 pce_stats is read-only, no raw_captures row",
+      "3_pce_capture_retry": "PASS (08:27 UTC)"
+    },
+    "capture_row": {
+      "id": "62bd5f46ff9b45baa5bef2355b2c749d",
+      "created_at": 1778833637.2668314,
+      "source_id": "mcp-default",
+      "direction": "conversation",
+      "pair_id": "d502a3e9b7914511",
+      "host": "",
+      "path": "",
+      "method": "POST",
+      "provider": "test",
+      "model_name": "w1-t2-retry",
+      "status_code": null,
+      "latency_ms": null,
+      "headers_redacted_json": "{}",
+      "body_text_or_json": "{\"messages\":[{\"role\":\"user\",\"content\":\"What is 2+2?\"},{\"role\":\"assistant\",\"content\":\"4\"}]}",
+      "body_format": "json",
+      "error": null,
+      "session_hint": null,
+      "meta_json": "{\"test_marker\": \"W1-T2-retry\", \"wave\": \"P5.D.1-W1\", \"issued_at\": \"2026-05-15\"}",
+      "schema_version": 2,
+      "source": null,
+      "agent_name": null,
+      "agent_version": null,
+      "capture_time_ns": null,
+      "quality_tier": "T1_structured",
+      "fingerprint": null,
+      "deduped_by": null,
+      "form_id": null,
+      "app_name": null,
+      "layer_meta_json": null
+    },
+    "session": {
+      "id": "12e0551986c540aab7483f5d19117f3a",
+      "session_key": null,
+      "tool_family": "test-web",
+      "provider": "test",
+      "model_names": "[\"w1-t2-retry\"]",
+      "message_count": 1
+    },
+    "messages": [
+      {
+        "role": "user",
+        "model": "w1-t2-retry",
+        "len": 12,
+        "preview": "What is 2+2?"
+      }
+    ],
+    "pass": true
   }
 }
