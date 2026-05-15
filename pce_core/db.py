@@ -257,6 +257,13 @@ SOURCE_L3H_CLI_WRAPPER = "l3h-cli-wrapper-default"
 # (e.g. a non-extension-supported AI surface, or a paid tier where the
 # wire format is opaque). Registered by migration 0014.
 SOURCE_CLIPBOARD_MONITOR = "clipboard-monitor-default"
+# P5.D.1 Wave 2 (rewritten 2026-05-15 for Arch B / tshark wrap) — A2
+# SSLKEYLOGFILE network capture via tshark + Chromium-written keylog.
+# This is the V-GREEN-clean compliance replacement for L1 MITM on
+# Chromium-based AI surfaces (see REDUNDANCY-AUDIT-MATRIX.md section
+# 1.0 for the V-GREEN-C amendment that motivated this leg).
+# Registered by migration 0015.
+SOURCE_SSLKEYLOG = "sslkeylog-default"
 
 _DEFAULT_SOURCES = [
     (SOURCE_PROXY, "proxy", "mitmproxy", "complete", "default proxy source"),
@@ -268,6 +275,7 @@ _DEFAULT_SOURCES = [
     (SOURCE_L3G_LOCAL_PERSISTENCE, "local_persistence", "pce-persistence-watcher", "light", "default local persistence watcher capture source (UCS L3g, ADR-018)"),
     (SOURCE_L3H_CLI_WRAPPER, "cli_wrapper", "pce-cli-wrapper", "complete", "default CLI wrapper capture source (UCS L3h, ADR-018)"),
     (SOURCE_CLIPBOARD_MONITOR, "clipboard_monitor", "pce-clipboard-monitor", "light", "default clipboard AI-signal capture source (UCS L4a, P5.D.1 W4)"),
+    (SOURCE_SSLKEYLOG, "sslkeylog", "tshark-wrap", "complete", "A2 SSLKEYLOGFILE network capture via tshark + Chromium-written keylog (UCS L1-alt, V-GREEN-clean, P5.D.1 W2)"),
 ]
 
 
