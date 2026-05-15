@@ -339,9 +339,11 @@ def normalize_conversation(
                     created_at=capture_row.get("created_at"),
                 )
             elif capture_row.get("host") in (
-                "local-copilot-chat", "local-cursor-chat", "local-codex-cli",
+                "local-copilot-chat", "local-cursor-chat",
+                "local-codex-cli", "local-gemini-cli",
             ):
-                # L3g IDE chat sessions (P3 Cursor, P5 Copilot).
+                # L3g IDE / CLI chat sessions (P3 Cursor, P5 Copilot,
+                # P7 Codex CLI, P8 Gemini CLI).
                 # Body is the full session state as JSON.
                 from .registry import get_normalizer as _get_norm
                 host = capture_row.get("host", "")
