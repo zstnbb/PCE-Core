@@ -1,10 +1,26 @@
 # SPDX-License-Identifier: Apache-2.0
 """One-shot clipboard read + AI detect + insert.
 
+**Classification**: V-AUX (auxiliary evidence) per
+``Docs/stability/REDUNDANCY-AUDIT-MATRIX.md`` section 1.1 amendment
+adopted 2026-05-15. Clipboard captures are user-driven (each capture
+needs the user to actively select + Ctrl+C), so they do NOT satisfy
+the "passive / automatic / full-conversation" semantic that the >=3
+V-GREEN invariant requires. Use this tool for:
+
+- Supplementary signal alongside the passive legs (L1 / L3a / L3g
+  / L3d CDP / L3f MCP) for human spot-checking
+- Cross-leg monitoring (if L1 caught it but clipboard didn't fire,
+  user didn't bother copying; if clipboard fired but L1 missed it,
+  the passive leg has a gap)
+
+Do NOT use this tool to claim V-GREEN status for a scenario's third
+leg -- W4-T3 and W4-T5 in the redundancy sprint were re-pointed to
+**L3d CDP launcher** as the actual third passive leg.
+
 Bypasses the threaded ``ClipboardMonitor`` (which segfaults on Windows
 from non-main threads in some envs) by reading the clipboard from the
-main thread via a PowerShell subprocess. Designed for W4-T3 / W4-T5
-manual evidence sweeps.
+main thread via a PowerShell subprocess.
 
 Usage::
 
@@ -15,7 +31,7 @@ where ``<tag>`` identifies the source surface (e.g. ``gemini``,
 ``meta_json.subsystem`` for downstream filtering.
 
 Exit codes:
-- 0 capture inserted
+- 0 capture inserted (as V-AUX, not V-GREEN)
 - 1 clipboard read failed
 - 2 clipboard empty / too short
 - 3 not AI conversation (skipped)
@@ -87,6 +103,11 @@ def main() -> int:
             "message_count": len(messages),
             "subsystem": tag,
             "ai_signal_score": confidence,
+            # P5.D.1 V-AUX classification (2026-05-15) — this row is
+            # auxiliary evidence, NOT a leg toward the >=3 V-GREEN
+            # invariant. See REDUNDANCY-AUDIT-MATRIX.md section 1.1.
+            "evidence_tier": "V-AUX",
+            "redundancy_leg": False,
         }, ensure_ascii=False),
     )
     print(f"capture inserted id={capture_id} pair_id={pair_id} "
