@@ -60,6 +60,23 @@ _TARGETS: list[_TargetSpec] = [
         provider="anthropic",
         description="Anthropic Claude Code CLI (npm-installed)",
     ),
+    # P5.D.1 W4 — Codex CLI (OpenAI). Catalogued so target_id resolves
+    # to a stable string when relayed (was "unknown" prior to W4).
+    _TargetSpec(
+        target_id="codex-cli",
+        command_name="codex",
+        npm_package="@openai/codex",
+        provider="openai",
+        description="OpenAI Codex CLI (npm-installed)",
+    ),
+    # P5.D.1 W4 — Gemini CLI (Google). Catalogued for the same reason.
+    _TargetSpec(
+        target_id="gemini-cli",
+        command_name="gemini",
+        npm_package="@google/gemini-cli",
+        provider="google",
+        description="Google Gemini CLI (npm-installed)",
+    ),
 ]
 
 
