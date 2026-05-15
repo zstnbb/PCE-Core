@@ -179,6 +179,46 @@ def test_sink_host_allowlist_filters_out_other_traffic():
     assert "www.bing.com" not in hosts
 
 
+def test_sink_host_allowlist_strips_port_suffix():
+    """HTTP/1 CONNECT requests carry ``Host: api.anthropic.com:443`` —
+    the ``:443`` must not defeat the allowlist match against
+    ``api.anthropic.com``. Same for HTTP/2 ``:authority`` going through
+    a proxy that preserves the port."""
+    insert = MockInsertCapture()
+    sink = PairingCaptureSink(
+        insert_capture_fn=insert,
+        new_pair_id_fn=MockNewPairId(),
+        try_normalize_pair_fn=lambda *a, **k: None,
+        host_allowlist=frozenset(["api.anthropic.com"]),
+    )
+
+    # Send a CONNECT request whose host has :443 attached
+    def _h1_connect_line(host_with_port: str, tcp_stream: str) -> str:
+        return json.dumps({
+            "timestamp": "2026-05-15T10:00:00",
+            "layers": {
+                "tcp": {"tcp_tcp_stream": tcp_stream},
+                "http": {
+                    "http_http_request_method": "CONNECT",
+                    "http_http_host": host_with_port,
+                    "http_http_request_uri": host_with_port,
+                },
+            },
+        })
+
+    sink.handle_line(_h1_connect_line("api.anthropic.com:443", "5"))
+    sink.handle_line(json.dumps({
+        "timestamp": "2026-05-15T10:00:01",
+        "layers": {
+            "tcp": {"tcp_tcp_stream": "5"},
+            "http": {"http_http_response_code": "200"},
+        },
+    }))
+    assert sink.stats.pairs_emitted == 1, (
+        "CONNECT with :port host should match allowlist after strip"
+    )
+
+
 def test_sink_host_allowlist_suffix_match():
     """www.claude.ai should match an allowlist entry of 'claude.ai'."""
     insert = MockInsertCapture()

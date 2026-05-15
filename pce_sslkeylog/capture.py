@@ -195,8 +195,25 @@ def _host_allowed(host: str, allowlist: frozenset[str]) -> bool:
     """Match a host against the allowlist, with suffix support.
 
     e.g. "claude.ai" in allowlist matches "www.claude.ai".
+
+    Also strips ``:port`` suffix that appears on HTTP/1 ``CONNECT`` requests
+    (e.g. ``api.anthropic.com:443``) and on HTTP/2 ``:authority`` when an
+    intermediate proxy includes the port — without this normalization
+    those captures get dropped by an otherwise-correct allowlist.
     """
     h = host.lower().rstrip(".")
+    # Strip ``:port`` if present (but be careful: IPv6 literals contain
+    # colons inside ``[...]`` brackets, so only strip the trailing one
+    # after the last ``]`` or after a dot-name).
+    if h.startswith("["):
+        # IPv6 form ``[::1]:443`` — strip just the trailing :port
+        idx = h.rfind("]:")
+        if idx != -1:
+            h = h[: idx + 1]
+    else:
+        idx = h.rfind(":")
+        if idx != -1 and h[idx + 1:].isdigit():
+            h = h[:idx]
     if h in allowlist:
         return True
     return any(h.endswith("." + allowed) for allowed in allowlist)

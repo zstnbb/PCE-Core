@@ -50,18 +50,50 @@ _TSHARK_CANDIDATE_PATHS: tuple[str, ...] = (
     "/opt/homebrew/bin/tshark",
 )
 
+# Drive letters to scan for portable/custom Wireshark installs on Windows.
+# We check both ``\Wireshark\tshark.exe`` (installer default capitalization)
+# and ``\wireshark\tshark.exe`` (portable / lowercase) under each drive root.
+_WIN_PORTABLE_DRIVES: tuple[str, ...] = ("C", "D", "E", "F", "G", "H")
+_WIN_PORTABLE_SUBDIRS: tuple[str, ...] = (
+    r"Wireshark\tshark.exe",
+    r"wireshark\tshark.exe",
+    r"Tools\Wireshark\tshark.exe",
+    r"PortableApps\WiresharkPortable\App\Wireshark\tshark.exe",
+)
+
 
 def find_tshark() -> Optional[Path]:
-    """Locate tshark on this host. Returns absolute Path or None."""
-    # First try PATH lookup
+    """Locate tshark on this host. Returns absolute Path or None.
+
+    Resolution order:
+    1. ``PCE_TSHARK_PATH`` env var (operator override).
+    2. ``PATH`` (i.e. ``shutil.which``).
+    3. Standard install paths (Program Files on Windows, /usr/bin on POSIX).
+    4. Portable / non-default Windows locations (``F:\\wireshark\\…``, etc.).
+    """
+    # 1. Explicit override
+    override = os.environ.get("PCE_TSHARK_PATH")
+    if override:
+        p = Path(override)
+        if p.is_file():
+            return p
+        logger.warning("PCE_TSHARK_PATH=%s but file not found; ignoring", override)
+    # 2. PATH
     found = shutil.which("tshark")
     if found:
         return Path(found)
-    # Then the well-known install dirs
+    # 3. Standard install dirs
     for candidate in _TSHARK_CANDIDATE_PATHS:
         p = Path(candidate)
         if p.is_file():
             return p
+    # 4. Portable installs (Windows only)
+    if sys.platform == "win32":
+        for drive in _WIN_PORTABLE_DRIVES:
+            for sub in _WIN_PORTABLE_SUBDIRS:
+                p = Path(f"{drive}:\\{sub}")
+                if p.is_file():
+                    return p
     return None
 
 

@@ -108,11 +108,16 @@ def _cmd_run(args: argparse.Namespace) -> int:
     allowlist = frozenset(ALLOWED_HOSTS)
     sink = PairingCaptureSink(host_allowlist=allowlist)
 
+    # On TUN/VPN/Clash adapters the BPF `host <name>` filter resolves to
+    # the public IP but the wire shows rewritten internal IPs (e.g.
+    # 198.18.0.x). Caller passes --no-bpf-filter; Python side allowlist
+    # still constrains what lands in raw_captures.
+    bpf_hosts = frozenset() if args.no_bpf_filter else allowlist
     config = TsharkConfig(
         tshark_path=tshark,
         keylog_file=keylog,
         interface=args.interface,
-        allowed_hosts=allowlist,
+        allowed_hosts=bpf_hosts,
     )
     runner = TsharkRunner(config, on_line=sink.handle_line)
 
@@ -128,29 +133,43 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if sys.platform != "win32":
         signal.signal(signal.SIGTERM, _on_sigint)
 
+    duration = float(getattr(args, "duration", 0.0) or 0.0)
     logger.info(
         "starting pce_sslkeylog daemon (tshark=%s, keylog=%s, interface=%s, "
-        "hosts=%d)",
+        "hosts=%d, duration=%s)",
         tshark, keylog, args.interface, len(allowlist),
+        f"{duration}s" if duration > 0 else "until SIGINT",
     )
     runner.start()
+    start_ts = time.time()
     try:
         # Heartbeat / stats loop
-        last_log = time.time()
+        last_log = start_ts
         while not stopping and runner.running:
             time.sleep(1.0)
-            if time.time() - last_log >= 30.0:
+            now = time.time()
+            if duration > 0 and (now - start_ts) >= duration:
+                logger.info("duration %.1fs elapsed, stopping", duration)
+                break
+            if now - last_log >= 30.0:
                 s = sink.stats
                 logger.info(
                     "stats: lines=%d parsed=%d events=%d pairs=%d orphans=%d errors=%d",
                     s.lines_total, s.lines_parsed, s.events_total,
                     s.pairs_emitted, s.orphans_emitted, s.insert_errors,
                 )
-                last_log = time.time()
+                last_log = now
     except KeyboardInterrupt:
         stopping = True
     finally:
         runner.stop(timeout=5.0)
+        # Final stats line so smoke-test results show up even without 30s elapsed
+        s = sink.stats
+        logger.info(
+            "final stats: lines=%d parsed=%d events=%d pairs=%d orphans=%d errors=%d",
+            s.lines_total, s.lines_parsed, s.events_total,
+            s.pairs_emitted, s.orphans_emitted, s.insert_errors,
+        )
     return 5 if stopping else 0
 
 
@@ -206,7 +225,19 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     run_p = sub.add_parser("run", help="Start the capture daemon")
     run_p.add_argument("--interface", default="any",
-                       help="Network interface (default: any)")
+                       help="Network interface (default: any). On Windows "
+                            "use the alias from `tshark -D` (e.g. WLAN). "
+                            "Pass multiple times to capture from several.")
+    run_p.add_argument("--duration", type=float, default=0.0,
+                       help="Auto-stop after N seconds (0 = run until "
+                            "SIGINT; useful for smoke tests).")
+    run_p.add_argument(
+        "--no-bpf-filter", action="store_true",
+        help="Skip the BPF host filter. Use this when capturing on a "
+             "TUN/VPN/Clash adapter where IP addresses are rewritten so "
+             "BPF `host <name>` resolves to the wrong addresses. Python "
+             "side `host_allowlist` still applies post-decryption.",
+    )
 
     probe_p = sub.add_parser("probe", help="Check tshark + keylog availability")
     probe_p.add_argument("--allow-no-keylog", action="store_true",

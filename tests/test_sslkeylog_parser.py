@@ -193,6 +193,115 @@ def test_event_from_record_http2_settings_returns_none():
     assert event_from_record(rec) is None
 
 
+def test_event_from_record_http2_individual_field_headers():
+    """tshark 4.6+ emits HTTP/2 headers as individual ``http2_http2_headers_<name>``
+    fields (not just the parallel name/value arrays). Verify the parser
+    extracts pseudo-headers from this format too."""
+    rec = EkRecord(
+        timestamp="2026-05-15T10:00:02",
+        layers={
+            "tcp": {"tcp_tcp_stream": "11"},
+            "http2": {
+                "http2_http2_streamid": "13",
+                "http2_http2_type": "1",  # HEADERS frame
+                "http2_http2_headers_method": "POST",
+                "http2_http2_headers_authority": "api.anthropic.com",
+                "http2_http2_headers_path": "/v1/messages",
+                "http2_http2_headers_scheme": "https",
+                "http2_http2_headers_content_type": "application/json",
+                "http2_http2_headers_user_agent": "python-httpx/0.28.1",
+            },
+        },
+    )
+    ev = event_from_record(rec)
+    assert ev is not None, "individual-field HTTP/2 headers should parse"
+    assert ev.direction == "request"
+    assert ev.method == "POST"
+    assert ev.host == "api.anthropic.com"
+    assert ev.path == "/v1/messages"
+    assert ev.is_http2 is True
+    assert ev.headers.get("user-agent") == "python-httpx/0.28.1"
+
+
+def test_event_from_record_http2_priority_over_http1_in_connect_tunnel():
+    """When tshark sees a CONNECT-tunnelled HTTP/2 packet, it emits BOTH
+    a ``http`` layer (outer CONNECT metadata: ``http_http_proxy_connect_*``)
+    AND a ``http2`` layer (decrypted inner traffic). The parser MUST
+    process the http2 side first; otherwise it returns a CONNECT-only
+    event and drops the real HTTP/2 content silently."""
+    rec = EkRecord(
+        timestamp="2026-05-15T10:00:02",
+        layers={
+            "tcp": {"tcp_tcp_stream": "11"},
+            "http": {
+                # Just the CONNECT-tunnel metadata, no real method/status:
+                "http_http_proxy_connect_port": "443",
+                "http_http_proxy_connect_host": "api.anthropic.com",
+            },
+            "http2": {
+                "http2_http2_streamid": "1",
+                "http2_http2_type": "1",
+                "http2_http2_header_name": [":method", ":authority", ":path"],
+                "http2_http2_header_value": ["GET", "api.anthropic.com", "/"],
+            },
+        },
+    )
+    ev = event_from_record(rec)
+    assert ev is not None
+    assert ev.is_http2 is True, (
+        f"expected HTTP/2 event, got HTTP/1 with method={ev.method}: "
+        f"the http2 branch must take priority over http when both are present"
+    )
+    assert ev.method == "GET"
+    assert ev.host == "api.anthropic.com"
+    assert ev.path == "/"
+
+
+def test_event_from_record_http2_settings_in_list_skipped():
+    """A multi-frame HTTP/2 packet (preface + SETTINGS + WINDOW_UPDATE)
+    should produce no event when no HEADERS frame is present."""
+    rec = EkRecord(
+        timestamp="2026-05-15T10:00:02",
+        layers={
+            "tcp": {"tcp_tcp_stream": "11"},
+            "http2": [
+                {"http2_http2_magic": "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"},
+                {"http2_http2_type": "4", "http2_http2_streamid": "0",
+                 "http2_http2_settings_header_table_size": "4096"},
+                {"http2_http2_type": "8", "http2_http2_streamid": "0",
+                 "http2_http2_window_update_window_size_increment": "16777216"},
+            ],
+        },
+    )
+    assert event_from_record(rec) is None
+
+
+def test_event_from_record_http2_in_frame_list_picked_over_settings():
+    """When tshark emits HEADERS + SETTINGS in the same packet (list),
+    pick the dict with real header info, not the SETTINGS frame."""
+    rec = EkRecord(
+        timestamp="2026-05-15T10:00:02",
+        layers={
+            "tcp": {"tcp_tcp_stream": "11"},
+            "http2": [
+                # SETTINGS first
+                {"http2_http2_type": "4", "http2_http2_streamid": "0"},
+                # HEADERS second
+                {"http2_http2_type": "1", "http2_http2_streamid": "5",
+                 "http2_http2_headers_method": "GET",
+                 "http2_http2_headers_authority": "claude.ai",
+                 "http2_http2_headers_path": "/api/x"},
+            ],
+        },
+    )
+    ev = event_from_record(rec)
+    assert ev is not None
+    assert ev.method == "GET"
+    assert ev.host == "claude.ai"
+    assert ev.path == "/api/x"
+    assert ev.stream_id == "5"
+
+
 def test_event_pair_key_stable_across_request_response():
     """The same (tcp_stream, http2_stream_id) must produce identical pair_key
     on request and response so pairing works."""

@@ -221,6 +221,74 @@ def _get_field(d: dict[str, Any], *candidates: str) -> Optional[str]:
     return None
 
 
+_SUBSTANTIVE_HTTP_KEYS: frozenset[str] = frozenset({
+    "http_http_request_method", "http.request.method", "http_request_method",
+    "http_http_response_code", "http.response.code", "http_response_code",
+    "http_http_host", "http.host", "http_host",
+    "http_http_request_uri", "http.request.uri", "http_request_uri",
+})
+# For HTTP/2, only HEADERS frames (type=1) carry request/response info.
+# tshark batches SETTINGS / WINDOW_UPDATE / PING frames into the same packet
+# as HEADERS, so just having a ``http2_http2_streamid`` is not enough — we
+# need actual header data (parallel ``header_name`` array OR an individual
+# ``headers_method`` / ``headers_status`` field).
+_SUBSTANTIVE_HTTP2_KEYS: frozenset[str] = frozenset({
+    "http2_http2_header_name", "http2.header.name",
+    "http2_http2_headers_method", "http2_http2_headers_status",
+    "http2_http2_headers_authority", "http2_http2_headers_path",
+})
+
+
+def _is_substantive(d: dict[str, Any], substantive_keys: frozenset[str]) -> bool:
+    return any(k in d for k in substantive_keys)
+
+
+def _layer_as_dict(v: Any, substantive_keys: frozenset[str] = frozenset()) -> dict[str, Any]:
+    """Normalise a tshark layer value into a single dict.
+
+    tshark ``-T ek`` often emits a layer as a *list of dicts* — most
+    commonly when a packet has been reassembled through an HTTPS
+    ``CONNECT`` tunnel. In that case the list looks like::
+
+        [
+            {"http_http_proxy_connect_port": "443",
+             "http_http_proxy_connect_host": "api.anthropic.com"},   # tunnel meta
+            {"http_http_request_method": "GET",
+             "http_http_host": "api.anthropic.com", ...}              # inner HTTP
+        ]
+
+    We want the second dict (the actual decrypted HTTP). If a
+    ``substantive_keys`` set is provided, we scan the list and return
+    the first item containing any of those keys; otherwise we fall back
+    to the first non-empty dict. Callers that need to emit *multiple*
+    events from one record should use :func:`_layer_as_dicts` instead.
+    """
+    if isinstance(v, dict):
+        return v
+    if isinstance(v, list):
+        if substantive_keys:
+            for item in v:
+                if isinstance(item, dict) and _is_substantive(item, substantive_keys):
+                    return item
+        for item in v:
+            if isinstance(item, dict) and item:
+                return item
+    return {}
+
+
+def _layer_as_dicts(v: Any) -> list[dict[str, Any]]:
+    """Return *every* dict in a tshark layer value, dropping empties.
+
+    For multi-message packets we may need to emit one event per dict;
+    callers iterate and call :func:`event_from_record` per item.
+    """
+    if isinstance(v, dict):
+        return [v]
+    if isinstance(v, list):
+        return [item for item in v if isinstance(item, dict) and item]
+    return []
+
+
 def event_from_record(rec: EkRecord) -> Optional[TsharkEvent]:
     """Convert an ``EkRecord`` to a structured ``TsharkEvent``.
 
@@ -229,10 +297,26 @@ def event_from_record(rec: EkRecord) -> Optional[TsharkEvent]:
     SETTINGS frame).
     """
     layers = rec.layers
-    tcp_stream = _get_field(layers.get("tcp", {}) or {}, "tcp_tcp_stream", "tcp.stream")
+    tcp_stream = _get_field(_layer_as_dict(layers.get("tcp", {})),
+                             "tcp_tcp_stream", "tcp.stream")
+
+    # IMPORTANT: check HTTP/2 BEFORE HTTP/1. When a CONNECT tunnel carries
+    # HTTP/2 inside, tshark emits BOTH a "http" layer (the outer CONNECT
+    # metadata) AND a "http2" layer (the decrypted inner traffic). If we
+    # match "http" first, we'd return a CONNECT-meta-only event and skip
+    # the real HTTP/2 content. Process HTTP/2 first; fall through to
+    # HTTP/1 only if there's no substantive HTTP/2 frame.
+    if "http2" in layers:
+        h2_event = _extract_http2_event(layers, tcp_stream, rec.timestamp)
+        if h2_event is not None:
+            return h2_event
 
     if "http" in layers:
-        h = layers["http"]
+        # When tshark sees a CONNECT tunnel + decrypted inner HTTP/1
+        # in the same packet, ``layers["http"]`` is a list whose first
+        # element is the tunnel metadata (``http_http_proxy_connect_*``)
+        # and second is the real inner request. Pick the substantive one.
+        h = _layer_as_dict(layers["http"], _SUBSTANTIVE_HTTP_KEYS)
         # HTTP/1.x: request side has "http_http_request_method" or similar
         method = _get_field(
             h, "http_http_request_method", "http.request.method",
@@ -275,53 +359,68 @@ def event_from_record(rec: EkRecord) -> Optional[TsharkEvent]:
             )
         return None
 
-    if "http2" in layers:
-        h2 = layers["http2"]
-        # HTTP/2 headers are exposed as pseudo-header arrays
-        h2_headers = _extract_http2_headers(h2)
-        stream_id = _get_field(h2, "http2_http2_streamid", "http2.streamid",
-                                "http2_streamid")
-        method = h2_headers.get(":method")
-        status = h2_headers.get(":status")
-        host = h2_headers.get(":authority") or h2_headers.get("host", "")
-        path = h2_headers.get(":path", "")
-        # HTTP/2 reassembled body — same as http.file_data when present,
-        # else look at the http2.body field
-        body_text = _get_field(
-            h2, "http2_http2_body_fragment", "http2.body.fragment",
-            "http2_body_fragment",
-        ) or ""
-        # tshark may also surface decompressed body under http.file_data
-        # when it transitions to HTTP/2 carrying HTTP semantics
-        if not body_text and "http" in layers:
-            body_text = _get_field(
-                layers["http"], "http_http_file_data", "http.file_data",
-            ) or ""
-        body = body_text.encode("utf-8", errors="replace") if body_text else b""
-        # Normalize HTTP/2 headers (drop :pseudo-headers from the captured
-        # set since we already pull them out as fields above)
-        norm_headers = {k.lower(): v for k, v in h2_headers.items() if not k.startswith(":")}
+    return None
 
-        if method:
-            return TsharkEvent(
-                direction="request", host=host, path=path, method=method,
-                status_code=None, headers=norm_headers, body=body,
-                stream_id=stream_id, tcp_stream=tcp_stream,
-                timestamp=rec.timestamp, is_http2=True,
-            )
-        if status:
-            try:
-                sc = int(status)
-            except (TypeError, ValueError):
-                sc = None
-            return TsharkEvent(
-                direction="response", host=host, path="", method="",
-                status_code=sc, headers=norm_headers, body=body,
-                stream_id=stream_id, tcp_stream=tcp_stream,
-                timestamp=rec.timestamp, is_http2=True,
-            )
+
+def _extract_http2_event(
+    layers: dict[str, Any], tcp_stream: Optional[str], timestamp: str,
+) -> Optional[TsharkEvent]:
+    """Extract one HTTP/2 request/response event from a layers dict.
+
+    Returns None when the packet contains only non-HEADERS frames
+    (SETTINGS, WINDOW_UPDATE, PING, etc.) or only the HTTP/2 magic
+    preface. Called *before* the HTTP/1.x branch in ``event_from_record``
+    because a CONNECT-tunnel HTTP/2 packet also has a ``http`` layer
+    (the outer CONNECT metadata) — we must give HTTP/2 priority.
+    """
+    h2 = _layer_as_dict(layers["http2"], _SUBSTANTIVE_HTTP2_KEYS)
+    if not h2:
         return None
+    h2_headers = _extract_http2_headers(h2)
+    if not h2_headers:
+        # No real HEADERS frame (only SETTINGS / WINDOW_UPDATE / etc.)
+        return None
+    stream_id = _get_field(h2, "http2_http2_streamid", "http2.streamid",
+                            "http2_streamid")
+    method = h2_headers.get(":method")
+    status = h2_headers.get(":status")
+    host = h2_headers.get(":authority") or h2_headers.get("host", "")
+    path = h2_headers.get(":path", "")
+    # HTTP/2 reassembled body — same as http.file_data when present,
+    # else look at the http2.body field
+    body_text = _get_field(
+        h2, "http2_http2_body_fragment", "http2.body.fragment",
+        "http2_body_fragment",
+    ) or ""
+    if not body_text and "http" in layers:
+        body_text = _get_field(
+            _layer_as_dict(layers["http"], _SUBSTANTIVE_HTTP_KEYS),
+            "http_http_file_data", "http.file_data",
+        ) or ""
+    body = body_text.encode("utf-8", errors="replace") if body_text else b""
+    # Normalize HTTP/2 headers (drop :pseudo-headers from the captured
+    # set since we already pull them out as fields above)
+    norm_headers = {k.lower(): v for k, v in h2_headers.items()
+                     if not k.startswith(":")}
 
+    if method:
+        return TsharkEvent(
+            direction="request", host=host, path=path, method=method,
+            status_code=None, headers=norm_headers, body=body,
+            stream_id=stream_id, tcp_stream=tcp_stream,
+            timestamp=timestamp, is_http2=True,
+        )
+    if status:
+        try:
+            sc = int(status)
+        except (TypeError, ValueError):
+            sc = None
+        return TsharkEvent(
+            direction="response", host=host, path="", method="",
+            status_code=sc, headers=norm_headers, body=body,
+            stream_id=stream_id, tcp_stream=tcp_stream,
+            timestamp=timestamp, is_http2=True,
+        )
     return None
 
 
@@ -354,13 +453,20 @@ def _extract_http1_headers(h: dict[str, Any]) -> dict[str, str]:
 def _extract_http2_headers(h2: dict[str, Any]) -> dict[str, str]:
     """Pull HTTP/2 headers out of tshark's exposed fields.
 
-    tshark surfaces headers as ``http2.header.name`` / ``http2.header.value``
-    parallel arrays under ``http2_http2_header_name`` / ``..._value``.
+    Supports two tshark output styles:
+      1. Parallel ``http2_http2_header_name`` / ``http2_http2_header_value``
+         arrays (older / one-frame-per-event format).
+      2. Individual ``http2_http2_headers_<name>`` fields where ``<name>`` is
+         the header name with dashes replaced by underscores (newer tshark).
+         Pseudo-headers come through as ``http2_http2_headers_method``,
+         ``http2_http2_headers_authority``, etc. — *without* the leading
+         colon. We re-add the colon for those.
     """
     headers: dict[str, str] = {}
+
+    # Style 1: parallel arrays
     names = h2.get("http2_http2_header_name") or h2.get("http2.header.name")
     values = h2.get("http2_http2_header_value") or h2.get("http2.header.value")
-
     if isinstance(names, str):
         names = [names]
     if isinstance(values, str):
@@ -369,6 +475,28 @@ def _extract_http2_headers(h2: dict[str, Any]) -> dict[str, str]:
         for n, v in zip(names, values):
             if isinstance(n, str) and isinstance(v, str):
                 headers[n.lower()] = v
+
+    # Style 2: individual ``http2_http2_headers_<name>`` fields
+    _PSEUDO = frozenset({"method", "authority", "path", "scheme", "status"})
+    for k, v in h2.items():
+        if not isinstance(k, str) or not k.startswith("http2_http2_headers_"):
+            continue
+        if not isinstance(v, (str, list)):
+            continue
+        # Take first if list
+        if isinstance(v, list):
+            v = v[0] if v else ""
+        if not isinstance(v, str):
+            continue
+        name = k[len("http2_http2_headers_"):]  # e.g. "method", "user_agent"
+        # Pseudo-header re-decoration: "method" -> ":method"
+        if name in _PSEUDO:
+            name = ":" + name
+        else:
+            # Convert underscores back to dashes for normal headers
+            name = name.replace("_", "-")
+        if name and name not in headers:
+            headers[name.lower()] = v
     return headers
 
 
