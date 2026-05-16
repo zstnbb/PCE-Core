@@ -29,25 +29,25 @@ scenarios:
         priority: 1
         independent_basis: chromium_net_stack
         beacon_target: chatgpt_web
-        beacon_lane: web
+        beacon_lane: browser
         beacon_layer: L1
       - source: L3a_browser_ext
         priority: 2
         independent_basis: page_dom
         beacon_target: chatgpt_web
-        beacon_lane: web
+        beacon_lane: browser
         beacon_layer: L3a
       - source: L3d_cdp
         priority: 3
         independent_basis: chrome_devtools_protocol
         beacon_target: chatgpt_web
-        beacon_lane: web
+        beacon_lane: browser
         beacon_layer: L3d
       - source: L4a_clipboard
         priority: 4
         independent_basis: user_action
         beacon_target: chatgpt_web
-        beacon_lane: web
+        beacon_lane: browser
         beacon_layer: L4a
 
   - id: f1_claude_web
@@ -59,19 +59,19 @@ scenarios:
         priority: 1
         independent_basis: chromium_net_stack
         beacon_target: claude_web
-        beacon_lane: web
+        beacon_lane: browser
         beacon_layer: L1
       - source: L3a_browser_ext
         priority: 2
         independent_basis: page_dom
         beacon_target: claude_web
-        beacon_lane: web
+        beacon_lane: browser
         beacon_layer: L3a
       - source: L3d_cdp
         priority: 3
         independent_basis: chrome_devtools_protocol
         beacon_target: claude_web
-        beacon_lane: web
+        beacon_lane: browser
         beacon_layer: L3d
 
   - id: f1_gemini_web
@@ -83,19 +83,19 @@ scenarios:
         priority: 1
         independent_basis: chromium_net_stack
         beacon_target: gemini_web
-        beacon_lane: web
+        beacon_lane: browser
         beacon_layer: L1
       - source: L3a_browser_ext
         priority: 2
         independent_basis: page_dom
         beacon_target: gemini_web
-        beacon_lane: web
+        beacon_lane: browser
         beacon_layer: L3a
       - source: L4a_clipboard
         priority: 3
         independent_basis: user_action
         beacon_target: gemini_web
-        beacon_lane: web
+        beacon_lane: browser
         beacon_layer: L4a
 
   - id: f1_gas
@@ -107,19 +107,19 @@ scenarios:
         priority: 1
         independent_basis: chromium_net_stack
         beacon_target: gas
-        beacon_lane: web
+        beacon_lane: browser
         beacon_layer: L1
       - source: L3a_browser_ext
         priority: 2
         independent_basis: page_dom
         beacon_target: gas
-        beacon_lane: web
+        beacon_lane: browser
         beacon_layer: L3a
       - source: L4a_clipboard
         priority: 3
         independent_basis: user_action
         beacon_target: gas
-        beacon_lane: web
+        beacon_lane: browser
         beacon_layer: L4a
 
   - id: f1_grok_web
@@ -131,19 +131,19 @@ scenarios:
         priority: 1
         independent_basis: chromium_net_stack
         beacon_target: grok_web
-        beacon_lane: web
+        beacon_lane: browser
         beacon_layer: L1
       - source: L3a_browser_ext
         priority: 2
         independent_basis: page_dom
         beacon_target: grok_web
-        beacon_lane: web
+        beacon_lane: browser
         beacon_layer: L3a
       - source: L4a_clipboard
         priority: 3
         independent_basis: user_action
         beacon_target: grok_web
-        beacon_lane: web
+        beacon_lane: browser
         beacon_layer: L4a
 
   # ─────────────────────── Desktop 8 / Tier-α (P1, P4, P6-P8) ──────────────
@@ -180,19 +180,19 @@ scenarios:
         priority: 1
         independent_basis: codeium_grpc_protocol
         beacon_target: windsurf
-        beacon_lane: ide
+        beacon_lane: desktop
         beacon_layer: L1
       - source: L3f_otel
         priority: 2
         independent_basis: mcp_jsonrpc
         beacon_target: windsurf
-        beacon_lane: ide
+        beacon_lane: desktop
         beacon_layer: L3f
       - source: L4a_clipboard
         priority: 3
         independent_basis: user_action
         beacon_target: windsurf
-        beacon_lane: ide
+        beacon_lane: desktop
         beacon_layer: L4a
 
   - id: f6_p6_claude_code_cli

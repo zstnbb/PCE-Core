@@ -474,8 +474,9 @@ def scan(db_path: Optional[Path] = None, dry_run: bool = False) -> dict:
     # emitted=0, deduped=0, errors=0).
     if not dry_run:
         for app, stats, target, lane, layer in (
-            ("copilot", copilot_stats, "copilot_chat", "ide", "L3g"),
-            ("cursor",  cursor_stats,  "cursor_chat",  "ide", "L3g"),
+            # lane MUST be in pce_core.health.LANES = (browser, desktop, cli, mcp)
+            ("copilot", copilot_stats, "copilot_chat", "desktop", "L3g"),
+            ("cursor",  cursor_stats,  "cursor_chat",  "desktop", "L3g"),
             ("codex",   codex_stats,   "codex_cli",    "cli", "L3g"),
             ("gemini",  gemini_stats,  "gemini_cli",   "cli", "L3g"),
         ):

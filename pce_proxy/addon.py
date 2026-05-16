@@ -120,14 +120,16 @@ def _provider_from_host(host: str) -> str:
 # Cursor / GitHub Copilot are Phase B scenarios; their hosts return a
 # beacon but the alert is suppressed via `phase_b: true` in scenarios.yaml.
 def _derive_l1_beacon_target(host: str, path: str) -> Optional[tuple[str, str]]:
+    # lane MUST be one of pce_core.health.LANES = (browser, desktop, cli, mcp)
+    # web sites → 'browser' lane; IDE apps + desktop apps → 'desktop' lane.
     if host == "api.anthropic.com":
         return ("claude_code", "cli")
     if host == "claude.ai":
-        return ("claude_web", "web")
+        return ("claude_web", "browser")
     if host == "chatgpt.com":
         if path.startswith("/backend-api/codex/"):
             return ("codex_cli", "cli")
-        return ("chatgpt_web", "web")
+        return ("chatgpt_web", "browser")
     if host == "generativelanguage.googleapis.com":
         return ("gemini_cli", "cli")
     if host == "aiplatform.googleapis.com":
@@ -137,18 +139,18 @@ def _derive_l1_beacon_target(host: str, path: str) -> Optional[tuple[str, str]]:
         # Assistant). Discovered 2026-05-16 during W1 sweep.
         return ("gemini_cli", "cli")
     if host == "gemini.google.com":
-        return ("gemini_web", "web")
+        return ("gemini_web", "browser")
     if host == "aistudio.google.com":
-        return ("gas", "web")
+        return ("gas", "browser")
     if host == "grok.com":
-        return ("grok_web", "web")
+        return ("grok_web", "browser")
     if host in ("server.codeium.com", "server.self-serve.windsurf.com"):
-        return ("windsurf", "ide")
+        return ("windsurf", "desktop")
     if host in ("api.individual.githubcopilot.com", "api.githubcopilot.com"):
-        return ("copilot", "ide")
+        return ("copilot", "desktop")
     if host in ("api2.cursor.sh", "agent.api5.cursor.sh",
                 "api3.cursor.sh", "api.cursor.sh"):
-        return ("cursor", "ide")
+        return ("cursor", "desktop")
     return None
 
 
