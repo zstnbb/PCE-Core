@@ -1,0 +1,223 @@
+# SPDX-License-Identifier: Apache-2.0
+# 13 P0 scenarios per Docs/stability/redundancy-sprint/SCOPE-LOCK-2026-05-15.md.
+#
+# Schema is versioned (see schema_version) so we can evolve the file without
+# breaking older readers; bump on any breaking shape change.
+#
+# Independence rule (REDUNDANCY-AUDIT-MATRIX §1, ADR-021 §3.3):
+#
+#   Within a single scenario, every leg's `independent_basis` must be
+#   unique. The supervisor refuses to load a scenario where two legs
+#   share the same basis (counts as 1.5 legs, not 2 — see SCOPE-LOCK §2.1).
+#
+# Phase B markers (`phase_b: true`) suppress auto-issue alerts during the
+# Phase B build-out window for the three Tier-β scenarios; cleared once
+# Wave 6/7/8 close.
+#
+# `source` values must match `pce_core.capture_event.CaptureSource`.
+
+schema_version: 1
+
+scenarios:
+  # ───────────────────────────── Web 5 ─────────────────────────────────────
+  - id: f1_chatgpt_web
+    label: "ChatGPT Web (chatgpt.com)"
+    tier: S0
+    redundancy_target: 3
+    legs:
+      - source: L1_mitm
+        priority: 1
+        independent_basis: chromium_net_stack
+      - source: L3a_browser_ext
+        priority: 2
+        independent_basis: page_dom
+      - source: L3d_cdp
+        priority: 3
+        independent_basis: chrome_devtools_protocol
+      - source: L4a_clipboard
+        priority: 4
+        independent_basis: user_action
+
+  - id: f1_claude_web
+    label: "Claude Web (claude.ai)"
+    tier: S0
+    redundancy_target: 3
+    legs:
+      - source: L1_mitm
+        priority: 1
+        independent_basis: chromium_net_stack
+      - source: L3a_browser_ext
+        priority: 2
+        independent_basis: page_dom
+      - source: L3d_cdp
+        priority: 3
+        independent_basis: chrome_devtools_protocol
+
+  - id: f1_gemini_web
+    label: "Gemini Web (gemini.google.com)"
+    tier: S1
+    redundancy_target: 3
+    legs:
+      - source: L1_mitm
+        priority: 1
+        independent_basis: chromium_net_stack
+      - source: L3a_browser_ext
+        priority: 2
+        independent_basis: page_dom
+      - source: L4a_clipboard
+        priority: 3
+        independent_basis: user_action
+
+  - id: f1_gas
+    label: "Google AI Studio (aistudio.google.com)"
+    tier: S1
+    redundancy_target: 3
+    legs:
+      - source: L1_mitm
+        priority: 1
+        independent_basis: chromium_net_stack
+      - source: L3a_browser_ext
+        priority: 2
+        independent_basis: page_dom
+      - source: L4a_clipboard
+        priority: 3
+        independent_basis: user_action
+
+  - id: f1_grok_web
+    label: "Grok Web (grok.com)"
+    tier: S2
+    redundancy_target: 3
+    legs:
+      - source: L1_mitm
+        priority: 1
+        independent_basis: chromium_net_stack
+      - source: L3a_browser_ext
+        priority: 2
+        independent_basis: page_dom
+      - source: L4a_clipboard
+        priority: 3
+        independent_basis: user_action
+
+  # ─────────────────────── Desktop 8 / Tier-α (P1, P4, P6-P8) ──────────────
+  - id: f4_p1_claude_desktop
+    label: "Claude Desktop (Win MSIX/Squirrel + macOS)"
+    tier: D0
+    redundancy_target: 3
+    legs:
+      - source: L1_mitm
+        priority: 1
+        independent_basis: chromium_net_stack
+      - source: L3g_local_persistence
+        priority: 2
+        independent_basis: filesystem
+      - source: L3f_otel
+        priority: 3
+        independent_basis: mcp_jsonrpc
+
+  - id: f5_p4_windsurf
+    label: "Windsurf (IDE-class MCP-aware)"
+    tier: D1
+    redundancy_target: 3
+    legs:
+      - source: L1_mitm
+        priority: 1
+        independent_basis: codeium_grpc_protocol
+      - source: L3f_otel
+        priority: 2
+        independent_basis: mcp_jsonrpc
+      - source: L4a_clipboard
+        priority: 3
+        independent_basis: user_action
+
+  - id: f6_p6_claude_code_cli
+    label: "Claude Code CLI (@anthropic-ai/claude-code)"
+    tier: D0
+    redundancy_target: 3
+    legs:
+      - source: L1_mitm
+        priority: 1
+        independent_basis: anthropic_https_api
+      - source: L3g_local_persistence
+        priority: 2
+        independent_basis: filesystem
+      - source: L3h_cli_wrap
+        priority: 3
+        independent_basis: stdio_shim
+
+  - id: f6_p7_codex_cli
+    label: "Codex CLI (OpenAI)"
+    tier: D1
+    redundancy_target: 3
+    legs:
+      - source: L1_mitm
+        priority: 1
+        independent_basis: openai_https_api
+      - source: L3g_local_persistence
+        priority: 2
+        independent_basis: filesystem
+      - source: L3h_cli_wrap
+        priority: 3
+        independent_basis: stdio_shim
+
+  - id: f6_p8_gemini_cli
+    label: "Gemini CLI (Google)"
+    tier: D1
+    redundancy_target: 3
+    legs:
+      - source: L1_mitm
+        priority: 1
+        independent_basis: google_genai_https_api
+      - source: L3g_local_persistence
+        priority: 2
+        independent_basis: filesystem
+      - source: L3h_cli_wrap
+        priority: 3
+        independent_basis: stdio_shim
+
+  # ─────────────────────── Desktop 8 / Tier-β (Phase B) ────────────────────
+  # Phase B scenarios start in down/impaired state by design; the redundancy
+  # check suppresses auto-issues for them until Wave 6/7/8 close.
+  - id: f4_p2_chatgpt_desktop
+    label: "ChatGPT Desktop (Win MSIX + macOS)"
+    tier: D2
+    redundancy_target: 3
+    phase_b: true
+    legs:
+      - source: L1_mitm
+        priority: 1
+        independent_basis: chromium_net_stack
+      - source: L4b_accessibility
+        priority: 2
+        independent_basis: ui_automation_tree
+
+  - id: f5_p3_cursor
+    label: "Cursor (IDE-class, gRPC-web protobuf)"
+    tier: D0
+    redundancy_target: 3
+    phase_b: true
+    legs:
+      - source: L1_mitm
+        priority: 1
+        independent_basis: cursor_grpc_protocol
+      - source: L3f_otel
+        priority: 2
+        independent_basis: mcp_jsonrpc
+      - source: L4a_clipboard
+        priority: 3
+        independent_basis: user_action
+
+  - id: f5_p5_github_copilot
+    label: "GitHub Copilot (VS Code)"
+    tier: D2
+    redundancy_target: 3
+    phase_b: true
+    legs:
+      - source: L1_mitm
+        priority: 1
+        independent_basis: copilot_https_api
+      - source: L3c_vscode_ext
+        priority: 2
+        independent_basis: vscode_extension_host
+      - source: L3f_otel
+        priority: 3
+        independent_basis: mcp_jsonrpc

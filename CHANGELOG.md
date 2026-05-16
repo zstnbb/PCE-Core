@@ -5,6 +5,78 @@ All notable changes to PCE (core + browser extension) are documented in this fil
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-05-15 — P5.D.1 Phase A — Code Skeleton Closed (NOT a tag)
+
+> Internal milestone. **No git tag** is issued for this entry.
+> v1.1.6 is reserved for STRICT MODE 13/13 closure (Phase B + W1/W4 live signoff)
+> per `Docs/stability/redundancy-sprint/SCOPE-LOCK-2026-05-15.md` §6.
+
+### Added
+
+- `pce_core/capture_supervisor/` — OSS module per ADR-021 (Adopted 2026-05-15).
+  - `dedup.py` — `(pair_id, fingerprint)` 30s sliding-window LRU with 5-minute
+    timestamp bucket to avoid same-request false-positives
+  - `policy.py` — scenarios.yaml loader; enforces independent_basis uniqueness
+    within each scenario per REDUNDANCY-AUDIT §1.3
+  - `status.py` — leg health → scenario state machine
+    (`redundant`/`minimal`/`impaired`/`down`)
+  - `api.py` — FastAPI router for `/api/v1/supervisor/*`
+  - `scenarios.yaml` — 13 P0 scenarios (5 Web + 8 Desktop) per SCOPE-LOCK §2;
+    Phase B markers on f4_p2_chatgpt_desktop / f5_p3_cursor / f5_p5_github_copilot
+- `pce_core/server.py` — `/api/v1/supervisor/status`,
+  `/api/v1/supervisor/scenario/{id}`, `/api/v1/supervisor/degraded`,
+  `/api/v1/supervisor/legs/register` (Pro registration per ADR-021 §3.2),
+  `/api/v1/supervisor/legs/registered`
+- `tools/render_redundancy_matrix.py` — renders `Docs/stability/REDUNDANCY-MATRIX.svg`
+  with 13 cards; falls back to scenarios.yaml when /status unreachable
+- `tools/check_redundancy_targets.py` — JSON alerts feed for nightly check;
+  Phase B suppression by default; GitHub Actions step output `alert_count`
+- `tools/auto_issue_on_redundancy_degraded.py` — opens
+  `redundancy-degraded` issues with dedup against existing open issues
+- `tools/repair_adapter.py` — new `--redundancy-degraded <scenario_id>` path;
+  resolves supervisor scenario → conductor target → llm_repair flow
+- `.github/ISSUE_TEMPLATE/redundancy-degraded.yml` — auto-issue template
+- `.github/workflows/nightly-probe.yml` — new `redundancy-matrix` job:
+  boots supervisor, renders SVG, commits back, checks targets, opens issues
+- 31 unit tests in `tests/test_capture_supervisor.py`
+  (12 dedup + 8 policy + 5 status + 6 api)
+- 4 handoff files:
+  - `HANDOFF-P5D1-PHASE-A-MIDGATE-2026-05-19.md`
+  - `HANDOFF-W6-COPILOT-KICKOFF-2026-05-19.md`
+  - `HANDOFF-W7-CHATGPT-DESKTOP-UIA-KICKOFF-2026-05-19.md`
+  - `HANDOFF-W8-CURSOR-PROTOBUF-KICKOFF-2026-05-19.md`
+
+### Changed
+
+- `scripts/check_import_direction.py` — `pce_core.capture_supervisor` removed
+  from `PRO_MODULES` per ADR-021 §3.1
+- `Docs/stability/REDUNDANCY-AUDIT-MATRIX.md` §4.1 — sprint-state note added;
+  §7.3 cadence — nightly P0 redundancy check entry added
+- `Docs/docs/engineering/adr/ADR-021-capture-supervisor-oss-boundary.md` —
+  status: Proposed → **Adopted (2026-05-15)**
+
+### Pending Phase B (release blockers)
+
+- F4 P2 ChatGPT Desktop L4b UIA — Wave 7 (~3-4 weeks; ADR-022 pending)
+- F5 P3 Cursor protobuf decoder — Wave 8 (~4-6 weeks; ADR-023 pending; longest pole)
+- F5 P5 GitHub Copilot 3 legs — Wave 6 (~2 weeks)
+
+### Pending owner-side live signoff (Tier-α 10)
+
+10 of 13 P0 scenarios need owner-side live evidence (W1 + W4 scope).
+The code skeleton flips them green automatically once `health_beacons`
+shows ≥ 3 leg PASSes per scenario in the 24h window.
+
+### Phase A code metrics
+
+- ~1500 LOC new code (supervisor + tools + tests)
+- 31 unit tests added (all GREEN)
+- 1 ADR Adopted (021), 3 ADRs pending (018 Phase 5 close, 022, 023)
+- Total wave docs in flight: 6 Phase A + 3 Phase B kickoffs + 1 final = 10
+- 0 production data migrations
+
+---
+
 ## [Unreleased] - 2026-05-12 — feat(normalizer/openai): session_key response fallback + P2 ChatGPT Desktop LIVE SWEEP PASS
 
 Stage 4 verification of P2 ChatGPT Desktop onboarding per

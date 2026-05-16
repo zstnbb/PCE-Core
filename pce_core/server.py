@@ -277,6 +277,26 @@ app.add_middleware(
 
 
 # ---------------------------------------------------------------------------
+# Capture Supervisor router (ADR-021 §3.5) — /api/v1/supervisor/*
+# ---------------------------------------------------------------------------
+# Built lazily so a missing scenarios.yaml in degraded environments won't
+# crash the whole API; the supervisor surface returns 503 if state failed
+# to bootstrap.
+try:
+    from .capture_supervisor.api import build_default_state, build_router as _build_supervisor_router
+    _SUPERVISOR_STATE = build_default_state()
+    app.include_router(_build_supervisor_router(_SUPERVISOR_STATE))
+    log_event(logger, "supervisor.api.attached",
+              scenarios=len(_SUPERVISOR_STATE.registry))
+except Exception as _exc:  # pragma: no cover — defensive
+    _SUPERVISOR_STATE = None
+    log_event(
+        logger, "supervisor.api.attach_failed",
+        level=logging.ERROR, error=str(_exc),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Health
 # ---------------------------------------------------------------------------
 

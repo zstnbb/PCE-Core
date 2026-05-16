@@ -261,6 +261,7 @@ P5.A 封存交接：`handoff/HANDOFF-BROWSER-EXT-FREEZE-2026-05-08.md` ⭐ **202
 - `stability/DESKTOP-D-CASE-EXECUTION-STANDARD.md` — **桌面 chat-region D-case 执行标准**（2026-05-12，P5.C 新增）
 - `stability/PCE-PIPELINE-HEALTH-MATRIX.md` — **跨 lane 健康度矩阵契约**（2026-05-12，P5.C 新增）— health-as-data 契约
 - `stability/SITE-TIER-MATRIX.md` — 浏览器站点 tier 矩阵（2026-04-25 + 2026-05-08 §10 修订；浏览器子系统已封存，矩阵留作历史与重启参考）
+- `stability/REDUNDANCY-AUDIT-MATRIX.md` ⭐ — **捕获路径 × 场景验证状态矩阵**（2026-05-13，canonical）— 用户"每场景 ≥3 条独立 V-GREEN 路线"冗余标准的唯一真相来源；任何"PCE 已覆盖 X 场景"陈述必须回查此文件核对 V-GREEN 数；维护协议见 §7（每次新增 live handoff 或 ADR 判死路径须同 commit 更新）
 
 法律治理（2026-05-12、P5.C.0 新增，ADR-019 §3.5 下的产物 4 + 5）：
 - `legal/THREAT-MODEL.md` — **法律威胁模型**：per-layer 风险矩阵 + 7 个法律理论防御论据 + L0/L2 永久不进 OSS 的硬约束。任何新抓取技术 merge 前必须能载入 §3 矩阵某一行

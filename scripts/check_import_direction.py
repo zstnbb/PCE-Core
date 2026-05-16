@@ -36,7 +36,9 @@ FORBIDDEN_PREFIXES: tuple[str, ...] = (
     "pce_agent_frida",
     "pce_agent_electron",
     "pce_agent_ax",
-    "pce_core.capture_supervisor",
+    # pce_core.capture_supervisor moved to OSS by ADR-021 (Adopted 2026-05-15).
+    # Previously gated as a Pro module; arbitration (dedup / policy / status)
+    # is basic infra per ADR-021 §3, so the OSS edition now ships it.
 )
 
 EXCLUDE_DIRS: set[str] = {
@@ -151,9 +153,11 @@ def main(argv: list[str]) -> int:
 
     print(
         "\nThe OSS `pce` repository must never import Pro modules "
-        "(pce_agent_*, pce_core.capture_supervisor). "
+        "(pce_agent_*). "
         "Pro modules are in the separate `pce-pro` private repository and "
-        "communicate with OSS via local HTTP. See ADR-010 and CONTRIBUTING.md."
+        "communicate with OSS via local HTTP. See ADR-010 and CONTRIBUTING.md. "
+        "Note: `pce_core.capture_supervisor` was moved to OSS by ADR-021 "
+        "(Adopted 2026-05-15) and is no longer forbidden."
     )
     return 1
 

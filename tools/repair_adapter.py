@@ -115,6 +115,72 @@ def read_yaml_text(path: Path) -> str:
 
 
 # ---------------------------------------------------------------------------
+# W5-T4 — supervisor /status → conductor target_id resolver
+# ---------------------------------------------------------------------------
+
+# Map supervisor scenario_id → conductor target_id. Conductor target_ids
+# are <lane>_<site> (e.g. ``browser_chatgpt``); supervisor scenario_ids
+# are flatter (``f1_chatgpt_web``). We keep the mapping explicit so a
+# rename on either side fails loudly rather than silently routing the
+# wrong case.
+_SCENARIO_TO_CONDUCTOR_TARGET: dict[str, str] = {
+    # Web 5
+    "f1_chatgpt_web":          "browser_chatgpt",
+    "f1_claude_web":           "browser_claude",
+    "f1_gemini_web":           "browser_gemini",
+    "f1_gas":                  "browser_gas",
+    "f1_grok_web":             "browser_grok",
+    # Desktop 8
+    "f4_p1_claude_desktop":    "desktop_claude_desktop",
+    "f4_p2_chatgpt_desktop":   "desktop_chatgpt_desktop",
+    "f5_p3_cursor":            "desktop_cursor",
+    "f5_p4_windsurf":          "desktop_windsurf",
+    "f5_p5_github_copilot":    "desktop_github_copilot",
+    "f6_p6_claude_code_cli":   "cli_claude_code",
+    "f6_p7_codex_cli":         "cli_codex",
+    "f6_p8_gemini_cli":        "cli_gemini",
+}
+
+
+def _resolve_target_from_supervisor(
+    *,
+    scenario_id: str,
+    status_url: str,
+    timeout: float = 5.0,
+) -> Optional[str]:
+    """Read /supervisor/status, confirm scenario is impaired/down, return target."""
+    import urllib.error
+    import urllib.request
+
+    target_id = _SCENARIO_TO_CONDUCTOR_TARGET.get(scenario_id)
+    if target_id is None:
+        logger.warning("no conductor target mapping for scenario %r", scenario_id)
+        return None
+
+    try:
+        req = urllib.request.Request(status_url, method="GET")
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            snapshot = json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.URLError, json.JSONDecodeError, OSError) as exc:
+        # Supervisor offline → still let the user proceed via --target,
+        # but the --redundancy-degraded shortcut returns None.
+        logger.warning("supervisor /status unreachable: %r", exc)
+        return None
+
+    for sc in snapshot.get("scenarios", []):
+        if sc.get("id") != scenario_id:
+            continue
+        # Only suggest target when actually impaired.
+        if sc.get("status") in ("redundant", None):
+            logger.info("scenario %r is %r — nothing to repair",
+                        scenario_id, sc.get("status"))
+            return None
+        return target_id
+    logger.warning("scenario %r not in /status response", scenario_id)
+    return None
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -175,8 +241,22 @@ def main(argv: list[str] | None = None) -> int:
         prog="python -m tools.repair_adapter",
         description="LLM-refined selector repair (read-only; never applies the diff).",
     )
-    parser.add_argument("--target", required=True,
+    parser.add_argument("--target", required=False,
                         help="conductor target_id (e.g. browser_chatgpt)")
+    parser.add_argument(
+        "--redundancy-degraded", default=None,
+        help=(
+            "supervisor scenario id (e.g. f4_p1_claude_desktop) — "
+            "W5-T4 path. Reads /api/v1/supervisor/status, picks the "
+            "fail/unknown leg, maps to the matching conductor case via "
+            "scenarios.yaml, then runs the same llm_repair flow as --target."
+        ),
+    )
+    parser.add_argument(
+        "--status-url",
+        default="http://127.0.0.1:9800/api/v1/supervisor/status",
+        help="supervisor /status endpoint (used by --redundancy-degraded)",
+    )
     parser.add_argument("--case", default=None,
                         help="case_id filter (default: latest failed run for the target)")
     parser.add_argument("--runs-dir", default="pce_test_conductor/runs")
@@ -211,19 +291,43 @@ def main(argv: list[str] | None = None) -> int:
     if not runs_dir.is_absolute():
         runs_dir = _REPO_ROOT / runs_dir
 
+    # Resolve target via --redundancy-degraded if given (W5-T4 path).
+    target_id = args.target
+    if args.redundancy_degraded:
+        resolved = _resolve_target_from_supervisor(
+            scenario_id=args.redundancy_degraded,
+            status_url=args.status_url,
+        )
+        if resolved is None:
+            print(
+                f"Could not resolve a conductor target for scenario "
+                f"{args.redundancy_degraded!r}. Either supervisor /status "
+                f"is unreachable, the scenario id is unknown, or no leg is "
+                f"currently failing. See `tools/check_redundancy_targets.py` "
+                f"for the live snapshot.",
+                file=sys.stderr,
+            )
+            return 1
+        target_id = resolved
+        if not args.quiet:
+            print(f"--redundancy-degraded {args.redundancy_degraded!r} → "
+                  f"target_id={target_id!r}", file=sys.stderr)
+    if not target_id:
+        parser.error("either --target or --redundancy-degraded is required")
+
     record = find_latest_failed_run(
-        runs_dir, target_id=args.target, case_id=args.case,
+        runs_dir, target_id=target_id, case_id=args.case,
         hours_back=args.hours_back,
     )
     if not record:
-        msg = f"No failed run found for target={args.target!r}"
+        msg = f"No failed run found for target={target_id!r}"
         if args.case:
             msg += f", case={args.case!r}"
         msg += f" within {args.hours_back:.0f} h."
         print(msg, file=sys.stderr)
         return 1
 
-    yaml_path = derive_yaml_path(record.get("target_id", args.target))
+    yaml_path = derive_yaml_path(record.get("target_id", target_id))
     if not yaml_path.exists():
         print(f"YAML manifest missing: {yaml_path}", file=sys.stderr)
         return 2
@@ -232,7 +336,7 @@ def main(argv: list[str] | None = None) -> int:
     classification = _classify(record)
 
     result = repair_selector(
-        target_id=record.get("target_id", args.target),
+        target_id=record.get("target_id", target_id),
         failure_kind=classification.get("kind", "UNKNOWN"),
         failure_hint=classification.get("hint") or "",
         stderr_excerpt=record.get("stderr", "") or "",
