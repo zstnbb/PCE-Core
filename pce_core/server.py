@@ -1213,6 +1213,40 @@ _V1_TO_V2_SOURCE: dict[str, str] = {
 }
 
 
+# P5.D.1 W1 — L3a beacon target map. Same shape as
+# pce_proxy/addon.py::_derive_l1_beacon_target but L3a/browser-extension
+# captures only need the host (no path discriminator). The throttle in
+# pce_core.health._HEARTBEAT_WINDOW_S caps write rate.
+_L3A_HOST_BEACON: dict[str, tuple[str, str]] = {
+    "chatgpt.com":           ("chatgpt_web",  "browser"),
+    "claude.ai":             ("claude_web",   "browser"),
+    "gemini.google.com":     ("gemini_web",   "browser"),
+    "aistudio.google.com":   ("gas",          "browser"),
+    "grok.com":              ("grok_web",     "browser"),
+    # Desktop apps that also surface as browser-ext source when probe
+    # captures via DOM (rare; ext is the primary L3a path)
+    "copilot.microsoft.com": ("copilot",      "desktop"),
+}
+
+
+def _emit_l3a_beacon(host: str) -> None:
+    info = _L3A_HOST_BEACON.get(host)
+    if info is None:
+        return
+    target, lane = info
+    try:
+        from .health import emit_beacon
+        emit_beacon(
+            lane=lane,
+            layer="L3a",
+            target=target,
+            status="pass",
+            meta={"source": "l3a_ingest", "host": host},
+        )
+    except Exception:  # pragma: no cover — defensive
+        logger.debug("L3a emit_beacon failed for %s (non-fatal)", host)
+
+
 @app.post("/api/v1/captures", response_model=CaptureOut, status_code=201)
 def ingest_capture(
     payload: CaptureIn,
@@ -1318,6 +1352,13 @@ def ingest_capture(
                 source_id=source_id, pair_id=pair_id,
                 details={"direction": "response", "host": payload.host},
             )
+
+    # P5.D.1 W1 — emit L3a health_beacon for browser-extension captures
+    # (host → scenario beacon_target map matches scenarios.yaml). The
+    # _HEARTBEAT_WINDOW_S=60s throttle in pce_core.health caps the
+    # write rate per (lane, target).
+    if source_id == SOURCE_BROWSER_EXT and payload.host:
+        _emit_l3a_beacon(payload.host)
 
     # Normalize conversation captures (e.g. from browser extension DOM extraction)
     elif payload.direction == "conversation":
