@@ -97,6 +97,98 @@ def _provider_from_host(host: str) -> str:
     return host
 
 
+# P5.D.1 W1 — Map a captured (host, path) to a (beacon_target, lane) so
+# the L1 addon can emit per-response health beacons that drive the
+# capture supervisor's leg health. Returns None when the host doesn't
+# correspond to one of the 13 P0 scenarios (the response is still
+# captured, just doesn't drive a beacon).
+#
+# Mapping rules (per scenarios.yaml beacon_target fields):
+#
+#   api.anthropic.com                      → claude_code     (lane=cli, f6_p6)
+#   claude.ai                              → claude_web      (lane=web, f1_claude_web)
+#   chatgpt.com /backend-api/codex/*       → codex_cli       (lane=cli, f6_p7)
+#   chatgpt.com  other                     → chatgpt_web     (lane=web, f1_chatgpt_web)
+#   generativelanguage.googleapis.com      → gemini_cli      (lane=cli, f6_p8)
+#   aiplatform.googleapis.com              → gemini_cli      (lane=cli, f6_p8)
+#   gemini.google.com                      → gemini_web      (lane=web, f1_gemini_web)
+#   aistudio.google.com                    → gas             (lane=web, f1_gas)
+#   grok.com                               → grok_web        (lane=web, f1_grok_web)
+#   server.codeium.com                     → windsurf        (lane=ide, f5_p4)
+#   server.self-serve.windsurf.com         → windsurf        (lane=ide, f5_p4)
+#
+# Cursor / GitHub Copilot are Phase B scenarios; their hosts return a
+# beacon but the alert is suppressed via `phase_b: true` in scenarios.yaml.
+def _derive_l1_beacon_target(host: str, path: str) -> Optional[tuple[str, str]]:
+    if host == "api.anthropic.com":
+        return ("claude_code", "cli")
+    if host == "claude.ai":
+        return ("claude_web", "web")
+    if host == "chatgpt.com":
+        if path.startswith("/backend-api/codex/"):
+            return ("codex_cli", "cli")
+        return ("chatgpt_web", "web")
+    if host == "generativelanguage.googleapis.com":
+        return ("gemini_cli", "cli")
+    if host == "aiplatform.googleapis.com":
+        return ("gemini_cli", "cli")
+    if host == "gemini.google.com":
+        return ("gemini_web", "web")
+    if host == "aistudio.google.com":
+        return ("gas", "web")
+    if host == "grok.com":
+        return ("grok_web", "web")
+    if host in ("server.codeium.com", "server.self-serve.windsurf.com"):
+        return ("windsurf", "ide")
+    if host in ("api.individual.githubcopilot.com", "api.githubcopilot.com"):
+        return ("copilot", "ide")
+    if host in ("api2.cursor.sh", "agent.api5.cursor.sh",
+                "api3.cursor.sh", "api.cursor.sh"):
+        return ("cursor", "ide")
+    return None
+
+
+def _emit_l1_beacon(
+    host: str,
+    path: str,
+    status_code: Optional[int],
+    latency_ms: Optional[float],
+    pair_id: str,
+) -> None:
+    """Emit one L1 health beacon for a completed request/response pair.
+
+    Best-effort: never raises. status='pass' for 1xx/2xx/3xx, 'fail' for
+    4xx/5xx (the connection still went through L1 successfully — the
+    proxy did its job — but the upstream said no). For the redundancy
+    matrix we still count 4xx as 'L1 alive' because the leg is doing
+    its job; instead we promote 5xx (upstream broken) to 'fail'.
+    """
+    target_info = _derive_l1_beacon_target(host, path)
+    if target_info is None:
+        return
+    target, lane = target_info
+    # 5xx → fail (upstream broken). 4xx + 1xx/2xx/3xx → pass (leg alive).
+    status = "fail" if (status_code is not None and 500 <= status_code < 600) else "pass"
+    try:
+        from pce_core.health import emit_beacon
+        emit_beacon(
+            lane=lane,
+            layer="L1",
+            target=target,
+            status=status,
+            elapsed_ms=int(latency_ms) if latency_ms is not None else None,
+            meta={
+                "addon": "pce_proxy",
+                "host": host,
+                "path": path[:128],
+                "status_code": status_code,
+                "pair_id": pair_id[:12],
+            },
+        )
+    except Exception:  # pragma: no cover — defensive
+        logger.debug("L1 emit_beacon failed for %s (non-fatal)", host)
+
+
 def _extract_model(body_bytes: bytes) -> Optional[str]:
     """Best-effort extraction of the model name from a JSON request body."""
     try:
@@ -513,6 +605,17 @@ class PCEAddon:
                     source_id=SOURCE_PROXY, pair_id=pair_id,
                     details={"host": host, "status_code": flow.response.status_code},
                 )
+
+            # P5.D.1 W1 — emit L1 health_beacon for this response (drives
+            # the capture supervisor's L1 leg health per scenarios.yaml
+            # beacon_target mapping). Best-effort: never raises.
+            _emit_l1_beacon(
+                host=host,
+                path=flow.request.path,
+                status_code=flow.response.status_code,
+                latency_ms=latency,
+                pair_id=pair_id,
+            )
 
         except Exception as exc:
             logger.exception("response capture failed – letting response through")

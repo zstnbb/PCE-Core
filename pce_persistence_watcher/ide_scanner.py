@@ -465,6 +465,52 @@ def scan(db_path: Optional[Path] = None, dry_run: bool = False) -> dict:
     if not dry_run:
         _save_state(state, state_path)
 
+    # P5.D.1 W1-T9/T11 — emit L3g health_beacons keyed by the app's simple
+    # beacon target (matches scenarios.yaml `beacon_target: codex_cli`
+    # etc). "pass" if at least one record was seen OR emitted this scan
+    # (a scanner with discoveries proves the leg is alive even when
+    # everything is already deduped); "fail" if scanner errored hard.
+    # Skipped entirely when the discovery dir was missing (seen=0,
+    # emitted=0, deduped=0, errors=0).
+    if not dry_run:
+        for app, stats, target, lane, layer in (
+            ("copilot", copilot_stats, "copilot_chat", "ide", "L3g"),
+            ("cursor",  cursor_stats,  "cursor_chat",  "ide", "L3g"),
+            ("codex",   codex_stats,   "codex_cli",    "cli", "L3g"),
+            ("gemini",  gemini_stats,  "gemini_cli",   "cli", "L3g"),
+        ):
+            touched = (stats.get("seen", 0)
+                       + stats.get("emitted", 0)
+                       + stats.get("deduped", 0)
+                       + stats.get("errors", 0))
+            if touched == 0:
+                continue  # discovery dir absent — leg is N/A, not green
+            had_errors = stats.get("errors", 0) > 0
+            status = "fail" if had_errors and stats.get("emitted", 0) == 0 \
+                              and stats.get("deduped", 0) == 0 else "pass"
+            try:
+                from pce_core.health import emit_beacon
+                emit_beacon(
+                    lane=lane,
+                    layer=layer,
+                    target=target,
+                    status=status,
+                    meta={
+                        "scanner": "ide_scanner",
+                        "app": app,
+                        "seen": stats.get("seen", 0),
+                        "emitted": stats.get("emitted", 0),
+                        "deduped": stats.get("deduped", 0),
+                        "errors": stats.get("errors", 0),
+                    },
+                    db_path=db_path,
+                )
+            except Exception:  # pragma: no cover — defensive
+                logger.exception(
+                    "ide_scanner emit_beacon failed for %s (degrading silently)",
+                    app,
+                )
+
     return {"copilot": copilot_stats, "cursor": cursor_stats, "codex": codex_stats, "gemini": gemini_stats}
 
 

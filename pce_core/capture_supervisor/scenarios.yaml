@@ -28,15 +28,27 @@ scenarios:
       - source: L1_mitm
         priority: 1
         independent_basis: chromium_net_stack
+        beacon_target: chatgpt_web
+        beacon_lane: web
+        beacon_layer: L1
       - source: L3a_browser_ext
         priority: 2
         independent_basis: page_dom
+        beacon_target: chatgpt_web
+        beacon_lane: web
+        beacon_layer: L3a
       - source: L3d_cdp
         priority: 3
         independent_basis: chrome_devtools_protocol
+        beacon_target: chatgpt_web
+        beacon_lane: web
+        beacon_layer: L3d
       - source: L4a_clipboard
         priority: 4
         independent_basis: user_action
+        beacon_target: chatgpt_web
+        beacon_lane: web
+        beacon_layer: L4a
 
   - id: f1_claude_web
     label: "Claude Web (claude.ai)"
@@ -46,12 +58,21 @@ scenarios:
       - source: L1_mitm
         priority: 1
         independent_basis: chromium_net_stack
+        beacon_target: claude_web
+        beacon_lane: web
+        beacon_layer: L1
       - source: L3a_browser_ext
         priority: 2
         independent_basis: page_dom
+        beacon_target: claude_web
+        beacon_lane: web
+        beacon_layer: L3a
       - source: L3d_cdp
         priority: 3
         independent_basis: chrome_devtools_protocol
+        beacon_target: claude_web
+        beacon_lane: web
+        beacon_layer: L3d
 
   - id: f1_gemini_web
     label: "Gemini Web (gemini.google.com)"
@@ -61,12 +82,21 @@ scenarios:
       - source: L1_mitm
         priority: 1
         independent_basis: chromium_net_stack
+        beacon_target: gemini_web
+        beacon_lane: web
+        beacon_layer: L1
       - source: L3a_browser_ext
         priority: 2
         independent_basis: page_dom
+        beacon_target: gemini_web
+        beacon_lane: web
+        beacon_layer: L3a
       - source: L4a_clipboard
         priority: 3
         independent_basis: user_action
+        beacon_target: gemini_web
+        beacon_lane: web
+        beacon_layer: L4a
 
   - id: f1_gas
     label: "Google AI Studio (aistudio.google.com)"
@@ -76,12 +106,21 @@ scenarios:
       - source: L1_mitm
         priority: 1
         independent_basis: chromium_net_stack
+        beacon_target: gas
+        beacon_lane: web
+        beacon_layer: L1
       - source: L3a_browser_ext
         priority: 2
         independent_basis: page_dom
+        beacon_target: gas
+        beacon_lane: web
+        beacon_layer: L3a
       - source: L4a_clipboard
         priority: 3
         independent_basis: user_action
+        beacon_target: gas
+        beacon_lane: web
+        beacon_layer: L4a
 
   - id: f1_grok_web
     label: "Grok Web (grok.com)"
@@ -91,12 +130,21 @@ scenarios:
       - source: L1_mitm
         priority: 1
         independent_basis: chromium_net_stack
+        beacon_target: grok_web
+        beacon_lane: web
+        beacon_layer: L1
       - source: L3a_browser_ext
         priority: 2
         independent_basis: page_dom
+        beacon_target: grok_web
+        beacon_lane: web
+        beacon_layer: L3a
       - source: L4a_clipboard
         priority: 3
         independent_basis: user_action
+        beacon_target: grok_web
+        beacon_lane: web
+        beacon_layer: L4a
 
   # ─────────────────────── Desktop 8 / Tier-α (P1, P4, P6-P8) ──────────────
   - id: f4_p1_claude_desktop
@@ -107,12 +155,21 @@ scenarios:
       - source: L1_mitm
         priority: 1
         independent_basis: chromium_net_stack
+        beacon_target: claude_desktop
+        beacon_lane: desktop
+        beacon_layer: L1
       - source: L3g_local_persistence
         priority: 2
         independent_basis: filesystem
+        beacon_target: claude_desktop
+        beacon_lane: desktop
+        beacon_layer: L3g
       - source: L3f_otel
         priority: 3
         independent_basis: mcp_jsonrpc
+        beacon_target: claude_desktop
+        beacon_lane: desktop
+        beacon_layer: L3f
 
   - id: f5_p4_windsurf
     label: "Windsurf (IDE-class MCP-aware)"
@@ -122,12 +179,21 @@ scenarios:
       - source: L1_mitm
         priority: 1
         independent_basis: codeium_grpc_protocol
+        beacon_target: windsurf
+        beacon_lane: ide
+        beacon_layer: L1
       - source: L3f_otel
         priority: 2
         independent_basis: mcp_jsonrpc
+        beacon_target: windsurf
+        beacon_lane: ide
+        beacon_layer: L3f
       - source: L4a_clipboard
         priority: 3
         independent_basis: user_action
+        beacon_target: windsurf
+        beacon_lane: ide
+        beacon_layer: L4a
 
   - id: f6_p6_claude_code_cli
     label: "Claude Code CLI (@anthropic-ai/claude-code)"

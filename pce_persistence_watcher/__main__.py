@@ -458,6 +458,56 @@ def _print_scan_summary(cfg: WatcherConfig, overall: dict[str, dict[str, int]]) 
             f"deduped={stats.get('records_deduped', 0)} "
             f"failures={stats.get('capture_failures', 0)}\n"
         )
+    # P5.D.1 W1-T3 + Phase A — emit L3g health_beacons for Claude Code CLI
+    # AND Claude Desktop based on what the walker saw. Both share the
+    # same on-disk surfaces (`~/.claude/projects/*.jsonl` carries
+    # entrypoint='cli' for standalone CLI and entrypoint='claude-desktop'
+    # for Desktop-embedded Code tab; `local-agent-mode-sessions/` is
+    # Desktop-only). v1 emits one beacon per app surface activity; a
+    # follow-up will split by entrypoint to give finer-grained signals.
+    if cfg.dry_run:
+        return
+    total_records = sum(
+        (s.get("records_seen", 0) + s.get("records_emitted", 0)
+         + s.get("records_deduped", 0))
+        for s in overall.values()
+    )
+    if total_records == 0:
+        return
+    try:
+        from pce_core.health import emit_beacon
+        # f6_p6_claude_code_cli — beacon_target='claude_code' lane='cli' layer='L3g'
+        emit_beacon(
+            lane="cli",
+            layer="L3g",
+            target="claude_code",
+            status="pass",
+            meta={
+                "scanner": "pce_persistence_watcher",
+                "surface": "claude_projects",
+                "installs": list(overall.keys()),
+                "total_records": int(total_records),
+            },
+            db_path=cfg.db_path,
+        )
+        # f4_p1_claude_desktop — beacon_target='claude_desktop' lane='desktop' layer='L3g'
+        emit_beacon(
+            lane="desktop",
+            layer="L3g",
+            target="claude_desktop",
+            status="pass",
+            meta={
+                "scanner": "pce_persistence_watcher",
+                "surface": "agent_sessions+claude_projects+claude_user_home",
+                "installs": list(overall.keys()),
+                "total_records": int(total_records),
+            },
+            db_path=cfg.db_path,
+        )
+    except Exception:  # pragma: no cover — defensive
+        logger.exception(
+            "persistence_watcher L3g emit_beacon failed (degrading silently)"
+        )
 
 
 # ---------------------------------------------------------------------------
