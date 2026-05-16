@@ -1,0 +1,93 @@
+{
+  "session_window": "2026-05-16 16:30-17:00 UTC+08",
+  "scenarios": {
+    "f6_p6_claude_code_cli": {
+      "beacon_target": "claude_code",
+      "L1_beacon": [
+        [
+          "pass",
+          1778922161.7131996
+        ],
+        [
+          "pass",
+          1778922072.160126
+        ],
+        [
+          "pass",
+          1778922041.5599604
+        ]
+      ],
+      "L3g_beacon": [
+        [
+          "pass",
+          1778921288.7963064
+        ]
+      ],
+      "L3h_beacon": [
+        [
+          "pass",
+          1778920223.0240293
+        ],
+        [
+          "pass",
+          1778920193.9993036
+        ]
+      ]
+    },
+    "f6_p7_codex_cli": {
+      "beacon_target": "codex_cli",
+      "L1_beacon": [
+        [
+          "pass",
+          1778921852.5322587
+        ],
+        [
+          "pass",
+          1778921707.7288868
+        ]
+      ],
+      "L3g_beacon": [
+        [
+          "pass",
+          1778920919.8951752
+        ]
+      ],
+      "L3h_beacon": [
+        [
+          "pass",
+          1778920235.0773885
+        ]
+      ]
+    },
+    "f6_p8_gemini_cli": {
+      "beacon_target": "gemini_cli",
+      "L1_beacon": [
+        [
+          "pass",
+          1778922072.3306563
+        ]
+      ],
+      "L3g_beacon": [
+        [
+          "pass",
+          1778920919.904856
+        ]
+      ],
+      "L3h_beacon": [
+        [
+          "pass",
+          1778920252.8496423
+        ]
+      ]
+    }
+  },
+  "capture_paths_added": [
+    "pce_proxy/addon.py:_derive_l1_beacon_target",
+    "pce_proxy/addon.py:_emit_l1_beacon",
+    "pce_persistence_watcher/ide_scanner.py: scan() emit_beacon block",
+    "pce_persistence_watcher/__main__.py:_print_scan_summary emit_beacon block"
+  ],
+  "allowlist_added": [
+    "cloudcode-pa.googleapis.com"
+  ]
+}
