@@ -36,6 +36,11 @@ ALLOWED_HOSTS: set[str] = {
     "api.anthropic.com",
     "generativelanguage.googleapis.com",
     "aiplatform.googleapis.com",
+    # Gemini CLI (oauth-personal) talks to Google's "Cloud Code Personal
+    # Assistant" — internal name, exposed only via the gemini CLI's
+    # `cloudcode-pa.googleapis.com/v1internal:streamGenerate*` endpoint.
+    # Required for f6_p8_gemini_cli L1 capture per P5.D.1 W1.
+    "cloudcode-pa.googleapis.com",
     "api.x.ai",
     "api.deepseek.com",
     "api.mistral.ai",

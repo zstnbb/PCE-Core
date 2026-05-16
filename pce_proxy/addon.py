@@ -132,6 +132,10 @@ def _derive_l1_beacon_target(host: str, path: str) -> Optional[tuple[str, str]]:
         return ("gemini_cli", "cli")
     if host == "aiplatform.googleapis.com":
         return ("gemini_cli", "cli")
+    if host == "cloudcode-pa.googleapis.com":
+        # Gemini CLI's oauth-personal endpoint (Cloud Code Personal
+        # Assistant). Discovered 2026-05-16 during W1 sweep.
+        return ("gemini_cli", "cli")
     if host == "gemini.google.com":
         return ("gemini_web", "web")
     if host == "aistudio.google.com":
