@@ -34,6 +34,23 @@ from .status import (
 logger = logging.getLogger("pce.capture_supervisor.api")
 
 
+def _merge_signal(
+    out: dict[tuple[str, str], dict[str, Optional[float]]],
+    key: tuple[str, str],
+    status: str,
+    ts: float,
+) -> None:
+    """Update last_pass_ts / last_fail_ts in-place, preferring the most
+    recent timestamp (so multiple query results don't clobber freshness).
+    """
+    if key not in out:
+        out[key] = {"last_pass_ts": None, "last_fail_ts": None}
+    field = "last_pass_ts" if status == "pass" else "last_fail_ts"
+    prev = out[key].get(field)
+    if prev is None or ts > prev:
+        out[key][field] = ts
+
+
 # ---------------------------------------------------------------------------
 # Pro leg registration request body
 # ---------------------------------------------------------------------------
@@ -142,11 +159,22 @@ class HealthBeaconSignalProvider(LegSignalProvider):
             from pce_core.db import get_connection
         except ImportError:  # pragma: no cover — defensive
             return {}
-        # Build the target whitelist + reverse map.
+        # Build BOTH lookup tables:
+        #   - strict: target = "<scenario_id>__<source>"
+        #   - alias: (target, lane, layer) → leg, when scenarios.yaml leg
+        #     declares `beacon_target`/`beacon_lane`/`beacon_layer`. This
+        #     lets capture-side modules emit beacons with natural simple
+        #     target names (e.g. ``claude_code``, ``codex_cli``) without
+        #     knowing their scenario_id.
         target_to_key: dict[str, tuple[str, str]] = {}
+        alias_to_key: dict[tuple[str, Optional[str], Optional[str]], tuple[str, str]] = {}
         for scenario in registry.scenarios:
             for leg in scenario.legs:
                 target_to_key[f"{scenario.id}__{leg.source}"] = (scenario.id, leg.source)
+                if leg.beacon_target:
+                    alias_to_key[(leg.beacon_target, leg.beacon_lane, leg.beacon_layer)] = (
+                        scenario.id, leg.source,
+                    )
         if not target_to_key:
             return {}
         cutoff = now - window_hours * 3600.0
@@ -159,6 +187,7 @@ class HealthBeaconSignalProvider(LegSignalProvider):
         except Exception:  # pragma: no cover — defensive
             return out
         try:
+            # --- Strict canonical query ---
             placeholders = ",".join("?" * len(target_to_key))
             sql = (
                 "SELECT target, status, MAX(ts) as last_ts "
@@ -173,11 +202,33 @@ class HealthBeaconSignalProvider(LegSignalProvider):
                 key = target_to_key.get(target)
                 if key is None or last_ts is None:
                     continue
-                ts_float = float(last_ts)
-                if status == "pass":
-                    out[key]["last_pass_ts"] = ts_float
-                elif status == "fail":
-                    out[key]["last_fail_ts"] = ts_float
+                _merge_signal(out, key, status, float(last_ts))
+
+            # --- Alias query: simple target + lane + layer ---
+            if alias_to_key:
+                alias_targets = sorted({t for (t, _l, _ly) in alias_to_key})
+                ph = ",".join("?" * len(alias_targets))
+                sql2 = (
+                    "SELECT target, lane, layer, status, MAX(ts) as last_ts "
+                    f"FROM health_beacons "
+                    f"WHERE target IN ({ph}) AND ts >= ? "
+                    "AND status IN ('pass', 'fail') "
+                    "GROUP BY target, lane, layer, status"
+                )
+                rows2 = conn.execute(sql2, list(alias_targets) + [cutoff]).fetchall()
+                for atarget, alane, alayer, status, last_ts in rows2:
+                    # Try most-specific (target, lane, layer) match first,
+                    # then (target, lane, None), (target, None, layer),
+                    # (target, None, None).
+                    key = (
+                        alias_to_key.get((atarget, alane, alayer))
+                        or alias_to_key.get((atarget, alane, None))
+                        or alias_to_key.get((atarget, None, alayer))
+                        or alias_to_key.get((atarget, None, None))
+                    )
+                    if key is None or last_ts is None:
+                        continue
+                    _merge_signal(out, key, status, float(last_ts))
         except Exception:  # pragma: no cover — defensive
             logger.exception("HealthBeaconSignalProvider query failed (degrading to UNKNOWN)")
         finally:

@@ -60,6 +60,20 @@ _TARGETS: list[_TargetSpec] = [
         provider="anthropic",
         description="Anthropic Claude Code CLI (npm-installed)",
     ),
+    _TargetSpec(
+        target_id="codex-cli",
+        command_name="codex",
+        npm_package="@openai/codex",
+        provider="openai",
+        description="OpenAI Codex CLI (npm-installed; subscription-backed via chatgpt.com/backend-api/codex)",
+    ),
+    _TargetSpec(
+        target_id="gemini-cli",
+        command_name="gemini",
+        npm_package="@google/gemini-cli",
+        provider="google",
+        description="Google Gemini CLI (npm-installed)",
+    ),
 ]
 
 

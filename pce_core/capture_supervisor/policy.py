@@ -50,12 +50,27 @@ class Leg:
     source: str                       # CaptureSource literal value
     priority: int                     # smaller = preferred
     independent_basis: str            # uniqueness key inside the scenario
+    # Optional simple beacon target name (e.g. 'claude_code'). When set,
+    # supervisor accepts health_beacons rows where `target` equals this
+    # value (in addition to the canonical '<scenario_id>__<source>'
+    # convention). Lets capture-side modules write natural target names
+    # without knowing their scenario_id; supervisor does the reverse
+    # lookup via this field.
+    beacon_target: Optional[str] = None
+    # Optional (lane, layer) hint used together with beacon_target for
+    # the alias lookup. Defaults derived from `source` if absent (best-
+    # effort split on '_').
+    beacon_lane: Optional[str] = None
+    beacon_layer: Optional[str] = None
 
     def as_dict(self) -> dict:
         return {
             "source": self.source,
             "priority": self.priority,
             "independent_basis": self.independent_basis,
+            "beacon_target": self.beacon_target,
+            "beacon_lane": self.beacon_lane,
+            "beacon_layer": self.beacon_layer,
         }
 
 
@@ -223,7 +238,15 @@ def _parse_leg(scenario_id: str, idx: int, node: Mapping) -> Leg:
             f"scenario {scenario_id!r} leg #{idx}: priority must be ≥ 1"
         )
     basis = _require_str(node, "independent_basis")
-    return Leg(source=source, priority=priority, independent_basis=basis)
+    beacon_target = node.get("beacon_target")
+    beacon_lane = node.get("beacon_lane")
+    beacon_layer = node.get("beacon_layer")
+    return Leg(
+        source=source, priority=priority, independent_basis=basis,
+        beacon_target=beacon_target if isinstance(beacon_target, str) else None,
+        beacon_lane=beacon_lane if isinstance(beacon_lane, str) else None,
+        beacon_layer=beacon_layer if isinstance(beacon_layer, str) else None,
+    )
 
 
 def _require_str(node: Mapping, key: str) -> str:

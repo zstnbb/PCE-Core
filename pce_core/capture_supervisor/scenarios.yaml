@@ -137,12 +137,21 @@ scenarios:
       - source: L1_mitm
         priority: 1
         independent_basis: anthropic_https_api
+        beacon_target: claude_code
+        beacon_lane: cli
+        beacon_layer: L1
       - source: L3g_local_persistence
         priority: 2
         independent_basis: filesystem
+        beacon_target: claude_code
+        beacon_lane: cli
+        beacon_layer: L3g
       - source: L3h_cli_wrap
         priority: 3
         independent_basis: stdio_shim
+        beacon_target: claude_code
+        beacon_lane: cli
+        beacon_layer: L3h
 
   - id: f6_p7_codex_cli
     label: "Codex CLI (OpenAI)"
@@ -152,12 +161,21 @@ scenarios:
       - source: L1_mitm
         priority: 1
         independent_basis: openai_https_api
+        beacon_target: codex_cli
+        beacon_lane: cli
+        beacon_layer: L1
       - source: L3g_local_persistence
         priority: 2
         independent_basis: filesystem
+        beacon_target: codex_cli
+        beacon_lane: cli
+        beacon_layer: L3g
       - source: L3h_cli_wrap
         priority: 3
         independent_basis: stdio_shim
+        beacon_target: codex_cli
+        beacon_lane: cli
+        beacon_layer: L3h
 
   - id: f6_p8_gemini_cli
     label: "Gemini CLI (Google)"
@@ -167,12 +185,21 @@ scenarios:
       - source: L1_mitm
         priority: 1
         independent_basis: google_genai_https_api
+        beacon_target: gemini_cli
+        beacon_lane: cli
+        beacon_layer: L1
       - source: L3g_local_persistence
         priority: 2
         independent_basis: filesystem
+        beacon_target: gemini_cli
+        beacon_lane: cli
+        beacon_layer: L3g
       - source: L3h_cli_wrap
         priority: 3
         independent_basis: stdio_shim
+        beacon_target: gemini_cli
+        beacon_lane: cli
+        beacon_layer: L3h
 
   # ─────────────────────── Desktop 8 / Tier-β (Phase B) ────────────────────
   # Phase B scenarios start in down/impaired state by design; the redundancy
