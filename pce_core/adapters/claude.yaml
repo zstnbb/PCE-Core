@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Claude (claude.ai) site adapter — P5.C.4.1 YAML manifest.
+# Last validated against live claude.ai UI: 2026-05-17
 
 schema_version: 1
 name: claude
@@ -109,6 +110,8 @@ selectors:
   edit_input:
     - 'textarea[data-1p-ignore="true"]'
     - 'textarea.whitespace-pre-wrap'
+    - 'textarea[data-testid*="edit"]'  # added 2026-05-17 (pce-autonomy): resilience for canary refresh
+    - '[data-testid="human-turn"] textarea'  # added 2026-05-17 (pce-autonomy): resilience for canary refresh
     - '[data-testid="human-turn"] [contenteditable="true"]'
     - '[data-testid*="edit-message"] [contenteditable="true"]'
     - '[data-testid*="edit"] [contenteditable="true"]'
