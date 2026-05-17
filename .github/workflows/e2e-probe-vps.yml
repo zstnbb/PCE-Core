@@ -1,0 +1,68 @@
+# SPDX-License-Identifier: Apache-2.0
+# E2E probe matrix on the pce-autonomy VPS (Wave 1 W1-T6 deliverable).
+#
+# Independent of nightly-probe.yml: this workflow targets the self-hosted
+# runner that has the 5 web sites logged in via Chrome + PCE extension,
+# Mihomo proxy on 127.0.0.1:7890, PCE Core service on 127.0.0.1:9800.
+#
+# Trigger via workflow_dispatch. Once accepted, can later be promoted to
+# scheduled trigger alongside (or replacing) nightly-probe.yml.
+#
+# References: pce-autonomy Docs/autonomy-sprint/01-wave1-vps-bring-up.md W1-T6
+#             pce-autonomy Docs/adr/ADR-005-v1-scope-narrow-to-web5.md
+
+name: E2E Probe (VPS, 5 web sites)
+
+on:
+  workflow_dispatch:
+    inputs:
+      case_filter:
+        description: "pytest -k filter (e.g. t00_smoke)"
+        required: false
+        default: "t00_smoke"
+
+jobs:
+  probe:
+    runs-on: [self-hosted, windows, pce-vps]
+    timeout-minutes: 20
+    steps:
+      - name: Verify PCE Core service
+        shell: powershell
+        run: |
+          $r = Invoke-WebRequest -Uri http://127.0.0.1:9800/api/v1/health -UseBasicParsing -TimeoutSec 5
+          Write-Host "pce-core: HTTP $($r.StatusCode), $($r.Content.Length) bytes"
+
+      - name: Verify Mihomo proxy
+        shell: powershell
+        run: |
+          $r = Invoke-WebRequest -Uri http://127.0.0.1:9090/version -UseBasicParsing -TimeoutSec 5
+          Write-Host "mihomo: $($r.Content)"
+
+      - name: Verify Chrome profile + cookies present
+        shell: powershell
+        run: |
+          $pdir = "C:\pce-runtime\profiles\chrome\Default"
+          $size = (Get-ChildItem $pdir -Recurse -EA SilentlyContinue | Measure-Object -Property Length -Sum).Sum
+          $sizeMB = [math]::Round($size/1MB, 1)
+          Write-Host "profile size: $sizeMB MB"
+          if ($sizeMB -lt 50) { throw "Profile suspiciously small ($sizeMB MB); may have lost login state" }
+
+      - name: Run e2e_probe smoke
+        shell: powershell
+        env:
+          PCE_CORE_BASE_URL: http://127.0.0.1:9800
+        run: |
+          $filter = "${{ github.event.inputs.case_filter }}"
+          $venvPy = "C:\pce-runtime\pce-core\.venv\Scripts\python.exe"
+          Set-Location C:\pce-runtime\pce-core
+          $pytestArgs = @("-m", "pytest", "tests/e2e_probe", "-v", "--no-header", "--tb=short")
+          if ($filter) { $pytestArgs += @("-k", $filter) }
+          & $venvPy @pytestArgs
+
+      - name: Upload probe reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-probe-reports
+          path: C:\pce-runtime\pce-core\tests\e2e_probe\reports\
+          if-no-files-found: warn
