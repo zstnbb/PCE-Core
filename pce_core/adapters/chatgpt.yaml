@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+# Last validated against live chatgpt.com UI: 2026-05-17
 # ChatGPT (chatgpt.com) site adapter — P5.C.4.1 YAML manifest.
 #
 # Authority: this YAML is the canonical configuration source. The
@@ -97,6 +98,8 @@ selectors:
     - 'button[aria-label*="Attach" i][aria-label*="upload" i]'
     - 'button[aria-label="Tools"]'
     - 'button[aria-label*="Tools" i]'
+    - 'button[data-testid="composer-tools-btn"]'  # added 2026-05-17 (pce-autonomy): resilience for canary refresh
+    - 'button[data-testid*="composer-tool"]'  # added 2026-05-17 (pce-autonomy): resilience for canary refresh
 
   # T13: Code Interpreter — empty by design (label-based picker is used).
   code_interpreter_button: []
