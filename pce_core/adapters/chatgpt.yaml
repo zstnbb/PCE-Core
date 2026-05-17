@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+# Last validated against live chatgpt.com UI: 2026-05-17
 # ChatGPT (chatgpt.com) site adapter — P5.C.4.1 YAML manifest.
 #
 # Authority: this YAML is the canonical configuration source. The
@@ -20,10 +21,15 @@ selectors:
     - '[contenteditable="true"][id="prompt-textarea"]'
     - '[contenteditable="true"][data-virtualkeyboard="true"]'
     - '[contenteditable="true"][data-testid*="prompt"]'
+    - 'textarea[data-testid="prompt-textarea"]'          # added 2026-05-17 (pce-autonomy): resilience for UI drift
+    - 'textarea[placeholder][class*="prompt"]'           # added 2026-05-17 (pce-autonomy): A/B native-textarea branch
 
   send_button:
     - 'button[data-testid="send-button"]'
+    - 'button[data-testid="composer-submit-button"]'     # added 2026-05-17 (pce-autonomy): resilience for UI drift
+    - 'button[data-testid*="send"]'                      # added 2026-05-17 (pce-autonomy): wildcard testid fallback
     - 'button[aria-label*="Send" i]'
+    - 'button[aria-label*="发送"]'                       # added 2026-05-17 (pce-autonomy): zh-CN label fallback
 
   stop_button:
     - 'button[data-testid="stop-button"]'
@@ -33,6 +39,8 @@ selectors:
   response_container:
     - '[data-message-author-role="assistant"]'
     - '[data-testid^="conversation-turn"][data-turn="assistant"]'
+    - 'article[data-scroll-anchor="true"]'               # added 2026-05-17 (pce-autonomy): resilience for UI drift
+    - '[data-testid*="conversation-turn-"][data-message-author-role="assistant"]'  # added 2026-05-17 (pce-autonomy): combined attr fallback
 
   login_wall:
     - 'button[data-testid="login-button"]'
