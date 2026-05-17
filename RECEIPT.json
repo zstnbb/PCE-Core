@@ -1,0 +1,14 @@
+{
+  "run_id":          "run-01KRTGE2FHCST1RKZ00C",
+  "verdict":         "fixed",
+  "risk_tier_self":  "green",
+  "confidence":      0.97,
+  "out_of_scope":    false,
+  "files_changed":   ["pce_core/adapters/chatgpt.yaml"],
+  "v_green_evidence": [
+    "仅在文件顶部添加了一行注释，未修改任何 YAML 数据字段",
+    "注释格式严格符合任务要求的模板",
+    "YAML 结构未受影响，文件仍可正常解析"
+  ],
+  "narrative": "文件头部缺少 last-validated 注释行，已在顶部添加指定格式的注释，日期设为 2026-05-17。"
+}

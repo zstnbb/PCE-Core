@@ -1,0 +1,44 @@
+
+# 2026-05-17 16:21:57.157685
++Hi Aider. I'm running you as part of a maintenance harness for my own
++project (PCE -- Personal Capture Environment). I've cloned a fresh git
++worktree for you to work in; you're already cd'd into it. The branch is
++`auto/run-01KRTGE2FHCST1RKZ00C` so any commits you make stay scoped.
++
++## The thing I want you to look at
++
++This run was triggered with kind=`manual-investigation` from source=`manual`.
++The triggering payload was:
++
++    {
++  "task": "Please take a quick look at pce_core/adapters/chatgpt.yaml in this\nworktree. Skim its top-of-file comment block (if any).\n\nIf there's no top-of-file comment line documenting when this adapter\nwas last validated against the live chatgpt.com UI, add a single new\ncomment line right at the top in this exact shape:\n\n    # Last validated against live chatgpt.com UI: 2026-05-17 (pce-autonomy maintenance run)\n\nIf a similar 'last validated' comment already exists, that's fine --\njust update its date to 2026-05-17 rather than adding a duplicate.\n\nOther than that single comment line, please don't change anything in\nthe file. Verify the file still parses as valid YAML afterwards.\n\nDecide your verdict honestly based on what you actually did:\n- If you added or updated the comment, verdict is \"fixed\".\n- If the file already had today's date and you changed nothing, verdict\n  is \"investigated_no_change\".\n- If something blocked you (e.g. the file is in an unexpected shape),\n  verdict is \"blocked\".\n\nSet confidence to whatever you're comfortable with.",
++  "note": "archivist green-path live test"
++}
++
++Please investigate. If the payload describes a problem in a PCE adapter
++(typically under `pce_core/adapters/`), feel free to edit the relevant
++adapter file. If it's just a "look at this" with no edit needed, that's
++fine -- you don't have to invent work.
++
++## When you're done
++
++Write a file called `RECEIPT.json` in the current directory containing
++this exact shape (substitute your real values):
++
++    {
++      "run_id":          "run-01KRTGE2FHCST1RKZ00C",
++      "verdict":         "investigated_no_change",
++      "risk_tier_self":  "green",
++      "confidence":      0.9,
++      "out_of_scope":    false,
++      "files_changed":   [],
++      "v_green_evidence": [],
++      "narrative":       "one-line summary of what you found"
++    }
++
++Verdict values I accept: `fixed`, `investigated_no_change`, `blocked`,
++`out_of_scope`. Pick whichever fits. You MUST write this file even if you
++didn't make any edits -- it's how I know you ran.
++
++Please don't `git push` -- I review your work first. Thanks!
++
