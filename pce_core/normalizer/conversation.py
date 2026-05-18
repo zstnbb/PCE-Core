@@ -338,13 +338,19 @@ class ConversationNormalizer(BaseNormalizer):
             content = msg.get("content", "")
             if not content or not isinstance(content, str):
                 continue
-            # Skip very short content (likely UI artifacts)
-            if len(content.strip()) < 2:
+            # Skip empty content. Single-character substantive content like
+            # "4" or "y" is legitimate for short answers (e.g. an assistant
+            # responding to "What is 2+2?" with "4"); only purely empty /
+            # whitespace strings are dropped. Tightened from `< 2` to `< 1`
+            # after the P5.D.1 W1-T2 retry capture (pair_id=d502a3e9b7914511)
+            # on 2026-05-15 silently dropped the assistant role="4" message,
+            # flagged as follow-up in HANDOFF-W1-T2-CLAUDE-DESKTOP-MCPB.
+            if len(content.strip()) < 1:
                 continue
 
             # Clean raw platform JSON (e.g. ChatGPT WS {'content_type':'text','parts':[...]})
             content, extra_atts = _clean_content(content)
-            if len(content.strip()) < 2:
+            if len(content.strip()) < 1:
                 continue
 
             # Detect file uploads from content text patterns (user messages)

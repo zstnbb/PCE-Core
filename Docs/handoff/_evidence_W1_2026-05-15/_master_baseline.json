@@ -1,0 +1,19 @@
+{
+  "taken_at_unix": 1778829067.0874963,
+  "taken_at_iso": "2026-05-15 07:11:07 UTC",
+  "raw_captures_count": 38467,
+  "messages_count": 6249,
+  "sessions_count": 1428,
+  "raw_captures_max_capture_time_ns": 1778550079266246900,
+  "messages_max_ts": 1778669814.7682335,
+  "sessions_max_started_at": 1778669814.7682335,
+  "per_source_id": {
+    "browser-extension-default": 6642,
+    "cdp-embedded": 102,
+    "l3g-local-persistence-default": 15087,
+    "l3h-cli-wrapper-default": 1,
+    "mcp-default": 10,
+    "proxy-default": 16625
+  },
+  "db_path": "C:\\Users\\ZST\\.pce\\data\\pce.db"
+}

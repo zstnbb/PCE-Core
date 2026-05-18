@@ -87,13 +87,31 @@ def _resolve_host(flow: http.HTTPFlow) -> str | None:
 
 
 def _provider_from_host(host: str) -> str:
-    """Derive a short provider label from hostname."""
-    if "openai" in host:
+    """Derive a short provider label from hostname.
+
+    Order matters: Copilot is checked before OpenAI because Copilot Chat
+    uses an OpenAI-compatible wire format, but billing / auth / rate
+    limits live on GitHub's side so we keep the provider distinct.
+    """
+    if not host:
+        return ""
+    h = host.lower()
+    if "githubcopilot" in h or "copilot-proxy.githubusercontent" in h:
+        return "github-copilot"
+    if "openai" in h or "chatgpt" in h:
         return "openai"
-    if "anthropic" in host:
+    if "anthropic" in h or "claude.ai" in h:
         return "anthropic"
-    if "googleapis" in host:
+    if "googleapis" in h or "gemini" in h or "aistudio.google" in h:
         return "google"
+    if "x.ai" in h or "grok.com" in h:
+        return "xai"
+    if "perplexity" in h:
+        return "perplexity"
+    if "cursor" in h:
+        return "cursor"
+    if "codeium" in h or "windsurf" in h:
+        return "codeium"
     return host
 
 
@@ -350,6 +368,41 @@ STREAMING_HOSTS: set[str] = {
 }
 
 
+def _decompress_streamed_body(body: bytes, content_encoding: str) -> bytes:
+    """Decompress a body whose raw bytes were teed from the streaming hook.
+
+    The streaming `flow.response.stream = _tee` callback in
+    `responseheaders()` captures bytes as they leave the wire — i.e.
+    pre-decompression. By contrast, `flow.response.content` would have
+    applied Content-Encoding automatically. To keep storage uniform
+    (plaintext JSON / SSE in body_text_or_json), we apply the same
+    decoding manually for the streaming branch.
+
+    Supports gzip / deflate / br / zstd; raises on unknown encoding so
+    the caller can fall back to raw bytes + log a warning.
+    """
+    enc = (content_encoding or "").lower().strip()
+    if not body or not enc or enc in ("identity", "none"):
+        return body
+    if enc == "gzip":
+        import gzip
+        return gzip.decompress(body)
+    if enc == "deflate":
+        import zlib
+        # RFC 2616 "deflate" is ambiguous; try raw deflate first, then zlib-wrapped
+        try:
+            return zlib.decompress(body, -zlib.MAX_WBITS)
+        except zlib.error:
+            return zlib.decompress(body)
+    if enc == "br":
+        import brotli  # type: ignore[import-not-found]
+        return brotli.decompress(body)
+    if enc == "zstd":
+        import zstandard  # type: ignore[import-not-found]
+        return zstandard.ZstdDecompressor().decompress(body)
+    raise ValueError(f"unsupported content-encoding: {enc}")
+
+
 def _should_stream(host: str, content_type: str) -> bool:
     """Decide whether to stream a response chunk-by-chunk.
 
@@ -568,6 +621,32 @@ class PCEAddon:
             captured = meta.get("captured_chunks")
             if captured is not None:
                 body_raw = b"".join(captured)
+                # The streaming `_tee` callback receives RAW wire bytes —
+                # i.e. still gzip / deflate / br compressed if the upstream
+                # set Content-Encoding. mitmproxy's flow.response.content
+                # accessor auto-decodes, but the teed chunks bypass that
+                # path. Decode here so the normalizer pipeline sees plain
+                # text (a.k.a. the actual JSON / SSE body), not garbled
+                # binary that SQLite then stores as ~3 chars of mangled
+                # UTF-8.
+                #
+                # Caught during P5.D.1 W4-T6 (api.anthropic.com chat via
+                # mitmproxy): request body was 106 KB plaintext but the
+                # response body landed as 3 chars because gzip bytes
+                # starting with 0x1f 0x8b mangle into invalid UTF-8.
+                content_encoding = (
+                    flow.response.headers.get("content-encoding", "")
+                    .lower().strip()
+                )
+                if content_encoding in ("gzip", "deflate", "br", "zstd"):
+                    try:
+                        body_raw = _decompress_streamed_body(body_raw, content_encoding)
+                    except Exception as exc:
+                        logger.warning(
+                            "streamed body decompress failed (%s, %d B): %s — "
+                            "falling back to raw bytes",
+                            content_encoding, len(body_raw), exc,
+                        )
             else:
                 body_raw = flow.response.content or b""
             body_text, body_fmt = safe_body_text(body_raw)

@@ -16,7 +16,7 @@ import time
 from typing import Optional
 
 from .config import DB_PATH
-from .db import SOURCE_BROWSER_EXT, init_db, insert_capture, new_pair_id
+from .db import SOURCE_CLIPBOARD_MONITOR, init_db, insert_capture, new_pair_id
 
 logger = logging.getLogger("pce.clipboard")
 
@@ -279,7 +279,7 @@ class ClipboardMonitor:
             provider="clipboard",
             body_text_or_json=body,
             body_format="json",
-            source_id=SOURCE_BROWSER_EXT,
+            source_id=SOURCE_CLIPBOARD_MONITOR,
             meta_json=json.dumps({
                 "capture_source": "clipboard_monitor",
                 "confidence": confidence,

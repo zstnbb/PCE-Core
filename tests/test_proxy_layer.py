@@ -1625,3 +1625,53 @@ class TestStreamingChunkPersistence:
         # Each chunk's content should be in the persisted body
         for c in chunks:
             assert c.decode() in body, f"chunk missing from body: {c[:40]!r}"
+
+
+# ---------------------------------------------------------------------------
+# P5.D.1 W4 — gzip-streamed body decompression regression
+# Bug fix 2026-05-15 (this commit): the streaming response tee captured
+# RAW wire bytes including Content-Encoding compression; the addon was
+# storing them as garbled UTF-8 (e.g. api.anthropic.com chat responses
+# landed as 3-character mangled bytes instead of the actual 100s of KB
+# of SSE JSON). Caught while running W4-T6.
+# ---------------------------------------------------------------------------
+
+
+def test_decompress_streamed_body_handles_gzip():
+    """Streaming captures are pre-decompression; the addon must apply
+    Content-Encoding manually to keep body_text_or_json plaintext."""
+    import gzip
+    from pce_proxy.addon import _decompress_streamed_body
+
+    payload = b'{"messages":[{"role":"assistant","content":"hello world"}]}'
+    compressed = gzip.compress(payload)
+    assert compressed[:2] == b"\x1f\x8b", "test setup: expected gzip magic"
+
+    result = _decompress_streamed_body(compressed, "gzip")
+    assert result == payload, f"gzip decompress mismatch: {result!r}"
+
+
+def test_decompress_streamed_body_handles_deflate():
+    import zlib
+    from pce_proxy.addon import _decompress_streamed_body
+
+    payload = b"plain deflate body"
+    deflated = zlib.compress(payload)
+    result = _decompress_streamed_body(deflated, "deflate")
+    assert result == payload
+
+
+def test_decompress_streamed_body_identity_passthrough():
+    """No content-encoding (or 'identity') → no transformation."""
+    from pce_proxy.addon import _decompress_streamed_body
+    payload = b"plain bytes"
+    assert _decompress_streamed_body(payload, "") == payload
+    assert _decompress_streamed_body(payload, "identity") == payload
+
+
+def test_decompress_streamed_body_unsupported_raises():
+    """Unsupported encoding → raise so caller falls back to raw bytes."""
+    import pytest
+    from pce_proxy.addon import _decompress_streamed_body
+    with pytest.raises(ValueError, match="unsupported content-encoding"):
+        _decompress_streamed_body(b"x", "xyz-future-codec")

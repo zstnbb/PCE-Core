@@ -479,3 +479,86 @@ if __name__ == "__main__":
     print(f"\n{passed} PASS / {failed} FAIL")
     if failed:
         sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# Gemini CLI L3g — regression test for normalize_conversation routing
+# (bug fixed 2026-05-15: host="local-gemini-cli" was missing from the
+# L3g-IDE host whitelist in pipeline.normalize_conversation, causing
+# the catch-all ConversationNormalizer to win and emit role="user" for
+# both messages with tool_family="google-web".)
+# ---------------------------------------------------------------------------
+
+def test_gemini_cli_l3g_routed_to_gemini_cli_normalizer():
+    """Regression: a gemini-cli capture must produce tool_family='gemini-cli-l3g',
+    not 'google-web' (catch-all)."""
+    import sqlite3
+    import tempfile
+    import os
+    from pathlib import Path
+    from pce_core.db import init_db, SOURCE_L3G_LOCAL_PERSISTENCE, insert_capture, new_pair_id, query_by_pair
+    from pce_core.normalizer.pipeline import normalize_conversation
+
+    body = json.dumps({
+        "session_id": "regression-test-aaaa-bbbb-cccc-dddd",
+        "project_hash": "deadbeef",
+        "start_time": "2026-05-15T07:13:00.000Z",
+        "kind": "main",
+        "model": "gemini-3-flash-preview",
+        "messages": [
+            {"id": "m1", "timestamp": "2026-05-15T07:13:01.000Z",
+             "type": "user", "content": "What is 2+2?",
+             "model": None, "thoughts": None, "tokens": None},
+            {"id": "m2", "timestamp": "2026-05-15T07:13:02.000Z",
+             "type": "gemini", "content": "2 + 2 = 4",
+             "model": "gemini-3-flash-preview", "thoughts": None,
+             "tokens": {"input": 10, "output": 5}},
+        ],
+    })
+
+    with tempfile.TemporaryDirectory() as td:
+        db_path = Path(td) / "test.db"
+        init_db(db_path)
+        pair_id = new_pair_id()
+        insert_capture(
+            direction="conversation",
+            pair_id=pair_id,
+            host="local-gemini-cli",
+            path="/regression-test-aaaa-bbbb-cccc-dddd",
+            method="GET",
+            provider="google",
+            status_code=None,
+            latency_ms=None,
+            body_text_or_json=body,
+            body_format="json",
+            meta_json=json.dumps({"source_kind": "ide_chat_session"}),
+            source_id=SOURCE_L3G_LOCAL_PERSISTENCE,
+            source="ide_scanner",
+            db_path=db_path,
+            session_hint="regression-test-aaaa-bbbb-cccc-dddd",
+        )
+        rows = query_by_pair(pair_id, db_path=db_path)
+        assert rows, "capture not inserted"
+        sess_id = normalize_conversation(rows[0], source_id=SOURCE_L3G_LOCAL_PERSISTENCE, db_path=db_path)
+        assert sess_id, "no session produced"
+
+        conn = sqlite3.connect(str(db_path))
+        cur = conn.cursor()
+        cur.execute("SELECT tool_family, provider, model_names FROM sessions WHERE id=?", (sess_id,))
+        tf, prov, models = cur.fetchone()
+        assert tf == "gemini-cli-l3g", f"wrong tool_family: {tf!r}"
+        assert prov == "google", f"wrong provider: {prov!r}"
+        assert models and "gemini-3-flash-preview" in models
+
+        cur.execute("SELECT role, model_name, content_text FROM messages WHERE session_id=? ORDER BY ts", (sess_id,))
+        msgs = cur.fetchall()
+        assert len(msgs) == 2, f"wrong message count: {len(msgs)}"
+        assert msgs[0][0] == "user" and msgs[0][2] == "What is 2+2?", f"wrong user msg: {msgs[0]}"
+        assert msgs[1][0] == "assistant" and msgs[1][2] == "2 + 2 = 4", f"wrong asst msg: {msgs[1]}"
+        assert msgs[1][1] == "gemini-3-flash-preview", f"wrong assistant model: {msgs[1][1]!r}"
+        conn.close()
+
+
+if __name__ == "__main__":
+    test_gemini_cli_l3g_routed_to_gemini_cli_normalizer()
+    print("gemini-cli L3g routing regression: PASS")
