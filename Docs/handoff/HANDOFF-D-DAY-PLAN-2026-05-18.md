@@ -376,16 +376,18 @@ python -m tools.check_redundancy_targets --threshold strict --expected-pass 5
 |:-:|---|---|:-:|---|---|
 | B0  | 09:00 | 09:25 | ✅ PASS | a9814d9 | §0.1 banner + 13 verdict 行 reset + §4.1.0 真状态表 + §4.1.1 历史表归档. ≥3 strict: 9-10/13 → 0/13 (matches nightly SVG). |
 | B1  | 09:30 | 10:50 | ✅ PASS | bcefb51 | 实测发现 3 CLI 全 Node-installed (Rust 假设不成立). 改用 env 注入: `_proxy_env.py` + `_undici_proxy_inject.js` + relay.py 两 Popen env wire-in. 14 新单测 GREEN, 94/94 e2e_cli 无回归. **不写 transparent proxy 了**; HTTPS_PROXY + NODE_OPTIONS 两路足够. 见 HANDOFF-D-DAY-B1-CLI-PROXY-INJECTION-2026-05-18.md. |
-| **B3–B10 aggregate** | 11:00 | 12:15 | ✅ PARTIAL | (this commit) | **重大发现**: 主仓 DB `~/.pce/data/pce.db` 实测已含 62 K raw_captures / 2.8 K sessions / 11 K messages, **6/8 桌面场景 72h 窗口已 ≥3 legs** (P1=4 / P2=2 ph-B / P3=3 / P4=3 / P5=2 / P6=3 / P7=2 / P8=4). 写 `tools/dump_evidence.py` (635 LOC, scenario→per-leg filter, --strip-bodies privacy default) + `_evidence_D_DAY/` 8 个 (handoff.md / evidence.json / snapshot.db). MIDGATE doc 说的"blocked on owner-side live signoff"实际是**已捕获只是没写 handoff**. 剩余 2 缺口 (P5-A2 / P7-L3g) 要 owner 5min 操作. |
-| B2  | — | — | — | — | — |
-| B3  | — | — | — | — | — |
-| B5  | — | — | — | — | — |
-| B6  | — | — | — | — | — |
-| B7  | — | — | — | — | — |
-| B8  | — | — | — | — | — |
-| B9  | — | — | — | — | — |
-| B10 | — | — | — | — | — |
-| B11 | — | — | — | — | — |
+| **B3–B10 aggregate** | 11:00 | 12:15 | ✅ PARTIAL | d741d83 | **重大发现**: 主仓 DB `~/.pce/data/pce.db` 实测已含 62 K raw_captures / 2.8 K sessions / 11 K messages, **6/8 桌面场景 72h 窗口已 ≥3 legs**. 写 `tools/dump_evidence.py` (700+ LOC, --strip-bodies privacy default) + `_evidence_D_DAY/` 24 文件. MIDGATE doc "blocked on owner-side live signoff"实际是**已捕获只是没写 handoff**. |
+| matrix-§3 verdict | 12:15 | 12:40 | ✅ PASS | f9d8e1f | §3 13 verdict + §4.1.0 表 + summary 行同步到 D-Day 实际状态 (8/13 strict). |
+| owner-actions doc | 12:40 | 12:55 | ✅ PASS | 22b5afd | P5+P7 5min owner script (Action 1 codex / Action 2 Copilot Chat / Action 3 dump 验签). |
+| B2  | — | — | ⏳ TODO owner | — | 30s `python -m pce_sslkeylog stats --limit 3` 即可. |
+| B3  | aggregate | aggregate | ✅ via d741d83 | d741d83 | P6=3 + P8=4 ✅; P7 缺 L3g 待 owner Action 1. |
+| B5  | aggregate | aggregate | ✅ via d741d83 | d741d83 | P1 Claude Desktop 4/3 ✅ (18077 rows). |
+| B6  | aggregate | aggregate | ✅ via d741d83 | d741d83 | P4 Windsurf 3/3 ✅. |
+| B7  | aggregate | aggregate | ✅ via d741d83 | d741d83 | A2 已检出 5/8 桌面; per-app PID 强化 owner 可选. |
+| B8  | aggregate | aggregate | ⏳ PARTIAL | d741d83 | P5 Copilot L1+L3f=2/3, 缺 A2; owner Action 2 关. |
+| B9  | aggregate | aggregate | ⏳ PARTIAL | d741d83 | P2 ChatGPT Desktop 2/3 ✅ (Phase B target met); ADR-022 仍 Proposed; UIA RECON 未跑. |
+| B10 | aggregate | aggregate | ✅ via d741d83 | d741d83 | P3 Cursor 3/3 ✅; ADR-023 仍 Proposed; protobuf RECON 未跑. |
+| B11 | 13:00 | 13:30 | ✅ PASS | (this commit) | HANDOFF-D-DAY-RESULT-2026-05-18.md 收口; 矩阵 + plan + tasks 同步. v1.1.6 tag 不打 (Phase B 真工程仍未闭). |
 
 ---
 
