@@ -52,6 +52,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, BinaryIO, Optional
 
+from ._proxy_env import augment_child_env
 from .capture import CliWrapperObserver, RelayResult
 from .discovery import discover
 
@@ -166,6 +167,7 @@ def _run_pipe_tee(
     parent_stderr: BinaryIO,
 ) -> RelayResult:
     cmd = _build_command(target_path, child_args)
+    child_env = augment_child_env(target_id=target_id, base_env=os.environ)
 
     proc = subprocess.Popen(
         cmd,
@@ -177,6 +179,7 @@ def _run_pipe_tee(
         shell=False,
         bufsize=0,
         cwd=os.getcwd(),
+        env=child_env,
     )
 
     stdin_buf = _CapBuffer(max_body_bytes)
@@ -275,6 +278,7 @@ def _run_passthrough(
     started_at_ns: int,
 ) -> RelayResult:
     cmd = _build_command(target_path, child_args)
+    child_env = augment_child_env(target_id=target_id, base_env=os.environ)
 
     proc = subprocess.Popen(
         cmd,
@@ -284,6 +288,7 @@ def _run_passthrough(
         stderr=None,
         shell=False,
         cwd=os.getcwd(),
+        env=child_env,
     )
 
     timed_out = False

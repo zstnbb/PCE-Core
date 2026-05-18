@@ -28,6 +28,13 @@ Thumbs.db
 *.db-wal
 *.db-shm
 
+# Exception: D-Day / W1 evidence snapshots are committed as
+# immutable V-GREEN evidence per
+# Docs/handoff/_evidence_W1_2026-05-14/README.md §gitignore-策略.
+# These .snapshot.db files are produced by tools/dump_evidence.py
+# with --strip-bodies (default) so no user prompt content leaks.
+!Docs/handoff/_evidence_*/*.snapshot.db
+
 # mitmproxy
 ~/.mitmproxy/
 /tests/e2e/screenshots

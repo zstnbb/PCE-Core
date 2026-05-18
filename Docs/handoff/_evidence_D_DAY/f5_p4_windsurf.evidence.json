@@ -1,0 +1,51 @@
+{
+  "scenario_id": "f5_p4_windsurf",
+  "label": "Windsurf (IDE-class MCP-aware)",
+  "expected_legs": [
+    "L1",
+    "L3f",
+    "A2"
+  ],
+  "db_path": "C:\\Users\\ZST\\.pce\\data\\pce.db",
+  "window_start_epoch": 1778817871.1600132,
+  "window_end_epoch": 1779077071.1600132,
+  "raw_captures_count": 67,
+  "raw_captures_by_source": {
+    "proxy-default": 36,
+    "mcp-default": 23,
+    "sslkeylog-default": 8
+  },
+  "raw_captures_by_host": {
+    "server.codeium.com": 40,
+    "api.openai.com": 10,
+    "generativelanguage.googleapis.com": 5,
+    "api.anthropic.com": 5,
+    "server.codeium.com:443": 4,
+    "": 3
+  },
+  "sample_pair_ids": [
+    "7da7fbdb98c74d97",
+    "c2bf7f99cc72447c",
+    "1c118ed1fcfe4401",
+    "8917919551994416",
+    "13c972c786fa42b3",
+    "a4eadf8190464325",
+    "e2d5582f7e9a4462",
+    "1bf35bd424554373",
+    "77c7f2af09e145af",
+    "01681c3b6a5142bf"
+  ],
+  "sessions_count": 0,
+  "sessions_by_tool_family": {},
+  "sample_model_names": [],
+  "messages_count": 24,
+  "beacons_by_layer": {
+    "L1": 1
+  },
+  "legs_detected": [
+    "A2",
+    "L1",
+    "L3f"
+  ],
+  "legs_missing": []
+}

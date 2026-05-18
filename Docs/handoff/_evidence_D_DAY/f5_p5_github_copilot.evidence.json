@@ -1,0 +1,48 @@
+{
+  "scenario_id": "f5_p5_github_copilot",
+  "label": "GitHub Copilot (VS Code)",
+  "expected_legs": [
+    "L1",
+    "L3f",
+    "A2"
+  ],
+  "db_path": "C:\\Users\\ZST\\.pce\\data\\pce.db",
+  "window_start_epoch": 1778817871.1600132,
+  "window_end_epoch": 1779077071.1600132,
+  "raw_captures_count": 25,
+  "raw_captures_by_source": {
+    "mcp-default": 23,
+    "proxy-default": 2
+  },
+  "raw_captures_by_host": {
+    "api.openai.com": 10,
+    "generativelanguage.googleapis.com": 5,
+    "api.anthropic.com": 5,
+    "": 3,
+    "api.githubcopilot.com": 2
+  },
+  "sample_pair_ids": [
+    "50f6e7d0a29f4eca",
+    "d502a3e9b7914511",
+    "0514d1b099284937",
+    "d5b7f253252f4516",
+    "c05758c1549347ac",
+    "5dc95e3ed21f4b6a",
+    "6a41f74b09294754",
+    "ce998e60d2114283",
+    "451a417715924e11",
+    "756e9c0c1c444c4d"
+  ],
+  "sessions_count": 0,
+  "sessions_by_tool_family": {},
+  "sample_model_names": [],
+  "messages_count": 24,
+  "beacons_by_layer": {},
+  "legs_detected": [
+    "L1",
+    "L3f"
+  ],
+  "legs_missing": [
+    "A2"
+  ]
+}

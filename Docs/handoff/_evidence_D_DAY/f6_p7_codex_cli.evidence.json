@@ -1,0 +1,50 @@
+{
+  "scenario_id": "f6_p7_codex_cli",
+  "label": "Codex CLI (OpenAI)",
+  "expected_legs": [
+    "L1",
+    "L3g",
+    "L3h"
+  ],
+  "db_path": "C:\\Users\\ZST\\.pce\\data\\pce.db",
+  "window_start_epoch": 1778817871.1600132,
+  "window_end_epoch": 1779077071.1600132,
+  "raw_captures_count": 4033,
+  "raw_captures_by_source": {
+    "proxy-default": 4024,
+    "l3h-cli-wrapper-default": 9
+  },
+  "raw_captures_by_host": {
+    "chatgpt.com": 4003,
+    "api.openai.com": 21,
+    "cli-wrapper": 9
+  },
+  "sample_pair_ids": [
+    "95d7a62cbcd14210",
+    "9a06674cd99a4b9e",
+    "9e64aefba81d4da1",
+    "ef2cdef9c53f47a4",
+    "5b53d8c636654467",
+    "8124809aff7b4401",
+    "60b9d63184f34ed7",
+    "474cf78ae77542b2",
+    "f11515009c0f43df",
+    "ec219963b0f04eb3"
+  ],
+  "sessions_count": 0,
+  "sessions_by_tool_family": {},
+  "sample_model_names": [],
+  "messages_count": 18,
+  "beacons_by_layer": {
+    "L1": 2,
+    "L3g": 1,
+    "L3h": 1
+  },
+  "legs_detected": [
+    "L1",
+    "L3h"
+  ],
+  "legs_missing": [
+    "L3g"
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "scenario_id": "f6_p8_gemini_cli",
+  "label": "Gemini CLI (Google)",
+  "expected_legs": [
+    "L1",
+    "L3g",
+    "L3h",
+    "A2"
+  ],
+  "db_path": "C:\\Users\\ZST\\.pce\\data\\pce.db",
+  "window_start_epoch": 1778817871.1600132,
+  "window_end_epoch": 1779077071.1600132,
+  "raw_captures_count": 64,
+  "raw_captures_by_source": {
+    "sslkeylog-default": 26,
+    "proxy-default": 22,
+    "l3h-cli-wrapper-default": 9,
+    "l3g-local-persistence-default": 7
+  },
+  "raw_captures_by_host": {
+    "cloudcode-pa.googleapis.com": 22,
+    "generativelanguage.googleapis.com:443": 14,
+    "generativelanguage.googleapis.com": 12,
+    "cli-wrapper": 9,
+    "local-gemini-cli": 7
+  },
+  "sample_pair_ids": [
+    "0ee79b4949c545b0",
+    "d6a3bc60439848f5",
+    "72be104983764b68",
+    "1e151c7eb7704675",
+    "b688424ce4da4dd4",
+    "47c680ffdd1b4009",
+    "86898f1708714e73",
+    "5654c89285754d23",
+    "86001f0d6fb34cb0",
+    "a3bd95107d7f4efc"
+  ],
+  "sessions_count": 2,
+  "sessions_by_tool_family": {
+    "gemini-cli-l3g": 2
+  },
+  "sample_model_names": [
+    "[\"gemini-3-flash-preview\"]"
+  ],
+  "messages_count": 13,
+  "beacons_by_layer": {
+    "L1": 1,
+    "L3g": 1,
+    "L3h": 2
+  },
+  "legs_detected": [
+    "A2",
+    "L1",
+    "L3g",
+    "L3h"
+  ],
+  "legs_missing": []
+}
