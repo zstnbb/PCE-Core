@@ -16,10 +16,10 @@ display_name: "ChatGPT (web)"
 
 selectors:
   input:
-    - "#prompt-textarea-DRIFTED"
-    - '[contenteditable="true"][id="prompt-textarea-DRIFTED"]'
-    - '[contenteditable="true"][data-virtualkeyboard="DRIFTED"]'
-    - '[contenteditable="true"][data-testid*="DRIFTED"]'
+    - "#prompt-textarea"
+    - '[contenteditable="true"][id="prompt-textarea"]'
+    - '[contenteditable="true"][data-virtualkeyboard="true"]'
+    - '[contenteditable="true"][data-testid*="prompt-textarea"]'
 
   send_button:
     - 'button[data-testid="send-button"]'
