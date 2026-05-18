@@ -1,0 +1,53 @@
+{
+  "scenario_id": "f5_p3_cursor",
+  "label": "Cursor (IDE-class, gRPC-web protobuf)",
+  "expected_legs": [
+    "L1",
+    "L3g",
+    "L3f",
+    "A2"
+  ],
+  "db_path": "C:\\Users\\ZST\\.pce\\data\\pce.db",
+  "window_start_epoch": 1778817871.1600132,
+  "window_end_epoch": 1779077071.1600132,
+  "raw_captures_count": 470,
+  "raw_captures_by_source": {
+    "proxy-default": 439,
+    "mcp-default": 23,
+    "sslkeylog-default": 8
+  },
+  "raw_captures_by_host": {
+    "api2.cursor.sh": 419,
+    "api3.cursor.sh": 24,
+    "api.openai.com": 10,
+    "generativelanguage.googleapis.com": 5,
+    "api.anthropic.com": 5,
+    "api2.cursor.sh:443": 4,
+    "": 3
+  },
+  "sample_pair_ids": [
+    "184f9af3dd6c46bc",
+    "b15a9aa8b98c4f36",
+    "906b533235704422",
+    "2c922a753bbe40c2",
+    "72807aad7db54731",
+    "f2fe42687a7d4ec8",
+    "8a7f5f5c093a4dce",
+    "cd5c5129868b49a3",
+    "4c633f64cb5c4731",
+    "2bb22be5d55c4bf7"
+  ],
+  "sessions_count": 0,
+  "sessions_by_tool_family": {},
+  "sample_model_names": [],
+  "messages_count": 24,
+  "beacons_by_layer": {},
+  "legs_detected": [
+    "A2",
+    "L1",
+    "L3f"
+  ],
+  "legs_missing": [
+    "L3g"
+  ]
+}

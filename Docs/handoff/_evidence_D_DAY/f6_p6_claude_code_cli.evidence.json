@@ -1,0 +1,61 @@
+{
+  "scenario_id": "f6_p6_claude_code_cli",
+  "label": "Claude Code CLI (@anthropic-ai/claude-code)",
+  "expected_legs": [
+    "L1",
+    "L3g",
+    "L3h"
+  ],
+  "db_path": "C:\\Users\\ZST\\.pce\\data\\pce.db",
+  "window_start_epoch": 1778817871.1600132,
+  "window_end_epoch": 1779077071.1600132,
+  "raw_captures_count": 10359,
+  "raw_captures_by_source": {
+    "l3g-local-persistence-default": 5557,
+    "proxy-default": 4793,
+    "l3h-cli-wrapper-default": 9
+  },
+  "raw_captures_by_host": {
+    "local-agent-mode": 5557,
+    "api.anthropic.com": 4793,
+    "cli-wrapper": 9
+  },
+  "sample_pair_ids": [
+    "7d2613a5fbea4efb",
+    "71e660c1a5c04e89",
+    "3daf9ec636134cfc",
+    "792f54ce26ca48d0",
+    "6897b2b0034a4ff4",
+    "67343e1f49e84e2b",
+    "f71f2e017dba424e",
+    "ee59a97e2bd14119",
+    "947f8747eccb4512",
+    "6773b5a49cb14473"
+  ],
+  "sessions_count": 10,
+  "sessions_by_tool_family": {
+    "claude-desktop-code": 9,
+    "cowork-local-agent": 1
+  },
+  "sample_model_names": [
+    "[\"claude-sonnet-4-6\"]",
+    "[\"claude-opus-4-7\", \"claude-sonnet-4-6\"]",
+    "[\"claude-haiku-4-5-20251001\"]",
+    "[\"claude-haiku-4-5-20251001\", \"claude-opus-4-7\"]",
+    "[\"<synthetic>\", \"claude-opus-4-7\", \"claude-sonnet-4-6\"]",
+    "[\"claude-opus-4-7\"]",
+    "[\"<synthetic>\", \"claude-opus-4-7\"]"
+  ],
+  "messages_count": 4692,
+  "beacons_by_layer": {
+    "L1": 133,
+    "L3g": 1,
+    "L3h": 4
+  },
+  "legs_detected": [
+    "L1",
+    "L3g",
+    "L3h"
+  ],
+  "legs_missing": []
+}

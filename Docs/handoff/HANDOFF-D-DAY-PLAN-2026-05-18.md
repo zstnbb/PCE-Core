@@ -375,7 +375,8 @@ python -m tools.check_redundancy_targets --threshold strict --expected-pass 5
 | Block | 起 | 终 | 结果 | commit | 备注 |
 |:-:|---|---|:-:|---|---|
 | B0  | 09:00 | 09:25 | ✅ PASS | a9814d9 | §0.1 banner + 13 verdict 行 reset + §4.1.0 真状态表 + §4.1.1 历史表归档. ≥3 strict: 9-10/13 → 0/13 (matches nightly SVG). |
-| B1  | 09:30 | 10:50 | ✅ PASS | (this commit) | 实测发现 3 CLI 全 Node-installed (Rust 假设不成立). 改用 env 注入: `_proxy_env.py` + `_undici_proxy_inject.js` + relay.py 两 Popen env wire-in. 14 新单测 GREEN, 94/94 e2e_cli 无回归. **不写 transparent proxy 了**; HTTPS_PROXY + NODE_OPTIONS 两路足够. 见 HANDOFF-D-DAY-B1-CLI-PROXY-INJECTION-2026-05-18.md. |
+| B1  | 09:30 | 10:50 | ✅ PASS | bcefb51 | 实测发现 3 CLI 全 Node-installed (Rust 假设不成立). 改用 env 注入: `_proxy_env.py` + `_undici_proxy_inject.js` + relay.py 两 Popen env wire-in. 14 新单测 GREEN, 94/94 e2e_cli 无回归. **不写 transparent proxy 了**; HTTPS_PROXY + NODE_OPTIONS 两路足够. 见 HANDOFF-D-DAY-B1-CLI-PROXY-INJECTION-2026-05-18.md. |
+| **B3–B10 aggregate** | 11:00 | 12:15 | ✅ PARTIAL | (this commit) | **重大发现**: 主仓 DB `~/.pce/data/pce.db` 实测已含 62 K raw_captures / 2.8 K sessions / 11 K messages, **6/8 桌面场景 72h 窗口已 ≥3 legs** (P1=4 / P2=2 ph-B / P3=3 / P4=3 / P5=2 / P6=3 / P7=2 / P8=4). 写 `tools/dump_evidence.py` (635 LOC, scenario→per-leg filter, --strip-bodies privacy default) + `_evidence_D_DAY/` 8 个 (handoff.md / evidence.json / snapshot.db). MIDGATE doc 说的"blocked on owner-side live signoff"实际是**已捕获只是没写 handoff**. 剩余 2 缺口 (P5-A2 / P7-L3g) 要 owner 5min 操作. |
 | B2  | — | — | — | — | — |
 | B3  | — | — | — | — | — |
 | B5  | — | — | — | — | — |
