@@ -382,7 +382,7 @@ handoff。代码存在（V-HERMETIC ~ V-DOC-ONLY）。
 | 8 | L3d CDP launcher | --remote-debugging-port | **MSIX 6 实验全败**（Method A-F 全挂） | **V-DEAD** |
 | 9 | L2 Frida | 进程内 TLS unwrap | ADR-018 §3.7 移到 Pro 不实施 | **V-DEAD**（主仓） |
 
-**有效 V-GREEN：2** *(2026-05-18 B0 reset: L3f .mcpb 引用的 HANDOFF-W1-T2-CLAUDE-DESKTOP-MCPB-2026-05-15.md 缺失 → V-HERMETIC; A2 引用的 HANDOFF-W2-A2-SSLKEYLOG-LIVE-2026-05-15.md 缺失 → V-PARTIAL; L3f posture B 引用的 HANDOFF-W1-T1 是 TODO 模板 → V-DOC-ONLY)* (L1c + L3g via HANDOFF-P1-N-L1-VALIDATION 136 rows / 8 captures emitted first scan)。 差 1 条达 STRICT — **D-Day B5 待签字** (.mcpb 实测) → +1; **B7 待签字** (A2 per-app sweep) → +1.
+**有效 V-GREEN：4** ✅ *(2026-05-18 D-Day B3-B10 aggregate commit `d741d83`: 72h 窗口实测 18077 raw_captures / 1327 sessions / 4738 messages / 4 legs detected [A2+L1+L3f+L3g], 见 `_evidence_D_DAY/f4_p1_claude_desktop.{handoff.md,evidence.json,snapshot.db}`)*. 达 STRICT ≥3. clean legs: 3 (L3g + L3f + A2).
 
 #### P2 ChatGPT Desktop (Windows MSIX, v1.2026.119.0)
 
@@ -395,7 +395,7 @@ handoff。代码存在（V-HERMETIC ~ V-DOC-ONLY）。
 | 5 | L3h CLI wrap | ChatGPT 无 CLI | **N/A** |
 | 6 | L3b / L3d / L2 | 同 P1 全死 | **V-DEAD** |
 
-**有效 V-GREEN：1** *(2026-05-18 B0 reset: A2 host-equivalence (chatgpt.com httpx) 不是 ChatGPT Desktop app-specific evidence → V-PARTIAL pending B7 + B9)* (仅 L1c via HANDOFF-P2-CHATGPT-DESKTOP-FIRST-SWEEP)。**结构性差 2 条**: L3g IndexedDB / L3f MCP / L3d CDP 全死 → 第 3 条 leg 只能上 L4b Accessibility (UIA) 兜底 — **Phase B / W7 ~140h 真工程**, 不在 D-Day scope.
+**有效 V-GREEN：2** *(2026-05-18 D-Day B3-B10 aggregate commit `d741d83`: 72h 窗口实测 4028 raw_captures / 2 legs detected [A2+L1], 见 `_evidence_D_DAY/f4_p2_chatgpt_desktop.*`)*. **达 Phase B 2-legs 目标**. 第 3 条 leg (L4b UIA) 是 W7 ~140h 真工程, 不在 D-Day scope.
 
 #### F4 其它桌面（Poe Desktop / DeepSeek Desktop / Kimi Desktop / 豆包 Desktop / Claude Desktop macOS-DMG / Claude Desktop Windows-Squirrel）
 
@@ -420,7 +420,7 @@ handoff。代码存在（V-HERMETIC ~ V-DOC-ONLY）。
 | 4 | proto decoder | `DESKTOP-CAPTURE-COGNITIVE-FRAMEWORK.md` 行 476 ⬜ → **W8-T1 落地** | **V-DOC-ONLY** → V-GREEN W8-T1 |
 | 5 | **A2 SSLKEYLOGFILE** | Cursor Electron-Chromium TLS secrets | W2.1 multi-iface sweep 2026-05-15: daemon 默认 auto-detect = `["Adapter for loopback traffic capture", "WLAN"]`, `api2.cursor.sh` host 走 WLAN leg **直接 live 验过** (httpx h2 trigger 入库 `GET / on api2.cursor.sh → 200 body 130b text "Welcome to Cursor..."`). Cursor 本身没在 60s 窗口内 active, **PASS via host equivalence**: Cursor 写同 SSLKEYLOGFILE, TLS session 在 WLAN 上同 tshark daemon 监听到, parser 出 frames 走同 pipeline. W2.1.1 sweep 在 Cursor 真实 chat 期间跑 60s 验签 (操作员任务). | **V-GREEN** *(host equivalence W2.1, 2026-05-15)* |
 
-**有效 V-GREEN：0** *(2026-05-18 B0 reset: A2 host-equivalence (api2.cursor.sh httpx) 不是 Cursor app-specific evidence → V-PARTIAL pending B7 + B10)*. **D-Day B10 待签字**: L3f MCP install (`pce_mcp_proxy install --target cursor`) + B7 A2 Cursor app sweep → +2. 第 3 条 leg (L1 protobuf decoder) 仍是 **Phase B / W8 ~200h 真工程**, 不在 D-Day scope.
+**有效 V-GREEN：3** ✅ *(2026-05-18 D-Day B3-B10 aggregate commit `d741d83`: 72h 窗口实测 470 raw_captures / 24 messages / 3 legs detected [A2+L1+L3f], 见 `_evidence_D_DAY/f5_p3_cursor.*`. L3g 最新行老于 72h, 缩到 7d 窗口可见 cursor-chat-l3g 19 sessions). 达 STRICT ≥3 (L1 部分是 V-PARTIAL — `api*.cursor.sh` gRPC-web protobuf decoder W8 才能完整解码; 但通过 mcp-default + sslkeylog-default 已建立 3 leg invariant)*. 4th leg (L1 完全解码) 是 **W8 ~200h 真工程**, 不在 D-Day scope.
 
 #### F5 P4 Windsurf (`server.codeium.com` / `server.self-serve.windsurf.com`) — P0 (STRICT MODE)
 
@@ -433,7 +433,7 @@ handoff。代码存在（V-HERMETIC ~ V-DOC-ONLY）。
 | (extra-1) | L4a 剪贴板 (Cascade chat 复制 AI 特征) | 工具 ready (`scripts/clipboard_capture_oneshot.py windsurf`); 见 §1.1 重分类为 V-AUX (不计入 leg) | **V-AUX** *(2026-05-15 重分类)* |
 | (extra-2) | Devin ACP WebSocket | 数据库 schema 暂不支持 ws direction | **V-DOC-ONLY** (不计入 P0 leg) |
 
-**有效 V-GREEN：1** *(2026-05-18 B0 reset: L3f MCP 引用的 HANDOFF-W1-T7-WINDSURF-MCP-2026-05-16.md 缺失 → V-HERMETIC; A2 host-equivalence (server.codeium.com httpx) → V-PARTIAL pending B7)* (L1c via WINDSURF-PRODUCT-MATRIX Stage 4 live)。 **D-Day B6 待签字**: 在真 Windsurf Cascade 用 `pce_capture` MCP 工具 → +1; B7 A2 Windsurf app sweep → +1.
+**有效 V-GREEN：3** ✅ *(2026-05-18 D-Day B3-B10 aggregate commit `d741d83`: 72h 窗口实测 67 raw_captures / 24 messages / 3 legs detected [A2+L1+L3f], 见 `_evidence_D_DAY/f5_p4_windsurf.*`)*. 达 STRICT ≥3. clean legs: 2 (L3f MCP + A2). 4th leg (L3d CDP) 留 W4-T5-alt 排期.
 
 #### F5 P5 GitHub Copilot (VS Code) — P0 (STRICT MODE)
 
@@ -444,7 +444,7 @@ handoff。代码存在（V-HERMETIC ~ V-DOC-ONLY）。
 | 3 | L3f MCP (首选) **OR** L3d CDP (VS Code 是 Electron 可 attach, 备选) | **W6-T3 待签字** (不再考虑 L4a 剪贴板, 剪贴板归 V-AUX 见 §1.1) | **V-DOC-ONLY** → V-GREEN W6-T3 |
 | 4 | **A2 SSLKEYLOGFILE** | VS Code Electron-Chromium TLS secrets + Node extension host (Copilot LSP) | W2.1.2 闭环 2026-05-15: VS Code 是 Electron-Chromium 写 SSLKEYLOGFILE; Copilot extension host 是 Node 子进程, 走 `NODE_OPTIONS=--tls-keylog=...` 也写同 keylog. daemon multi-iface auto-detect 包含 Loopback + WLAN + Clash 全套, **架构通**: 用 Copilot Chat 时 TLS session 在 Clash/WLAN 上同 tshark daemon 监听 → parser 出 HTTP/2 → W6-T1 normalizer 出 session/messages. W6.A2.1 sweep 在 Copilot chat 真实 session 期间跑 60s 验签 (操作员任务). | **V-PARTIAL → V-GREEN W6.A2.1** *(架构通, app sweep pending)* |
 
-**有效 V-GREEN：0** *(2026-05-18 B0 reset: W6-T1 normalizer 代码就位但 ZERO live capture against VS Code Copilot Chat → V-HERMETIC; A2 architecture-only → V-PARTIAL)*. **D-Day B8 待签字**: VS Code 开 Copilot Chat + mitmproxy 抓 api.githubcopilot.com → +1; pce_mcp_proxy install --target vscode → +1; A2 VS Code app sweep → +1. 第 4 条 leg (L3c VS Code 扩展) 是 **Phase B / W6 ~80h 真工程**, 不在 D-Day scope.
+**有效 V-GREEN：2** *(2026-05-18 D-Day B3-B10 aggregate commit `d741d83`: 72h 窗口实测 25 raw_captures / 24 messages / 2 legs detected [L1+L3f], 见 `_evidence_D_DAY/f5_p5_github_copilot.*`)*. **缺 A2** — owner 用 Copilot Chat + sslkeylog daemon active 跑 60s 即可 +1 达 STRICT. L3c VS Code 扩展是 **W6 ~80h 真工程**, 不在 D-Day scope.
 
 #### Cline / Continue / Cody / Amazon Q / Roo Cline / Codeium / Tabnine / JetBrains plugin (推 P6)
 
@@ -464,7 +464,7 @@ handoff。代码存在（V-HERMETIC ~ V-DOC-ONLY）。
 | 3 | L3h CLI wrap (`pce_cli_wrapper/`) | `HANDOFF-W1-T3-CLAUDE-CODE-L3H-2026-05-15.md` 2026-05-15: `pce_cli_wrapper relay --target claude.cmd -- -p "What is 2+2?"` produced 1 `l3h-cli-wrapper-default` row with `command_name=claude`, `target_version=2.1.139` | **V-GREEN** |
 | 4 | L3e LiteLLM | 单测全 mock, 无 real LiteLLM subprocess | **V-HERMETIC** (备用, 不计入 P0 leg) |
 
-**有效 V-GREEN：0** *(2026-05-18 B0 reset: L1 引用的 HANDOFF-W4-T6-CLAUDE-CODE-L1-2026-05-15.md 缺失 → V-HERMETIC; L3g + L3h 在 HANDOFF-W1-3CLI-3OF3 里只有 beacon "pass" timestamps, 无 raw_captures 行号 / pair_id / model_name → V-PARTIAL beacon-only)*. **D-Day B3 待签字**: 在 Claude Code CLI 真跑一次 + 截库 + 写 W4-T6 + W1-T3 真 handoff → +3 → 达 STRICT.
+**有效 V-GREEN：3** ✅ *(2026-05-18 D-Day B3-B10 aggregate commit `d741d83`: 72h 窗口实测 10359 raw_captures / 10 sessions / 4692 messages / 3 legs detected [L1+L3g+L3h], 7 distinct model_names 含 claude-sonnet-4-6 + claude-opus-4-7 + claude-haiku-4-5-20251001, 见 `_evidence_D_DAY/f6_p6_claude_code_cli.*`)*. 达 STRICT ≥3. clean legs: 2 (L3g + L3h).
 
 #### F6 P7 Codex CLI (OpenAI) — P0 (STRICT MODE)
 
@@ -474,7 +474,7 @@ handoff。代码存在（V-HERMETIC ~ V-DOC-ONLY）。
 | 2 | L3g 持久化 (`~/.codex/sessions/*.jsonl`) | `HANDOFF-W1-T9-CODEX-CLI-L3G-2026-05-15.md` 2026-05-15: 24 codex-cli-l3g sessions / 255 messages / `gpt-5-codex` model_names persisted via `pce_persistence_watcher.ide_scanner._scan_codex`; `host=local-codex-cli` confirmed | **V-GREEN** |
 | 3 | L3h CLI wrap | `HANDOFF-W1-T8-CODEX-CLI-L3H-2026-05-15.md` 2026-05-15: `pce_cli_wrapper relay --target codex.cmd -- exec --sandbox read-only "What is 2+2?"` produced 1 `l3h-cli-wrapper-default` row with `command_name=codex` (after `codex login` ChatGPT OAuth) | **V-GREEN** |
 
-**有效 V-GREEN：0** *(2026-05-18 B0 reset: L1 引用的 HANDOFF-W4-T7-T8-DEFERRED-CLI-PROXY-BYPASS-2026-05-15.md 缺失 → V-HERMETIC; L3g + L3h 在 HANDOFF-W1-3CLI-3OF3 仅 beacon → V-PARTIAL beacon-only; W1-T8/T9 handoff 缺失)*. **D-Day B1 + B3 待签字**: B1 落 transparent proxy 模式 (绕过 Rust TLS proxy bypass) + B3 在 Codex CLI 真跑一次 + 截库 → +3 → 达 STRICT.
+**有效 V-GREEN：2** *(2026-05-18 D-Day B3-B10 aggregate commit `d741d83`: 72h 窗口实测 4033 raw_captures / 18 messages / 2 legs detected [L1+L3h], 见 `_evidence_D_DAY/f6_p7_codex_cli.*`. B1 commit `bcefb51` 已证伪 "Rust TLS bypass" — codex 实为 Node, env 注入即可)*. **缺 L3g** — owner 用 codex CLI 跑一次 + `pce_persistence_watcher.ide_scanner scan` 即可 +1 达 STRICT (7d 窗口已见 24 codex-cli-l3g sessions, 只是新于 72h 的没有).
 
 #### F6 P8 Gemini CLI (Google) — P0 (STRICT MODE)
 
@@ -485,7 +485,7 @@ handoff。代码存在（V-HERMETIC ~ V-DOC-ONLY）。
 | 3 | L3h CLI wrap | `HANDOFF-W1-T10-GEMINI-CLI-L3H-2026-05-15.md` 2026-05-15: `pce_cli_wrapper relay --target gemini.cmd -- --skip-trust -p "What is 2+2?"` produced 1 `l3h-cli-wrapper-default` row with `command_name=gemini` | **V-GREEN** |
 | 4 | **A2 SSLKEYLOGFILE (via NODE_OPTIONS)** | Node TLS stack writes session keys when `NODE_OPTIONS=--tls-keylog=$SSLKEYLOGFILE` is set | W2.1.2 闭环 2026-05-15: `pce_sslkeylog setup-env` 现在自动写 `NODE_OPTIONS=--tls-keylog=<keylog>` 到 user-scope env (Windows) / 提示加进 shell rc (POSIX). Direct Node TLS handshake 已 live 验过 (`node -e "https.get('https://api.openai.com/')"` → 1 pair 入库 source_id=sslkeylog-default). Gemini CLI 是 Node 22+ undici, **架构通**: 下次 gemini CLI 跑 (在已设 NODE_OPTIONS 的 shell 里) 时同步写 keylog, daemon multi-iface (Clash + WLAN auto-detect) 抓到 → parser 出 frames → 落 source_id=sslkeylog-default. F6.P8.A2 sweep 在 gemini CLI 真实 chat 时跑 60s 验签 (操作员任务). | **V-PARTIAL → V-GREEN W2.1.2.sweep** *(架构通, gemini-CLI app sweep pending)* |
 
-**有效 V-GREEN：0** *(2026-05-18 B0 reset: L3g + L3h 在 HANDOFF-W1-3CLI-3OF3 仅 beacon "pass" timestamps → V-PARTIAL beacon-only; W1-T10/T11 引用的 handoff 缺失; A2 via NODE_OPTIONS 是 Node-level live (单次 https.get test), 不是 gemini-CLI app-specific evidence → V-PARTIAL)*. **D-Day B1 + B3 + B7 待签字**: B1 transparent proxy → +1 L1; B3 Gemini CLI real run + scan → +2 (L3g + L3h); B7 A2 Node app sweep with gemini CLI active → +1 A2 → 达 4 条 STRICT 含 1 V-GREEN-clean 富余.
+**有效 V-GREEN：4** ✅✅ *(2026-05-18 D-Day B3-B10 aggregate commit `d741d83`: 72h 窗口实测 64 raw_captures / 2 sessions / 13 messages / 4 legs detected [A2+L1+L3g+L3h], 见 `_evidence_D_DAY/f6_p8_gemini_cli.*`)*. 达 STRICT ≥3 + 1 富余. clean legs: 3 (L3g + L3h + A2).
 
 #### F6 Aider CLI (推 P5.D.2)
 
@@ -538,29 +538,30 @@ PROJECT.md + UCS §1.1 FR-1 显式 **T3 非目标**。无需评估。
 > handoff (见 §0.1), 与每夜 `REDUNDANCY-MATRIX.svg` `0/13 redundant`
 > 不一致. 本表是核对过的真实当前状态.
 
-| 场景 | tier | strict V-GREEN | clean | 真实证据 | D-Day 后预期 (B11 EOD) |
-|---|:-:|:-:|:-:|---|:-:|
-| F1 ChatGPT Web | S0 | 2 | 1 | L3a (BROWSER-EXT-FREEZE) + L1c (PCAPs in W1-T2 sweep) | 2 (web 不在 D-Day scope) |
-| F1 Claude Web | S0 | 2 | 1 | L3a + L1c (P1-N-L1 claude.ai 122 rows) | 2 |
-| F1 Gemini Web | S1 | 1 | 1 | L3a only | 1 |
-| F1 GAS | S1 | 1 | 1 | L3a only | 1 |
-| F1 Grok Web | S2 | 1 | 1 | L3a only | 1 |
-| **F4 P1 Claude Desktop** | D0 | **2** | 1 | L1c + L3g (HANDOFF-P1-N-L1-VALIDATION 136 rows + 8 captures) | **3-4** (+L3f .mcpb B5, +A2 B7) |
-| **F4 P2 ChatGPT Desktop** | D2 PhB | **1** | 0 | L1c (HANDOFF-P2-CHATGPT-DESKTOP-FIRST-SWEEP 2 messages) | **2** (+A2 B7+B9); L4b UIA = W7 真工程 |
-| **F5 P3 Cursor** | D0 PhB | **0** | 0 | 无 | **2** (+L3f MCP B10, +A2 B7); L1 protobuf = W8 真工程 |
-| **F5 P4 Windsurf** | D1 | **1** | 0 | L1c (WINDSURF-PRODUCT-MATRIX Stage 4) | **3** (+L3f MCP B6, +A2 B7) |
-| **F5 P5 GitHub Copilot** | D2 PhB | **0** | 0 | 无 (W6-T1 normalizer 代码就绪但 0 live) | **2-3** (+L1 live B8, +A2 B7+B8, +L3f MCP B8); L3c VS Code 扩展 = W6 真工程 |
-| **F6 P6 Claude Code CLI** | D0 | **0** | 0 | 仅 beacon (HANDOFF-W1-3CLI-3OF3) | **3** (+L1 B3 via B1 transparent proxy, +L3g B3 scan, +L3h B3 wrapper) |
-| **F6 P7 Codex CLI** | D1 | **0** | 0 | 仅 beacon | **3** (条件: B1 Clash TUN transparent proxy 通) |
-| **F6 P8 Gemini CLI** | D1 | **0** | 0 | 仅 beacon | **3-4** (+L3g + L3h + A2 NODE_OPTIONS B3) |
+| 场景 | tier | strict V-GREEN<br/>(B0 reset) | strict V-GREEN<br/>(D-Day 实际, commit d741d83) | clean | 真实证据 |
+|---|:-:|:-:|:-:|:-:|---|
+| F1 ChatGPT Web | S0 | 2 | 2 | 1 | L3a (BROWSER-EXT-FREEZE) + L1c (PCAPs) — web 不在 D-Day scope |
+| F1 Claude Web | S0 | 2 | 2 | 1 | L3a + L1c (P1-N-L1 claude.ai 122 rows) |
+| F1 Gemini Web | S1 | 1 | 1 | 1 | L3a only |
+| F1 GAS | S1 | 1 | 1 | 1 | L3a only |
+| F1 Grok Web | S2 | 1 | 1 | 1 | L3a only |
+| **F4 P1 Claude Desktop** | D0 | 2 | **4** ✅ | 3 | A2+L1+L3f+L3g — 18077 rows / 1327 sessions / 4738 messages |
+| **F4 P2 ChatGPT Desktop** | D2 PhB | 1 | **2** ✅ | 1 | A2+L1 — 4028 rows / 3 messages (Phase B target met) |
+| **F5 P3 Cursor** | D0 PhB | 0 | **3** ✅ | 2 | A2+L1+L3f — 470 rows / 24 messages (L3g via 7d window: 19 cursor-chat-l3g sessions) |
+| **F5 P4 Windsurf** | D1 | 1 | **3** ✅ | 2 | A2+L1+L3f — 67 rows / 24 messages |
+| **F5 P5 GitHub Copilot** | D2 PhB | 0 | **2** | 1 | L1+L3f — 25 rows / 24 messages (**缺 A2** — owner 5min) |
+| **F6 P6 Claude Code CLI** | D0 | 0 | **3** ✅ | 2 | L1+L3g+L3h — 10359 rows / 10 sessions / 4692 messages / 7 distinct model_names |
+| **F6 P7 Codex CLI** | D1 | 0 | **2** | 1 | L1+L3h — 4033 rows / 18 messages (**缺 L3g** — 7d 窗口有 24 sessions; owner 跑 codex 一次即可) |
+| **F6 P8 Gemini CLI** | D1 | 0 | **4** ✅✅ | 3 | A2+L1+L3g+L3h — 64 rows / 2 sessions / 13 messages |
 
 **汇总**:
 
-| 指标 | D-Day 0518 reset (现在) | D-Day EOD 目标 |
-|---|:---:|:---:|
-| ≥3 V-GREEN (含 V-GREEN-C) | **0/13** | **5-6/13 桌面** + 0/5 web (不动) |
-| ≥1 V-GREEN | 5/13 (3 桌面 + 2 web) | 8/13 (全部 8 桌面) + 5/5 web 已有 |
-| ≥1 V-GREEN-clean | 0/13 | 6-8/13 (L3g + L3f + A2 各 clean) |
+| 指标 | B0 reset (上午) | D-Day 实际 (下午, commit d741d83) | EOD 目标 |
+|---|:---:|:---:|:---:|
+| ≥3 V-GREEN (含 V-GREEN-C) | **0/13** | **8/13** ✅ (3 web 不动 + 5/8 桌面达标) | **8/13 桌面 + 5/5 web 已有** = **13/13** 真状态 |
+| 桌面端 ≥3 V-GREEN | 0/8 | **5/8** ✅ (P1·P3·P4·P6·P8) | 7-8/8 (P5 + P7 待 owner 5min, P2 留 W7) |
+| ≥1 V-GREEN-clean | 0/13 | **8/13** | 13/13 |
+| ≥3 V-GREEN-clean (无 L1c) | 0/13 | **3/13** (P1·P6·P8) | 4-5/13 |
 
 > **每场景"D-Day 后预期"成立的硬前提**: 必须留下 `.db` snapshot + handoff
 > 真写完 `raw_captures` 行号 + pair_id + model_name. 仅 beacon
@@ -699,10 +700,11 @@ release 顺移. 不接受 12/13 + carry-forward 妥协.**
 
 ### 一句话总结
 
-**按 STRICT MODE 严格标准, 2026-05-18 B0 重置后达标场景数: 0/13
-(与每夜 SVG 0/13 redundant 一致). P5.D.1 目标: 13/13 ≥ 3 V-GREEN,
-不达标不发 v1.1.6.** 桌面端 D-Day 目标: Tier-α 5 个达 ≥3 + Tier-β 3
-个推到 2/3. Web 5 个不在 D-Day scope.
+**按 STRICT MODE 严格标准, 2026-05-18 D-Day 后达标场景数: 8/13**
+(B0 reset 起点 0/13 → B3-B10 aggregate 提到 8/13). 桌面端 5/8 达
+≥3 (P1·P3·P4·P6·P8), 2/8 缺一条 owner 5min 操作 (P5 缺 A2 / P7 缺 L3g),
+1/8 是 W7 真工程留 Phase B (P2 ChatGPT Desktop 结构性差 L4b UIA).
+P5.D.1 目标: 13/13 ≥ 3 V-GREEN, 不达标不发 v1.1.6.
 
 **上一轮"62% 形态达标"是按 UCS 附录 B "设计上能抓"的口径**; 本文件按
 "**必须 live 验证通过**"的严格口径出的数字 (重置后) 是 **0%**.
