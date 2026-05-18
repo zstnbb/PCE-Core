@@ -33,6 +33,16 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Optional, Sequence
 
+import json
+import socket
+
+import websockets  # noqa: F401 — kept for typing-stub compatibility in older code
+from websockets.exceptions import ConnectionClosed
+from websockets.legacy.client import (  # type: ignore[import-untyped]
+    WebSocketClientProtocol,
+    connect as _ws_connect_legacy,
+)
+
 from .errors import ProbeError, raise_from_wire
 from .server import (
     DEFAULT_HOST,
@@ -50,6 +60,228 @@ from .types import (
 )
 
 LOG = logging.getLogger("pce_probe.client")
+
+
+# ---------------------------------------------------------------------------
+# External-server transport
+# ---------------------------------------------------------------------------
+
+
+class _ExternalServerProxy:
+    """ProbeServer-shaped adapter that talks to an EXTERNAL probe-server
+    (typically the long-running NSSM ``pce-probe-server``) over WS as
+    an agent client.
+
+    Added 2026-05-19 (P2). Before this, every ``pce_probe.connect()``
+    call spun up its own ``ProbeServer`` on the same port, so coexisting
+    with a long-running server (one that the extension is already
+    attached to) was impossible — the second bind raised
+    ``OSError: WinError 10048``. Now we have two transport options:
+
+      * ``ProbeServer`` — owns the port, extension attaches to us.
+        Used in pytest-only setups + dev.
+      * ``_ExternalServerProxy`` — connects to an existing server,
+        sends an ``agent_hello`` frame, then multiplexes ProbeRequest
+        envelopes over a single WS. The extension is on the OTHER side
+        of that server.
+
+    Public surface mimics ``ProbeServer`` enough that ``AsyncProbeClient``
+    can use either as ``self._server`` without further changes:
+
+      * ``await self.start()`` / ``await self.stop()``
+      * ``await self.send_request(req, timeout)``
+      * ``await self.wait_for_extension(timeout)``
+      * ``self.is_extension_connected``
+      * ``self.bound_address``
+
+    Concurrency: a single background reader task demultiplexes incoming
+    frames by ``id`` into per-request asyncio.Future objects.
+    """
+
+    def __init__(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT,
+                 *, client_label: str = "pce_probe.ExternalProbeClient") -> None:
+        self.host = host
+        self.port = port
+        self._client_label = client_label
+        self._ws: WebSocketClientProtocol | None = None
+        self._pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
+        self._reader_task: asyncio.Task | None = None
+        self._lock = asyncio.Lock()
+        self._extension_attached: bool = False
+        self._extension_version: str | None = None
+        self._stopped = asyncio.Event()
+
+    @property
+    def bound_address(self) -> tuple[str, int]:
+        return (self.host, self.port)
+
+    @property
+    def is_extension_connected(self) -> bool:
+        return self._extension_attached
+
+    @property
+    def extension_hello(self) -> HelloPayload | None:
+        # We don't get the full HelloPayload from an agent ack, only the
+        # extension version. Compose a partial one so callers checking
+        # ``client.extension_hello.extension_version`` still work.
+        if not self._extension_attached:
+            return None
+        return HelloPayload(
+            extension_version=self._extension_version or "unknown",
+            schema_version=PROBE_SCHEMA_VERSION,
+            capabilities=[],
+        )
+
+    async def start(self) -> None:
+        if self._ws is not None:
+            return
+        uri = f"ws://{self.host}:{self.port}"
+        self._ws = await _ws_connect_legacy(
+            uri,
+            max_size=8 * 1024 * 1024,
+            ping_interval=20,
+            ping_timeout=20,
+        )
+        # Send agent hello
+        await self._ws.send(json.dumps({
+            "v": PROBE_SCHEMA_VERSION,
+            "agent_hello": {
+                "client_label": self._client_label,
+                "schema_version": PROBE_SCHEMA_VERSION,
+            },
+        }))
+        # Receive ack
+        try:
+            raw = await asyncio.wait_for(self._ws.recv(), timeout=5.0)
+        except asyncio.TimeoutError as exc:
+            raise ProbeRoutingError(
+                f"external probe-server did not ack agent_hello within 5s"
+            ) from exc
+        ack = json.loads(raw)
+        if not ack.get("ok") or not ack.get("agent_ack"):
+            raise ProbeRoutingError(f"agent_hello rejected: {ack}")
+        self._extension_attached = bool(ack.get("extension_attached"))
+        self._extension_version = ack.get("extension_version")
+        LOG.info(
+            "external probe-server agent_hello ack: ext_attached=%s ext_v=%s",
+            self._extension_attached, self._extension_version,
+        )
+        # Spawn reader
+        self._reader_task = asyncio.create_task(
+            self._reader(), name="pce-probe-external-reader",
+        )
+
+    async def _reader(self) -> None:
+        try:
+            assert self._ws is not None
+            async for raw in self._ws:
+                if not isinstance(raw, str):
+                    continue
+                try:
+                    msg = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(msg, dict):
+                    continue
+                rid = msg.get("id")
+                if not isinstance(rid, str):
+                    continue
+                fut = self._pending.pop(rid, None)
+                if fut is not None and not fut.done():
+                    fut.set_result(msg)
+        except ConnectionClosed:
+            pass
+        finally:
+            # Cancel anyone still waiting.
+            for fut in self._pending.values():
+                if not fut.done():
+                    fut.set_exception(ProbeRoutingError(
+                        "external probe-server WS closed"
+                    ))
+            self._pending.clear()
+            self._stopped.set()
+
+    async def send_request(
+        self,
+        request: dict[str, Any],
+        timeout: float = 35.0,
+    ) -> dict[str, Any]:
+        if self._ws is None:
+            raise ProbeRoutingError("ExternalServerProxy.start() not called")
+        rid = str(request.get("id"))
+        if not rid:
+            raise ProbeRoutingError("request envelope is missing 'id'")
+        fut: asyncio.Future[dict[str, Any]] = asyncio.get_event_loop().create_future()
+        self._pending[rid] = fut
+        async with self._lock:
+            try:
+                await self._ws.send(json.dumps(request))
+            except ConnectionClosed as exc:
+                self._pending.pop(rid, None)
+                raise ProbeRoutingError("external probe-server WS closed mid-send") from exc
+        try:
+            return await asyncio.wait_for(fut, timeout=timeout)
+        except asyncio.TimeoutError as exc:
+            self._pending.pop(rid, None)
+            raise ProbeRoutingError(
+                f"external probe-server did not reply to "
+                f"'{request.get('verb')}' within {timeout:.1f}s (id={rid})"
+            ) from exc
+
+    async def wait_for_extension(self, timeout: float = 10.0) -> HelloPayload:
+        # The ack already told us if the extension is attached. If not,
+        # we wait — but we don't get push notifications of attach changes
+        # from the external server (today), so we poll with a cheap ping.
+        if self._extension_attached:
+            return self.extension_hello  # type: ignore[return-value]
+        deadline = asyncio.get_event_loop().time() + timeout
+        while asyncio.get_event_loop().time() < deadline:
+            try:
+                # Cheap probe: send system.ping; if it succeeds the
+                # extension is attached on the other side.
+                pong = await self.send_request(
+                    {
+                        "v": PROBE_SCHEMA_VERSION,
+                        "id": str(uuid.uuid4()),
+                        "verb": "system.ping",
+                        "params": {},
+                    },
+                    timeout=2.0,
+                )
+                if pong.get("ok"):
+                    self._extension_attached = True
+                    self._extension_version = (
+                        (pong.get("result") or {}).get("extension_version")
+                    )
+                    return self.extension_hello  # type: ignore[return-value]
+            except ProbeRoutingError:
+                pass
+            await asyncio.sleep(0.5)
+        raise ProbeRoutingError(
+            f"extension did not attach within {timeout:.1f}s (via external server)"
+        )
+
+    async def stop(self) -> None:
+        if self._reader_task is not None:
+            self._reader_task.cancel()
+            with contextlib.suppress(Exception):
+                await self._reader_task
+            self._reader_task = None
+        if self._ws is not None:
+            with contextlib.suppress(Exception):
+                await self._ws.close()
+            self._ws = None
+
+
+def _detect_external_server(host: str, port: int, timeout: float = 0.5) -> bool:
+    """Return True if a TCP connect to host:port succeeds — i.e. some
+    server is listening. Used by ``connect()`` to auto-pick transport.
+    """
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -73,10 +305,30 @@ class AsyncProbeClient:
         port: int = DEFAULT_PORT,
         attach_timeout: float = 30.0,
         owns_server: bool = True,
-        external_server: Optional[ProbeServer] = None,
+        external_server: Any = None,
+        use_external_if_listening: bool = True,
     ) -> None:
+        """Construct an async probe client.
+
+        ``use_external_if_listening`` (P2 2026-05-19): when no explicit
+        ``external_server`` is supplied and a TCP probe finds an existing
+        listener on ``host:port``, attach as an agent client over WS
+        (``_ExternalServerProxy``) instead of trying to bind a new
+        ``ProbeServer`` (which would fail with WinError 10048). This is
+        what makes the NSSM ``pce-probe-server`` coexistence work.
+        """
         self._owns_server = owns_server
-        self._server = external_server or ProbeServer(host=host, port=port)
+        if external_server is not None:
+            self._server = external_server
+        elif use_external_if_listening and _detect_external_server(host, port):
+            LOG.info(
+                "pce_probe: external server detected at %s:%d -- "
+                "attaching as agent client (no in-process server spin-up)",
+                host, port,
+            )
+            self._server = _ExternalServerProxy(host=host, port=port)
+        else:
+            self._server = ProbeServer(host=host, port=port)
         self._attach_timeout = attach_timeout
         self._started = False
         self._extension_hello: HelloPayload | None = None

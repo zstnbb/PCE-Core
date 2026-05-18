@@ -168,8 +168,32 @@ class HelloPayload:
     user_agent: str | None = None
 
 
+@dataclass
+class AgentHelloPayload:
+    """Hello frame from a Python (or other) agent client.
+
+    Agents speak the SAME wire protocol as extensions but in the
+    opposite direction: they SEND requests and the server forwards
+    them to the extension; the extension's response is then routed
+    back to the originating agent.
+
+    The hello frame has shape::
+
+        {"agent_hello": {"client_label": "pytest-...", "schema_version": 1}}
+
+    Added 2026-05-19 (P2) to remove the NSSM/pytest port-conflict.
+    Before this, the server only knew how to talk to extensions, and
+    every Python caller of ``pce_probe.connect()`` had to spin up its
+    own ProbeServer on the same port — making coexistence with a
+    long-running NSSM ``pce-probe-server`` impossible.
+    """
+
+    client_label: str
+    schema_version: int
+
+
 def parse_hello(raw: dict[str, Any]) -> HelloPayload | None:
-    """Return ``None`` if the frame is not a valid hello."""
+    """Return ``None`` if the frame is not a valid extension hello."""
     if not isinstance(raw, dict):
         return None
     payload = raw.get("hello")
@@ -185,12 +209,38 @@ def parse_hello(raw: dict[str, Any]) -> HelloPayload | None:
     )
 
 
+def parse_agent_hello(raw: dict[str, Any]) -> AgentHelloPayload | None:
+    """Return ``None`` if the frame is not a valid agent hello."""
+    if not isinstance(raw, dict):
+        return None
+    payload = raw.get("agent_hello")
+    if not isinstance(payload, dict):
+        return None
+    return AgentHelloPayload(
+        client_label=str(payload.get("client_label", "anon-agent")),
+        schema_version=int(payload.get("schema_version", PROBE_SCHEMA_VERSION)),
+    )
+
+
 def hello_ack(server_version: str) -> dict[str, Any]:
     return {
         "v": PROBE_SCHEMA_VERSION,
         "ok": True,
         "server_version": server_version,
         "supported_schema_versions": [PROBE_SCHEMA_VERSION],
+    }
+
+
+def agent_hello_ack(server_version: str, *,
+                    extension_attached: bool,
+                    extension_version: str | None = None) -> dict[str, Any]:
+    return {
+        "v": PROBE_SCHEMA_VERSION,
+        "ok": True,
+        "agent_ack": True,
+        "server_version": server_version,
+        "extension_attached": extension_attached,
+        "extension_version": extension_version,
     }
 
 

@@ -45,8 +45,11 @@ from websockets.legacy.server import (  # type: ignore[import-untyped]
 
 from .types import (
     PROBE_SCHEMA_VERSION,
+    AgentHelloPayload,
     HelloPayload,
+    agent_hello_ack,
     hello_ack,
+    parse_agent_hello,
     parse_hello,
 )
 
@@ -295,15 +298,121 @@ class ProbeServer:
             await ws.close(code=1003, reason="invalid JSON")
             return
 
-        hello = parse_hello(parsed) if isinstance(parsed, dict) else None
+        if not isinstance(parsed, dict):
+            await ws.close(code=1003, reason="hello frame required first")
+            return
+        hello = parse_hello(parsed)
         if hello is not None:
             # Treat this WS as the extension client.
             await self._handle_extension(ws, hello)
-        else:
-            # Some other frame; we don't currently accept agents over
-            # WS (agents go through the in-process API in client.py).
-            # Close cleanly.
-            await ws.close(code=1003, reason="hello frame required first")
+            return
+        agent_hello = parse_agent_hello(parsed)
+        if agent_hello is not None:
+            # Treat this WS as a Python (or other) agent client.
+            await self._handle_agent(ws, agent_hello)
+            return
+        await ws.close(code=1003, reason="hello frame required first")
+
+    async def _handle_agent(
+        self,
+        ws: WebSocketServerProtocol,
+        hello: AgentHelloPayload,
+    ) -> None:
+        """Handle a Python (or other) agent client over WS.
+
+        Added 2026-05-19 (P2). The agent connects as a regular WS client,
+        sends ``{"agent_hello": {...}}`` first, then sends ProbeRequest
+        envelopes one per frame. Each request is forwarded to the
+        attached extension via the shared ``send_request`` machinery;
+        the response is sent back to the originating agent's WS.
+
+        Concurrency: each agent request is dispatched on its own task so
+        slow verbs (capture.wait_for_token can be 60 s+) don't block
+        subsequent requests from the same agent or block other agents.
+
+        Lifecycle: the loop exits on WS close. Any in-flight tasks are
+        cancelled to release the extension's per-request futures.
+        """
+        if hello.schema_version != PROBE_SCHEMA_VERSION:
+            LOG.warning(
+                "agent schema mismatch: server=%d, agent=%d",
+                PROBE_SCHEMA_VERSION, hello.schema_version,
+            )
+            await ws.close(code=1002, reason="schema_mismatch")
+            return
+
+        try:
+            await ws.send(json.dumps(agent_hello_ack(
+                SERVER_VERSION,
+                extension_attached=self.is_extension_connected,
+                extension_version=(
+                    self._ext.hello.extension_version if self._ext else None
+                ),
+            )))
+        except ConnectionClosed:
+            return
+
+        LOG.info("agent attached: label=%s", hello.client_label)
+        inflight: set[asyncio.Task] = set()
+
+        async def _dispatch(req: dict[str, Any]) -> None:
+            rid = req.get("id")
+            timeout_ms = req.get("timeout_ms")
+            timeout_s = float(timeout_ms) / 1000.0 if isinstance(timeout_ms, (int, float)) else 35.0
+            # Cap server-side wait at slightly above the verb timeout
+            # so the agent gets ProbeRoutingError fast if extension dies.
+            try:
+                response = await self.send_request(req, timeout=timeout_s + 2.0)
+            except ProbeRoutingError as exc:
+                response = {
+                    "v": PROBE_SCHEMA_VERSION,
+                    "id": rid,
+                    "ok": False,
+                    "elapsed_ms": 0,
+                    "error": {
+                        "code": "no_extension"
+                                if "extension" in str(exc).lower()
+                                else "probe_routing",
+                        "message": str(exc),
+                    },
+                }
+            except Exception as exc:  # noqa: BLE001
+                response = {
+                    "v": PROBE_SCHEMA_VERSION,
+                    "id": rid,
+                    "ok": False,
+                    "elapsed_ms": 0,
+                    "error": {
+                        "code": "server_internal",
+                        "message": f"{type(exc).__name__}: {exc}",
+                    },
+                }
+            with contextlib.suppress(ConnectionClosed):
+                await ws.send(json.dumps(response))
+
+        try:
+            async for raw in ws:
+                if not isinstance(raw, str):
+                    continue
+                try:
+                    req = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(req, dict):
+                    continue
+                # Spawn the dispatch as its own task so subsequent agent
+                # frames are not blocked by slow verbs.
+                task = asyncio.create_task(_dispatch(req))
+                inflight.add(task)
+                task.add_done_callback(inflight.discard)
+        except ConnectionClosed:
+            pass
+        finally:
+            for t in list(inflight):
+                t.cancel()
+            with contextlib.suppress(Exception):
+                await asyncio.gather(*inflight, return_exceptions=True)
+            LOG.info("agent detached: label=%s", hello.client_label)
 
     async def _handle_extension(
         self,

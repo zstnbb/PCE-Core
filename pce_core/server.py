@@ -1205,6 +1205,9 @@ def dev_reset():
 _V1_TO_V2_SOURCE: dict[str, str] = {
     "proxy": "L1_mitm",
     "browser_extension": "L3a_browser_ext",
+    # ADR-008 搂6 鈥?L3g leg: extension reads localStorage / IndexedDB
+    # to recover conversation state, independent of the DOM-render path.
+    "browser_extension_idb": "L3g_local_persistence",
     "mcp": "L3c_vscode_ext",
     "ide_plugin": "L3c_vscode_ext",
     "local_model": "L3e_litellm",
@@ -1246,6 +1249,35 @@ def _emit_l3a_beacon(host: str) -> None:
     except Exception:  # pragma: no cover — defensive
         logger.debug("L3a emit_beacon failed for %s (non-fatal)", host)
 
+
+def _emit_l3g_beacon(host: str) -> None:
+    """Mirror of _emit_l3a_beacon for the L3g_local_persistence leg.
+
+    Throttled by the same heartbeat window as L3a so a chatty extension
+    poller doesn't spam the supervisor write path. The supervisor reads
+    these beacons to compute the leg's last_pass_ts.
+
+    Added 2026-05-19 (deploy/pce-core-patches/01-l3g-source-type-mapping)
+    to close the third V-GREEN leg gap for the f1_*_web scenarios.
+    """
+    info = _L3A_HOST_BEACON.get(host)
+    if info is None:
+        return
+    target, lane = info
+    try:
+        from .health import emit_beacon as _emit  # late import to avoid cycle
+        _emit(
+            lane=lane,
+            layer="L3g",
+            target=target,
+            status="pass",
+            meta={"source": "l3g_ingest", "host": host},
+        )
+    except Exception:  # noqa: BLE001
+        import logging as _log
+        _log.getLogger("pce.l3g_beacon").warning(
+            "L3g beacon emit failed for host=%s", host,
+        )
 
 @app.post("/api/v1/captures", response_model=CaptureOut, status_code=201)
 def ingest_capture(
@@ -1359,10 +1391,17 @@ def ingest_capture(
     # write rate per (lane, target).
     if source_id == SOURCE_BROWSER_EXT and payload.host:
         _emit_l3a_beacon(payload.host)
+    # ADR-008 搂6 鈥?L3g leg (deploy/pce-core-patches/01-l3g-source-type-mapping).
+    # Keyed on v2_source so it fires only for browser_extension_idb captures,
+    # not every browser_extension one (which would double-count L3a's beacon).
+    if v2_source == "L3g_local_persistence" and payload.host:
+        _emit_l3g_beacon(payload.host)
 
     # Normalize conversation captures (e.g. from browser extension DOM extraction).
-    # Keep this independent from the L3a beacon branch above: browser extension
-    # captures need both a health signal and normalized sessions/messages.
+    # Use `if` (not `elif`) so non-browser_ext conversation captures (MCP /
+    # proxy / etc.) also reach the normalizer — the elif was previously
+    # tucking conversation-normalize under the L3a beacon branch, which
+    # silently dropped non-browser_ext conversation captures.
     if payload.direction == "conversation":
         try:
             from .db import query_by_pair

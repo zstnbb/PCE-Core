@@ -24,6 +24,7 @@ scenarios:
     label: "ChatGPT Web (chatgpt.com)"
     tier: S0
     redundancy_target: 3
+    phase_b: true   # v1.0: L1_mitm blocked by HSTS preload; L4b not yet built
     legs:
       - source: L1_mitm
         priority: 1
@@ -37,23 +38,17 @@ scenarios:
         beacon_target: chatgpt_web
         beacon_lane: browser
         beacon_layer: L3a
-      - source: L3d_cdp
+      - source: L3g_local_persistence
         priority: 3
-        independent_basis: chrome_devtools_protocol
+        independent_basis: local_persistence
         beacon_target: chatgpt_web
         beacon_lane: browser
-        beacon_layer: L3d
-      - source: L4a_clipboard
-        priority: 4
-        independent_basis: user_action
-        beacon_target: chatgpt_web
-        beacon_lane: browser
-        beacon_layer: L4a
-
+        beacon_layer: L3g
   - id: f1_claude_web
     label: "Claude Web (claude.ai)"
     tier: S0
     redundancy_target: 3
+    phase_b: true   # v1.0: L1_mitm blocked by HSTS preload; L4b not yet built
     legs:
       - source: L1_mitm
         priority: 1
@@ -67,17 +62,17 @@ scenarios:
         beacon_target: claude_web
         beacon_lane: browser
         beacon_layer: L3a
-      - source: L3d_cdp
+      - source: L4b_accessibility
         priority: 3
-        independent_basis: chrome_devtools_protocol
+        independent_basis: accessibility_tree
         beacon_target: claude_web
         beacon_lane: browser
-        beacon_layer: L3d
-
+        beacon_layer: L4b
   - id: f1_gemini_web
     label: "Gemini Web (gemini.google.com)"
     tier: S1
     redundancy_target: 3
+    phase_b: true   # v1.0: L1_mitm blocked by HSTS preload; L4b not yet built
     legs:
       - source: L1_mitm
         priority: 1
@@ -91,17 +86,17 @@ scenarios:
         beacon_target: gemini_web
         beacon_lane: browser
         beacon_layer: L3a
-      - source: L4a_clipboard
+      - source: L4b_accessibility
         priority: 3
-        independent_basis: user_action
+        independent_basis: accessibility_tree
         beacon_target: gemini_web
         beacon_lane: browser
-        beacon_layer: L4a
-
+        beacon_layer: L4b
   - id: f1_gas
     label: "Google AI Studio (aistudio.google.com)"
     tier: S1
     redundancy_target: 3
+    phase_b: true   # v1.0: L1_mitm blocked by HSTS preload; L4b not yet built
     legs:
       - source: L1_mitm
         priority: 1
@@ -115,17 +110,17 @@ scenarios:
         beacon_target: gas
         beacon_lane: browser
         beacon_layer: L3a
-      - source: L4a_clipboard
+      - source: L4b_accessibility
         priority: 3
-        independent_basis: user_action
+        independent_basis: accessibility_tree
         beacon_target: gas
         beacon_lane: browser
-        beacon_layer: L4a
-
+        beacon_layer: L4b
   - id: f1_grok_web
     label: "Grok Web (grok.com)"
     tier: S2
     redundancy_target: 3
+    phase_b: true   # v1.0: L1_mitm blocked by HSTS preload; L4b not yet built
     legs:
       - source: L1_mitm
         priority: 1
@@ -139,14 +134,12 @@ scenarios:
         beacon_target: grok_web
         beacon_lane: browser
         beacon_layer: L3a
-      - source: L4a_clipboard
+      - source: L3g_local_persistence
         priority: 3
-        independent_basis: user_action
+        independent_basis: local_persistence
         beacon_target: grok_web
         beacon_lane: browser
-        beacon_layer: L4a
-
-  # ─────────────────────── Desktop 8 / Tier-α (P1, P4, P6-P8) ──────────────
+        beacon_layer: L3g
   - id: f4_p1_claude_desktop
     label: "Claude Desktop (Win MSIX/Squirrel + macOS)"
     tier: D0
