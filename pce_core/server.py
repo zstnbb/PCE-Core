@@ -1360,8 +1360,10 @@ def ingest_capture(
     if source_id == SOURCE_BROWSER_EXT and payload.host:
         _emit_l3a_beacon(payload.host)
 
-    # Normalize conversation captures (e.g. from browser extension DOM extraction)
-    elif payload.direction == "conversation":
+    # Normalize conversation captures (e.g. from browser extension DOM extraction).
+    # Keep this independent from the L3a beacon branch above: browser extension
+    # captures need both a health signal and normalized sessions/messages.
+    if payload.direction == "conversation":
         try:
             from .db import query_by_pair
             rows = query_by_pair(pair_id)

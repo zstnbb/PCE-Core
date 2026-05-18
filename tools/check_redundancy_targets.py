@@ -71,6 +71,11 @@ def filter_alerts(
         raise ValueError(f"unknown threshold: {threshold!r}")
     out: list[dict] = []
     for scenario in snapshot.get("scenarios", []) or []:
+        # A fresh install / pristine CI DB reports scenario status as
+        # ``down`` but color ``grey`` when every leg is UNKNOWN. That is
+        # "no signal yet", not a degradation event worth opening an issue for.
+        if scenario.get("color") == "grey":
+            continue
         if scenario.get("status") not in alert_status_set:
             continue
         sid = scenario.get("id", "")
