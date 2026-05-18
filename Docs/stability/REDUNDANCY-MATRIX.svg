@@ -2,60 +2,63 @@
 <style>  .title{font-size:18px;font-weight:700;fill:#1f2937}  .subtitle{font-size:12px;fill:#6b7280}  .section{font-size:13px;font-weight:600;fill:#374151}  .scenario-id{font-size:13px;font-weight:500;fill:#1f2937;font-family:"JetBrains Mono",monospace}  .scenario-label{font-size:11px;fill:#6b7280}  .status-text{font-size:12px;font-weight:600}  .leg-glyph{font-size:14px;font-weight:700;font-family:"Segoe UI Symbol","Apple Color Emoji",sans-serif}  .leg-source{font-size:9px;fill:#9ca3af;font-family:"JetBrains Mono",monospace}  .footer{font-size:11px;fill:#9ca3af}  .phase-b{font-size:9px;font-weight:600;fill:#7c3aed}</style>
 <rect x="0" y="0" width="1100" height="654" fill="#ffffff"/>
 <text class="title" x="40" y="36">PCE Redundancy Matrix</text>
-<text class="subtitle" x="40" y="56">computed at 2026-05-17 05:44 UTC · 0/13 redundant · window 24h</text>
+<text class="subtitle" x="40" y="56">computed at 2026-05-18 06:08 UTC · 0/13 redundant · window 24h</text>
 <text class="subtitle" x="40" y="74">STRICT MODE — 13/13 P0 ≥ 3 V-GREEN required for v1.1.6</text>
 <line x1="40" y1="94" x2="1060" y2="94" stroke="#e5e7eb" stroke-width="1"/>
 <text class="section" x="40" y="114">P0 Web (5)</text>
 <text class="scenario-id" x="64" y="142">f1_chatgpt_web</text>
 <text class="scenario-label" x="64" y="154">ChatGPT Web (chatgpt.com)</text>
+<text class="phase-b" x="284" y="142">PHASE B</text>
 <text class="leg-glyph" x="360" y="142" fill="#94a3b8">·</text>
 <text class="leg-source" x="348" y="154">L1</text>
 <text class="leg-glyph" x="430" y="142" fill="#94a3b8">·</text>
 <text class="leg-source" x="418" y="154">L3a</text>
 <text class="leg-glyph" x="500" y="142" fill="#94a3b8">·</text>
-<text class="leg-source" x="488" y="154">L3d</text>
-<text class="leg-glyph" x="570" y="142" fill="#94a3b8">·</text>
-<text class="leg-source" x="558" y="154">L4a</text>
+<text class="leg-source" x="488" y="154">L3g</text>
 <circle cx="880" cy="140" r="7" fill="#94a3b8"/>
 <text class="status-text" x="896" y="144" fill="#94a3b8">no data <tspan fill="#6b7280" font-weight="400">0/3</tspan></text>
 <text class="scenario-id" x="64" y="176">f1_claude_web</text>
 <text class="scenario-label" x="64" y="188">Claude Web (claude.ai)</text>
+<text class="phase-b" x="284" y="176">PHASE B</text>
 <text class="leg-glyph" x="360" y="176" fill="#94a3b8">·</text>
 <text class="leg-source" x="348" y="188">L1</text>
 <text class="leg-glyph" x="430" y="176" fill="#94a3b8">·</text>
 <text class="leg-source" x="418" y="188">L3a</text>
 <text class="leg-glyph" x="500" y="176" fill="#94a3b8">·</text>
-<text class="leg-source" x="488" y="188">L3d</text>
+<text class="leg-source" x="488" y="188">L4b</text>
 <circle cx="880" cy="174" r="7" fill="#94a3b8"/>
 <text class="status-text" x="896" y="178" fill="#94a3b8">no data <tspan fill="#6b7280" font-weight="400">0/3</tspan></text>
 <text class="scenario-id" x="64" y="210">f1_gemini_web</text>
 <text class="scenario-label" x="64" y="222">Gemini Web (gemini.google.com)</text>
+<text class="phase-b" x="284" y="210">PHASE B</text>
 <text class="leg-glyph" x="360" y="210" fill="#94a3b8">·</text>
 <text class="leg-source" x="348" y="222">L1</text>
 <text class="leg-glyph" x="430" y="210" fill="#94a3b8">·</text>
 <text class="leg-source" x="418" y="222">L3a</text>
 <text class="leg-glyph" x="500" y="210" fill="#94a3b8">·</text>
-<text class="leg-source" x="488" y="222">L4a</text>
+<text class="leg-source" x="488" y="222">L4b</text>
 <circle cx="880" cy="208" r="7" fill="#94a3b8"/>
 <text class="status-text" x="896" y="212" fill="#94a3b8">no data <tspan fill="#6b7280" font-weight="400">0/3</tspan></text>
 <text class="scenario-id" x="64" y="244">f1_gas</text>
 <text class="scenario-label" x="64" y="256">Google AI Studio (aistudio.google.com)</text>
+<text class="phase-b" x="284" y="244">PHASE B</text>
 <text class="leg-glyph" x="360" y="244" fill="#94a3b8">·</text>
 <text class="leg-source" x="348" y="256">L1</text>
 <text class="leg-glyph" x="430" y="244" fill="#94a3b8">·</text>
 <text class="leg-source" x="418" y="256">L3a</text>
 <text class="leg-glyph" x="500" y="244" fill="#94a3b8">·</text>
-<text class="leg-source" x="488" y="256">L4a</text>
+<text class="leg-source" x="488" y="256">L4b</text>
 <circle cx="880" cy="242" r="7" fill="#94a3b8"/>
 <text class="status-text" x="896" y="246" fill="#94a3b8">no data <tspan fill="#6b7280" font-weight="400">0/3</tspan></text>
 <text class="scenario-id" x="64" y="278">f1_grok_web</text>
 <text class="scenario-label" x="64" y="290">Grok Web (grok.com)</text>
+<text class="phase-b" x="284" y="278">PHASE B</text>
 <text class="leg-glyph" x="360" y="278" fill="#94a3b8">·</text>
 <text class="leg-source" x="348" y="290">L1</text>
 <text class="leg-glyph" x="430" y="278" fill="#94a3b8">·</text>
 <text class="leg-source" x="418" y="290">L3a</text>
 <text class="leg-glyph" x="500" y="278" fill="#94a3b8">·</text>
-<text class="leg-source" x="488" y="290">L4a</text>
+<text class="leg-source" x="488" y="290">L3g</text>
 <circle cx="880" cy="276" r="7" fill="#94a3b8"/>
 <text class="status-text" x="896" y="280" fill="#94a3b8">no data <tspan fill="#6b7280" font-weight="400">0/3</tspan></text>
 <line x1="40" y1="300" x2="1060" y2="300" stroke="#e5e7eb" stroke-width="1"/>
