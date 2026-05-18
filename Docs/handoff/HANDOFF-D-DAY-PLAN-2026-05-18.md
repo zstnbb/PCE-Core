@@ -374,8 +374,8 @@ python -m tools.check_redundancy_targets --threshold strict --expected-pass 5
 
 | Block | 起 | 终 | 结果 | commit | 备注 |
 |:-:|---|---|:-:|---|---|
-| B0  | 09:00 | 09:25 | ✅ PASS | (this commit) | §0.1 banner + 13 verdict 行 reset + §4.1.0 真状态表 + §4.1.1 历史表归档. ≥3 strict: 9-10/13 → 0/13 (matches nightly SVG). |
-| B1  | — | — | — | — | — |
+| B0  | 09:00 | 09:25 | ✅ PASS | a9814d9 | §0.1 banner + 13 verdict 行 reset + §4.1.0 真状态表 + §4.1.1 历史表归档. ≥3 strict: 9-10/13 → 0/13 (matches nightly SVG). |
+| B1  | 09:30 | 10:50 | ✅ PASS | (this commit) | 实测发现 3 CLI 全 Node-installed (Rust 假设不成立). 改用 env 注入: `_proxy_env.py` + `_undici_proxy_inject.js` + relay.py 两 Popen env wire-in. 14 新单测 GREEN, 94/94 e2e_cli 无回归. **不写 transparent proxy 了**; HTTPS_PROXY + NODE_OPTIONS 两路足够. 见 HANDOFF-D-DAY-B1-CLI-PROXY-INJECTION-2026-05-18.md. |
 | B2  | — | — | — | — | — |
 | B3  | — | — | — | — | — |
 | B5  | — | — | — | — | — |
