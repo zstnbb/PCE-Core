@@ -7,10 +7,12 @@ import {
   PROBE_SCHEMA_VERSION,
   type SystemPingResult,
   type SystemReloadResult,
+  type SystemSetCaptureEnabledParams,
+  type SystemSetCaptureEnabledResult,
   type SystemVersionResult,
   type ProbeVerb,
 } from "../../utils/probe-protocol";
-import { getExtensionVersion, type VerbHandler } from "./probe-rpc-shared";
+import { ProbeException, getExtensionVersion, type VerbHandler } from "./probe-rpc-shared";
 
 // Delay between sending the ``system.reload`` ack frame and actually
 // calling ``chrome.runtime.reload()``. Long enough for the WebSocket
@@ -27,6 +29,7 @@ const ALL_KNOWN_VERBS: ProbeVerb[] = [
   "system.ping",
   "system.version",
   "system.reload",
+  "system.set_capture_enabled",
   "tab.list",
   "tab.open",
   "tab.activate",
@@ -51,6 +54,16 @@ const ALL_KNOWN_VERBS: ProbeVerb[] = [
   "capture.recent_events",
   "capture.pipeline_state",
 ];
+
+interface CaptureEnabledProvider {
+  (enabled: boolean): boolean;
+}
+
+let captureEnabledProvider: CaptureEnabledProvider | null = null;
+
+export function setCaptureEnabledProvider(provider: CaptureEnabledProvider): void {
+  captureEnabledProvider = provider;
+}
 
 export const systemVerbs: Record<string, VerbHandler> = {
   "system.ping": async (): Promise<SystemPingResult> => ({
@@ -89,6 +102,25 @@ export const systemVerbs: Record<string, VerbHandler> = {
       }
     }, SYSTEM_RELOAD_DELAY_MS);
     return { reloading: true, delay_ms: SYSTEM_RELOAD_DELAY_MS };
+  },
+
+  "system.set_capture_enabled": async (
+    rawParams: unknown,
+  ): Promise<SystemSetCaptureEnabledResult> => {
+    const params = rawParams as Partial<SystemSetCaptureEnabledParams>;
+    if (typeof params.enabled !== "boolean") {
+      throw new ProbeException(
+        "params_invalid",
+        "field 'enabled' must be a boolean",
+      );
+    }
+    if (!captureEnabledProvider) {
+      throw new ProbeException(
+        "extension_internal",
+        "capture enabled provider is not wired",
+      );
+    }
+    return { enabled: captureEnabledProvider(params.enabled) };
   },
 };
 

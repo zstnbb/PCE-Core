@@ -42,7 +42,7 @@ class GoogleAIStudioAdapter(BaseProbeSiteAdapter):
     def ensure_preferred_model(self, probe, tab_id) -> None:
         from pce_probe import ProbeError as _PE
 
-        flag = os.environ.get("PCE_PROBE_GAS_ENSURE_MODEL", "0").lower()
+        flag = os.environ.get("PCE_PROBE_GAS_ENSURE_MODEL", "1").lower()
         if flag in {"0", "false", "no", "off"}:
             return
         labels_env = os.environ.get("PCE_PROBE_GAS_MODEL_LABELS", "")

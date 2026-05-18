@@ -45,6 +45,7 @@ from tools.auto_issue_on_fail import (  # noqa: E402
     process_runs,
     proposals_for_record,
 )
+from tools.check_redundancy_targets import filter_alerts  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -297,6 +298,53 @@ def test_process_runs_dry_run_does_not_call_gh(tmp_runs_dir: Path) -> None:
     assert issue["dry_run"] is True
     assert issue["exit_code"] == 0
     assert issue["title"].startswith("[broken-adapter]")
+
+
+# ---------------------------------------------------------------------------
+# tools.check_redundancy_targets
+# ---------------------------------------------------------------------------
+
+def test_redundancy_check_ignores_grey_no_data_status() -> None:
+    """Empty supervisor snapshots are grey/no-data, not degradation alerts."""
+    snapshot = {
+        "computed_at": time.time(),
+        "scenarios": [{
+            "id": "f1_chatgpt_web",
+            "label": "ChatGPT Web",
+            "tier": "S0",
+            "status": "down",
+            "color": "grey",
+            "phase_b": False,
+            "redundancy_target": 3,
+            "legs_active": 0,
+            "legs": [
+                {"source": "L1_mitm", "independent_basis": "a", "health": "unknown"},
+            ],
+        }],
+    }
+    assert filter_alerts(snapshot, threshold="red", suppress_phase_b=True) == []
+
+
+def test_redundancy_check_alerts_real_red_status() -> None:
+    """A red impaired/down scenario still opens an alert."""
+    snapshot = {
+        "computed_at": time.time(),
+        "scenarios": [{
+            "id": "f1_chatgpt_web",
+            "label": "ChatGPT Web",
+            "tier": "S0",
+            "status": "down",
+            "color": "red",
+            "phase_b": False,
+            "redundancy_target": 3,
+            "legs_active": 0,
+            "legs": [
+                {"source": "L1_mitm", "independent_basis": "a", "health": "red"},
+            ],
+        }],
+    }
+    alerts = filter_alerts(snapshot, threshold="red", suppress_phase_b=True)
+    assert [a["scenario_id"] for a in alerts] == ["f1_chatgpt_web"]
 
 
 # ---------------------------------------------------------------------------

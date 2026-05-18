@@ -19,6 +19,7 @@ KNOWN_VERBS: tuple[str, ...] = (
     "system.ping",
     "system.version",
     "system.reload",
+    "system.set_capture_enabled",
     "tab.list",
     "tab.open",
     "tab.activate",

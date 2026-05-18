@@ -154,6 +154,7 @@ export type ProbeVerb =
   | "system.ping"
   | "system.version"
   | "system.reload"
+  | "system.set_capture_enabled"
   // tab.*
   | "tab.list"
   | "tab.open"
@@ -217,6 +218,13 @@ export interface SystemReloadResult {
   reloading: true;
   /** Hint to the agent: SW will die roughly this many ms after this response. */
   delay_ms: number;
+}
+
+export interface SystemSetCaptureEnabledParams {
+  enabled: boolean;
+}
+export interface SystemSetCaptureEnabledResult {
+  enabled: boolean;
 }
 
 // tab.* ---------------------------------------------------------------------
@@ -584,6 +592,7 @@ export interface ProbeVerbMap {
   "system.ping":           { params: SystemPingParams;          result: SystemPingResult };
   "system.version":        { params: SystemVersionParams;       result: SystemVersionResult };
   "system.reload":         { params: SystemReloadParams;        result: SystemReloadResult };
+  "system.set_capture_enabled": { params: SystemSetCaptureEnabledParams; result: SystemSetCaptureEnabledResult };
   "tab.list":              { params: TabListParams;             result: TabListResult };
   "tab.open":              { params: TabOpenParams;             result: TabOpenResult };
   "tab.activate":          { params: TabActivateParams;         result: TabActivateResult };

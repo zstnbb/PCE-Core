@@ -98,6 +98,12 @@ function buildHarness(options: HarnessOptions = {}) {
   return { runtime, sendMessage, setLastError };
 }
 
+function pceCaptureCalls(sendMessage: { mock: { calls: Array<[unknown, unknown]> } }) {
+  return sendMessage.mock.calls.filter(([message]) => {
+    return (message as { type?: string }).type === "PCE_CAPTURE";
+  });
+}
+
 beforeEach(() => {
   document.body.innerHTML = "";
 });
@@ -125,7 +131,7 @@ describe("createCaptureRuntime — basic capture", () => {
       ],
     });
     runtime.triggerCapture();
-    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(pceCaptureCalls(sendMessage)).toHaveLength(1);
     const [message] = sendMessage.mock.calls[0] as [
       { type: string; payload: Record<string, unknown> },
       unknown,
@@ -149,7 +155,7 @@ describe("createCaptureRuntime — basic capture", () => {
     runtime.triggerCapture();
     // triggerCapture resets the fingerprint, so the second call WILL
     // send again — but the payload stays the same shape.
-    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(pceCaptureCalls(sendMessage)).toHaveLength(2);
     expect(runtime.fingerprint).toBe(fp);
   });
 
@@ -379,13 +385,13 @@ describe("createCaptureRuntime — observer", () => {
     runtime.start();
     // The initial schedule fires once.
     await new Promise((r) => setTimeout(r, 40));
-    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(pceCaptureCalls(sendMessage)).toHaveLength(1);
 
     // Trigger a DOM mutation; observer should re-schedule but
     // fingerprint is unchanged so no new sendMessage.
     document.body.appendChild(document.createElement("div"));
     await new Promise((r) => setTimeout(r, 40));
-    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(pceCaptureCalls(sendMessage)).toHaveLength(1);
   });
 
   it("disconnect() stops future captures", async () => {
@@ -415,11 +421,11 @@ describe("createCaptureRuntime — observer", () => {
     });
     runtime.start();
     await new Promise((r) => setTimeout(r, 40));
-    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(pceCaptureCalls(sendMessage)).toHaveLength(1);
 
     window.history.replaceState({}, "", window.location.href);
     await new Promise((r) => setTimeout(r, 40));
-    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(pceCaptureCalls(sendMessage)).toHaveLength(1);
   });
 });
 
@@ -469,7 +475,7 @@ describe("createCaptureRuntime — requireBothRoles", () => {
       requireBothRoles: true,
     });
     runtime.triggerCapture();
-    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(pceCaptureCalls(sendMessage)).toHaveLength(1);
   });
 });
 
@@ -501,7 +507,7 @@ describe("createCaptureRuntime session hint guard", () => {
       requireSessionHint: true,
     });
     ready.runtime.triggerCapture();
-    expect(ready.sendMessage).toHaveBeenCalledTimes(1);
+    expect(pceCaptureCalls(ready.sendMessage)).toHaveLength(1);
   });
 });
 

@@ -34,6 +34,7 @@ import {
 // See ``wxt.config.ts`` for the swap.
 import { observeCaptureMessage, setPipelineStateProvider } from "$probe-rpc-capture";
 import { startProbeRpc } from "$probe-rpc";
+import { setCaptureEnabledProvider } from "./background/probe-rpc-system";
 import {
   DEFAULT_PCE_INGEST_URL,
   DEFAULT_PCE_SERVER_ORIGIN,
@@ -873,6 +874,11 @@ export default defineBackground({
     // the symbols inside.
     // -----------------------------------------------------------------------
     if (__PCE_PROBE_ENABLED__) {
+      setCaptureEnabledProvider((enabled: boolean) => {
+        isEnabled = enabled;
+        chrome.storage.local.set({ pce_enabled: isEnabled });
+        return isEnabled;
+      });
       setPipelineStateProvider(() => {
         void CaptureQueue.count();
         return {

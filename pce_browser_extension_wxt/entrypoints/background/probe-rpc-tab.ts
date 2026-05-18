@@ -40,6 +40,15 @@ function toTabSummary(t: chrome.tabs.Tab): TabSummary {
   };
 }
 
+async function focusTabWindow(tab: chrome.tabs.Tab): Promise<void> {
+  if (typeof tab.windowId !== "number") return;
+  try {
+    await chrome.windows.update(tab.windowId, { focused: true });
+  } catch {
+    /* Best effort: some window types/profiles may reject focus. */
+  }
+}
+
 async function getTab(tabId: number): Promise<chrome.tabs.Tab> {
   return new Promise((resolve, reject) => {
     chrome.tabs.get(tabId, (tab) => {
@@ -94,7 +103,24 @@ async function tabOpen(rawParams: unknown): Promise<TabOpenResult> {
   const p = rawParams as Partial<TabOpenParams>;
   const url = requireString(p as Record<string, unknown>, "url");
   const active = p.active !== false; // default true
-  const created = await chrome.tabs.create({ url, active });
+  let created: chrome.tabs.Tab;
+  try {
+    created = await chrome.tabs.create({ url, active });
+  } catch (err) {
+    const message = (err as Error).message || "";
+    if (!/No current window/i.test(message)) {
+      throw err;
+    }
+    const win = await chrome.windows.create({
+      url,
+      focused: false,
+      type: "normal",
+    });
+    created = win.tabs?.[0] as chrome.tabs.Tab;
+  }
+  if (active) {
+    await focusTabWindow(created);
+  }
   if (!created.id) {
     throw new ProbeException(
       "navigation_failed",
@@ -107,7 +133,8 @@ async function tabOpen(rawParams: unknown): Promise<TabOpenResult> {
 async function tabActivate(rawParams: unknown): Promise<TabActivateResult> {
   const p = rawParams as Partial<TabActivateParams>;
   const tabId = requireNumber(p as Record<string, unknown>, "tab_id");
-  await getTab(tabId); // throws tab_not_found if missing
+  const tab = await getTab(tabId); // throws tab_not_found if missing
+  await focusTabWindow(tab);
   await chrome.tabs.update(tabId, { active: true });
   return { ok: true };
 }

@@ -23,6 +23,7 @@ match instead of letting the page race the wait timeout.
 from __future__ import annotations
 
 import re
+import os
 import time
 from dataclasses import dataclass
 from typing import Any, ClassVar, Optional, Sequence
@@ -306,7 +307,10 @@ class BaseProbeSiteAdapter:
         ``tab.wait_for_load`` and let ``check_logged_in`` decide whether
         the page is actually usable.
         """
-        result = probe.tab.open(self.url, active=True)
+        open_active = os.environ.get("PCE_PROBE_OPEN_ACTIVE", "1").lower() in {
+            "1", "true", "yes", "on",
+        }
+        result = probe.tab.open(self.url, active=open_active)
         tab_id = int(result["tab_id"])
         try:
             probe.tab.wait_for_load(
