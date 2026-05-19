@@ -75,6 +75,17 @@ DASHBOARD_URL = f"http://{CORE_HOST}:{CORE_PORT}/"
 MATRIX_URL = f"http://{CORE_HOST}:{CORE_PORT}/api/v1/health/matrix"
 STATS_URL = f"http://{CORE_HOST}:{CORE_PORT}/api/v1/stats"
 
+# An opener that NEVER consults the system proxy. urllib's default
+# urlopen reads HTTP_PROXY / Windows registry / etc., which means when
+# the user has Clash (or any other VPN-style proxy) configured at the
+# OS level, our requests to 127.0.0.1:9800 get routed through it and
+# come back as 502 Bad Gateway. PCE's own ingest server lives on
+# loopback — there is no scenario where it should be reached through
+# a proxy. Use this opener for every internal API call below.
+_NO_PROXY_OPENER = urllib.request.build_opener(
+    urllib.request.ProxyHandler({})
+)
+
 LANE_HEALTH_POLL_MS = 30_000
 NETWORK_ENV_POLL_MS = 60_000
 CAPTURE_POLL_MS = 2_500
@@ -881,7 +892,7 @@ class _Fetcher(QObject):
 
     def run(self) -> None:
         try:
-            with urllib.request.urlopen(self._url, timeout=self._timeout) as resp:
+            with _NO_PROXY_OPENER.open(self._url, timeout=self._timeout) as resp:
                 raw = resp.read()
             self.finished.emit(json.loads(raw.decode("utf-8")))
         except (urllib.error.URLError, TimeoutError, OSError,
@@ -936,7 +947,7 @@ class CaptureNotifier(QObject):
 
     def _tick(self) -> None:
         try:
-            with urllib.request.urlopen(STATS_URL, timeout=1.5) as resp:
+            with _NO_PROXY_OPENER.open(STATS_URL, timeout=1.5) as resp:
                 raw = resp.read()
             payload = json.loads(raw.decode("utf-8"))
         except (urllib.error.URLError, TimeoutError, OSError,
