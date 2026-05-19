@@ -108,7 +108,9 @@ SERVICE_COLOR = {
 ASSETS_DIR = Path.home() / ".pce" / "assets"
 LOGS_DIR   = Path.home() / ".pce" / "logs"
 LOG_PATH   = LOGS_DIR / "control_panel.log"
-DING_PATH  = ASSETS_DIR / "ding.wav"
+# Version-stamped so a sound design change auto-supersedes cached WAV.
+DING_VERSION = 2
+DING_PATH  = ASSETS_DIR / f"ding_v{DING_VERSION}.wav"
 
 
 # ---------------------------------------------------------------------------
@@ -140,35 +142,90 @@ def _setup_file_logging() -> None:
 # ---------------------------------------------------------------------------
 
 def _ensure_ding_wav() -> Path:
-    """Synthesise a short two-tone bell into ``DING_PATH`` (idempotent).
+    """Synthesise an Apple-style notification chime into ``DING_PATH``.
 
-    Done in code so we don't have to ship a binary asset. ~22 kB WAV,
-    250 ms, two sine tones (E6 + A5) with linear decay envelope —
-    pleasant + obviously audible.
+    Sound design (inspired by macOS Glass / iOS notification family):
+
+    - **44.1 kHz** mono — full audible spectrum, not the muffled 22 kHz
+      we used before
+    - **Two-note ascending arpeggio** E5 → B5 (a perfect fifth) — short,
+      optimistic, the canonical "something good happened" interval
+    - Each note carries **4 harmonic partials** (1×, 2×, 3×, 4× the
+      fundamental) at decreasing amplitudes → bell-like timbre, not a
+      raw sine wave whine
+    - **Soft attack** ≈ 6 ms with a √t curve → no "click" at note onset
+    - **Exponential decay** with τ ≈ 220 ms → natural sustain that fades
+      rather than abruptly cutting off (the old linear decay sounded
+      digital/cheap)
+    - Peak-normalised to 0.85 to leave 1.4 dB of headroom
+
+    Result is ~75 kB, ~900 ms long, sounds like a gentle two-note bell.
     """
-    if DING_PATH.is_file() and DING_PATH.stat().st_size > 4_000:
+    # Cache check uses the versioned filename so a code change to the
+    # sound design auto-busts any older cached file on disk.
+    if DING_PATH.is_file() and DING_PATH.stat().st_size > 40_000:
         return DING_PATH
     ASSETS_DIR.mkdir(parents=True, exist_ok=True)
-    framerate = 22050
-    duration_s = 0.28
+
+    framerate = 44100
+    duration_s = 0.95
     n = int(framerate * duration_s)
-    f1, f2 = 1318.5, 880.0  # E6, A5
-    samples = []
-    for i in range(n):
-        t = i / framerate
-        env = max(0.0, 1.0 - (t / duration_s))
-        val = 0.45 * env * (math.sin(2 * math.pi * f1 * t)
-                            + 0.55 * math.sin(2 * math.pi * f2 * t))
-        # Clamp + quantize to 16-bit signed.
-        v = max(-1.0, min(1.0, val))
-        samples.append(int(v * 32767))
+
+    # Two-note arpeggio. (start_time_s, fundamental_hz, gain).
+    # E5 → B5 is a clean ascending perfect fifth. Tweak gains so the
+    # second note slightly outshines the first (matches iOS "Tri-tone"
+    # pattern where the last beat is loudest).
+    notes = (
+        (0.00, 659.25, 0.55),   # E5
+        (0.13, 987.77, 0.70),   # B5
+    )
+
+    # Harmonic partials per note: weights for f, 2f, 3f, 4f.
+    # Higher partials decay faster than the fundamental — captured by
+    # the per-partial time-constant scaling.
+    partial_weights = (1.00, 0.45, 0.22, 0.09)
+    base_decay_tc = 0.22
+    attack_s = 0.006
+
+    samples = [0.0] * n
+
+    for note_start, freq, note_amp in notes:
+        start_i = int(framerate * note_start)
+        for i in range(start_i, n):
+            t = (i - start_i) / framerate
+            # √-curve soft attack — gentler than linear, no click.
+            if t < attack_s:
+                env_attack = (t / attack_s) ** 0.5
+            else:
+                env_attack = 1.0
+
+            val = 0.0
+            for k, w in enumerate(partial_weights, start=1):
+                # Higher partials decay faster (3rd has τ/3, etc.) →
+                # bell-like spectrum that thins out over time, not a
+                # synthy buzz that stays constant.
+                tc = base_decay_tc / k
+                env = math.exp(-(t - attack_s) / tc) if t > attack_s else 1.0
+                val += w * env * math.sin(2 * math.pi * freq * k * t)
+
+            val *= env_attack * note_amp / sum(partial_weights)
+            samples[i] += val
+
+    # Peak-normalise so the WAV is consistently loud regardless of
+    # how many notes / partials are summed at any sample.
+    peak = max(abs(s) for s in samples) or 1.0
+    gain = 0.85 / peak
+
     with wave.open(str(DING_PATH), "wb") as wf:
         wf.setnchannels(1)
         wf.setsampwidth(2)
         wf.setframerate(framerate)
-        wf.writeframes(struct.pack(f"<{n}h", *samples))
-    logger.info("ding wav generated: %s (%d bytes)",
-                DING_PATH, DING_PATH.stat().st_size)
+        wf.writeframes(struct.pack(
+            f"<{n}h",
+            *(max(-32768, min(32767, int(s * gain * 32767))) for s in samples),
+        ))
+    logger.info("ding wav generated: %s (%d bytes, v%d)",
+                DING_PATH, DING_PATH.stat().st_size, DING_VERSION)
     return DING_PATH
 
 
