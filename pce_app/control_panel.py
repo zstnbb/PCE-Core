@@ -43,20 +43,20 @@ from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import (
-    Property, Qt, QEasingCurve, QObject, QPoint, QPointF, QRect, QRectF,
-    QSize, QThread, QTimer, Signal,
+    Property, Qt, QEasingCurve, QEvent, QObject, QPoint, QPointF, QRect,
+    QRectF, QSize, QThread, QTimer, Signal,
     QPropertyAnimation,
 )
 from PySide6.QtGui import (
-    QAction, QBrush, QColor, QFont, QFontDatabase, QIcon, QLinearGradient,
-    QPainter, QPainterPath, QPen, QPixmap,
+    QAction, QBrush, QColor, QFont, QFontDatabase, QFontMetrics, QGuiApplication,
+    QIcon, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QResizeEvent,
 )
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QFrame,
     QGraphicsDropShadowEffect, QGridLayout, QHBoxLayout, QHeaderView,
     QLabel, QMainWindow, QMenu, QMessageBox, QPushButton, QScrollArea,
-    QSizePolicy, QSpacerItem, QStatusBar, QSystemTrayIcon, QTableWidget,
-    QTableWidgetItem, QToolButton, QVBoxLayout, QWidget,
+    QSizePolicy, QSpacerItem, QSplitter, QStatusBar, QSystemTrayIcon,
+    QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget,
 )
 
 from .capability_check import CheckResult, run_all as run_capability_checks
@@ -695,23 +695,26 @@ def _section_title(text: str) -> QLabel:
 class PulsingDot(QWidget):
     """The hero status indicator.
 
+    Sizes are in **logical pixels** (Qt scales these to physical pixels
+    on high-DPI displays automatically). The painted dot+halo always
+    fills whatever box ``setFixedSize`` was called with, so the widget
+    handles screen DPI changes transparently — Qt just hands paintEvent
+    a higher-resolution surface.
+
     States:
       - "idle"   → static grey, no animation
-      - "active" → static green when no traffic, pulsing green when
-                   captures are flowing (call ``ping()`` on each event)
+      - "active" → static green when no traffic, pulses on each ping()
       - "error"  → static red
-
-    The "ping" anim briefly enlarges the dot + halo, then settles
-    back. Idle state has no animation at all → the panel is quiet
-    when nothing's happening (Apple-like).
     """
 
-    DIAMETER = 44
-    HALO_DIAMETER = 88
+    DIAMETER_DEFAULT = 44
+    HALO_DIAMETER_DEFAULT = 88
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self.setFixedSize(self.HALO_DIAMETER, self.HALO_DIAMETER)
+        self._diameter = self.DIAMETER_DEFAULT
+        self._halo = self.HALO_DIAMETER_DEFAULT
+        self.setFixedSize(self._halo, self._halo)
         self._state = "idle"
         self._color = QColor(STATUS_GREY)
         self._halo_alpha = 0.0
@@ -746,6 +749,17 @@ class PulsingDot(QWidget):
         self._anim_halo.stop(); self._anim_halo.start()
         self._anim_scale.stop(); self._anim_scale.start()
 
+    def set_scaled_size(self, diameter: int) -> None:
+        """Rescale to a smaller diameter (for narrow / short windows)."""
+        diameter = max(20, int(diameter))
+        halo = diameter * 2
+        if diameter == self._diameter:
+            return
+        self._diameter = diameter
+        self._halo = halo
+        self.setFixedSize(halo, halo)
+        self.update()
+
     # Qt animation properties (via Property descriptor)
     def _get_halo_alpha(self): return self._halo_alpha
     def _set_halo_alpha(self, v):
@@ -757,6 +771,12 @@ class PulsingDot(QWidget):
         self._scale = float(v); self.update()
     scale = Property(float, _get_scale, _set_scale)
 
+    def sizeHint(self) -> QSize:  # noqa: N802
+        return QSize(self._halo, self._halo)
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        return QSize(self._halo, self._halo)
+
     def paintEvent(self, _ev) -> None:  # noqa: N802
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
@@ -765,7 +785,7 @@ class PulsingDot(QWidget):
 
         # Halo (during ping)
         if self._halo_alpha > 0.001:
-            halo_r = self.HALO_DIAMETER / 2
+            halo_r = self._halo / 2
             color = QColor(self._color)
             color.setAlphaF(self._halo_alpha * 0.5)
             p.setPen(Qt.NoPen)
@@ -773,7 +793,7 @@ class PulsingDot(QWidget):
             p.drawEllipse(QPointF(cx, cy), halo_r, halo_r)
 
         # Main dot (scaled during ping)
-        r = (self.DIAMETER / 2) * self._scale
+        r = (self._diameter / 2) * self._scale
         p.setPen(Qt.NoPen)
         p.setBrush(QBrush(self._color))
         p.drawEllipse(QPointF(cx, cy), r, r)
@@ -800,6 +820,9 @@ class Sparkline(QWidget):
         self.setMinimumHeight(34)
         self.setMaximumHeight(36)
         self._totals: deque[tuple[float, int]] = deque(maxlen=self.MAX_POINTS)
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        return QSize(220, 35)
 
     def push(self, total: int) -> None:
         self._totals.append((time.time(), int(total)))
@@ -993,6 +1016,10 @@ class CaptureNotifier(QObject):
 class HeroPanel(QWidget):
     """Big centered status indicator + primary actions.
 
+    Responds to its own height: at very-short window heights the
+    PulsingDot shrinks and the meta line hides so the buttons stay
+    accessible. At normal heights it occupies ~220 dpi-px.
+
     States:
         idle     — grey dot, "Idle"          → primary CTA is "Start"
         active   — green dot,  "Capturing"   → primary CTA is "Stop"
@@ -1003,13 +1030,24 @@ class HeroPanel(QWidget):
     stop_clicked  = Signal()
     dashboard_clicked = Signal()
 
+    # Breakpoints in logical pixels. Calibrated against the actual
+    # height the hero gets in a normally-sized window (sizeHint = 260,
+    # but layout often cedes ~217 to the splitter). These have to be
+    # LOWER than that "comfortable" hero height — otherwise the meta
+    # line hides even at default window sizes.
+    _COMPACT_HEIGHT = 200       # below this, hide meta line
+    _VERY_COMPACT_HEIGHT = 155  # below this, also hide status text
+
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self.setMinimumHeight(220)
+        # Min/max so the hero stays comfortably-sized but yields when
+        # the window is shrunk hard. Preferred = sizeHint = 260.
+        self.setMinimumHeight(140)
+        self.setMaximumHeight(320)
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 24, 0, 16)
-        outer.setSpacing(6)
+        outer.setContentsMargins(0, 18, 0, 14)
+        outer.setSpacing(8)
         outer.setAlignment(Qt.AlignHCenter)
 
         self._dot = PulsingDot()
@@ -1042,6 +1080,30 @@ class HeroPanel(QWidget):
         outer.addStretch()
 
         self._is_active = False
+        self._compact = False
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        # Preferred height = comfortable layout (dot + status + meta + buttons).
+        return QSize(540, 260)
+
+    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        h = event.size().height()
+        if h < self._VERY_COMPACT_HEIGHT:
+            self._dot.set_scaled_size(28)
+            self._status.hide()
+            self._meta.hide()
+            self._compact = True
+        elif h < self._COMPACT_HEIGHT:
+            self._dot.set_scaled_size(34)
+            self._status.show()
+            self._meta.hide()
+            self._compact = True
+        else:
+            self._dot.set_scaled_size(PulsingDot.DIAMETER_DEFAULT)
+            self._status.show()
+            self._meta.show()
+            self._compact = False
 
     # -- public --
 
@@ -1803,11 +1865,14 @@ class ControlPanel(QMainWindow):
         except Exception:
             logger.debug("install_signal_handlers failed", exc_info=True)
 
-        # Window
+        # Window — sized in logical (device-independent) pixels so the
+        # window comes up the "right" size at any DPI. Minimums are
+        # deliberately low so the panel fits on a 1366×768 laptop
+        # at 125% scaling.
         self.setWindowTitle("PCE")
         self.setWindowIcon(render_app_icon(ACCENT))
         self.resize(1100, 760)
-        self.setMinimumSize(960, 680)
+        self.setMinimumSize(720, 540)
         self.setStyleSheet(_build_stylesheet())
 
         central = QWidget()
@@ -1819,23 +1884,53 @@ class ControlPanel(QMainWindow):
 
         # -- Hero --
         self.hero = HeroPanel()
+        # Hero is Fixed vertically (its sizeHint controls), Expanding
+        # horizontally so it stays centered as the window widens.
+        self.hero.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         root.addWidget(self.hero)
 
-        # -- Two-column main area --
-        cols = QHBoxLayout()
-        cols.setContentsMargins(20, 0, 20, 16)
-        cols.setSpacing(16)
+        # -- Two-column main area, user-resizable splitter --
+        # QSplitter is preferred over QHBoxLayout here because:
+        # (1) the user can drag the divider to taste; (2) at narrow
+        # widths each side enforces its own minimumSizeHint, avoiding
+        # the "crushed card" failure mode that plain stretch factors
+        # produce.
+        cols_wrap = QWidget()
+        cols_outer = QVBoxLayout(cols_wrap)
+        cols_outer.setContentsMargins(16, 0, 16, 12)
+        cols_outer.setSpacing(0)
+
+        self._splitter = QSplitter(Qt.Horizontal)
+        self._splitter.setHandleWidth(10)
+        self._splitter.setChildrenCollapsible(False)
+        # Style the handle so it's barely-visible-but-grab-able.
+        self._splitter.setStyleSheet(
+            f"QSplitter::handle {{ background: transparent; }}"
+            f"QSplitter::handle:hover {{ background: {BORDER}; }}"
+        )
 
         self.activity = ActivityPanel()
-        cols.addWidget(self.activity, stretch=3)
+        self.activity.setMinimumWidth(320)
+        self.activity.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         self.system_status = SystemStatusPanel()
-        cols.addWidget(self.system_status, stretch=2)
+        self.system_status.setMinimumWidth(280)
+        self.system_status.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
-        root.addLayout(cols, stretch=1)
+        self._splitter.addWidget(self.activity)
+        self._splitter.addWidget(self.system_status)
+        # Initial proportional split. QSplitter requires integer sizes,
+        # so use logical pixels at startup; user can drag afterwards.
+        self._splitter.setStretchFactor(0, 3)
+        self._splitter.setStretchFactor(1, 2)
+        self._splitter.setSizes([660, 440])
+
+        cols_outer.addWidget(self._splitter)
+        root.addWidget(cols_wrap, stretch=1)
 
         # -- Footer toolbar --
         self.toolbar = SoundToolbar()
+        self.toolbar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         root.addWidget(self.toolbar)
 
         # Tray
@@ -1903,6 +1998,62 @@ class ControlPanel(QMainWindow):
             "Click the tray icon any time to reopen.",
             QSystemTrayIcon.Information, 2500,
         ))
+
+        # React to the user dragging the window to a screen with a
+        # different DPI. Qt re-lays out automatically, but custom-
+        # painted widgets sometimes need an explicit nudge to redraw
+        # with the new device-pixel-ratio.
+        try:
+            handle = self.windowHandle()
+            if handle is not None:
+                handle.screenChanged.connect(self._on_screen_changed)
+            else:
+                # windowHandle is None until the window is shown — defer.
+                QTimer.singleShot(0, self._wire_screen_signal)
+        except Exception:  # noqa: BLE001
+            logger.debug("could not wire screenChanged", exc_info=True)
+
+    def _wire_screen_signal(self) -> None:
+        handle = self.windowHandle()
+        if handle is None:
+            return
+        handle.screenChanged.connect(self._on_screen_changed)
+        # Also wire screen.logicalDotsPerInchChanged for the
+        # in-place DPI-change case (user changes display scaling
+        # without moving the window).
+        screen = handle.screen()
+        if screen is not None:
+            screen.logicalDotsPerInchChanged.connect(
+                lambda *_: self._refresh_for_dpi_change()
+            )
+
+    def _on_screen_changed(self, screen) -> None:
+        logger.info(
+            "screen changed → %s @ %.2f× scale",
+            screen.name() if screen else "?",
+            screen.devicePixelRatio() if screen else 1.0,
+        )
+        self._refresh_for_dpi_change()
+        # Subscribe to the new screen's DPI signal too.
+        try:
+            screen.logicalDotsPerInchChanged.connect(
+                lambda *_: self._refresh_for_dpi_change()
+            )
+        except Exception:
+            pass
+
+    def _refresh_for_dpi_change(self) -> None:
+        """Force a clean repaint of the whole tree.
+
+        Qt usually does this automatically, but custom-painted widgets
+        (PulsingDot, Sparkline) sometimes hold stale pixmaps. Re-applying
+        the stylesheet also recomputes em-based sizes.
+        """
+        self.setStyleSheet(_build_stylesheet())
+        # Bubble update() to all descendants so paintEvent fires.
+        for w in self.findChildren(QWidget):
+            w.update()
+        self.update()
 
     # -- Service actions --
 
@@ -2122,6 +2273,23 @@ class ControlPanel(QMainWindow):
 # Entry point
 # ===========================================================================
 
+def _configure_highdpi() -> None:
+    """Set Qt's HighDPI policy BEFORE QApplication is created.
+
+    PassThrough means we don't round 1.25× or 1.5× scale factors to
+    integers — fractional-DPI displays render crisply instead of
+    being snapped to 100% or 200%. Must be invoked before the very
+    first ``QApplication()`` call in the process, otherwise it has
+    no effect.
+    """
+    try:
+        QGuiApplication.setHighDpiScaleFactorRoundingPolicy(
+            Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("setHighDpiScaleFactorRoundingPolicy failed: %r", exc)
+
+
 def run(
     *,
     auto_start_core: bool = True,
@@ -2133,6 +2301,7 @@ def run(
     logger.info("PCE Control Panel launching")
     logger.info("=" * 60)
 
+    _configure_highdpi()
     app = QApplication.instance() or QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
 
