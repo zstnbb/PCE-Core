@@ -43,6 +43,27 @@ from pce_core.proxy_toggle.models import Platform
 
 logger = logging.getLogger("pce.system_state_guard")
 
+
+def _dedup_bypass(items) -> list:
+    """Remove duplicate bypass entries while preserving order.
+
+    Windows accumulates duplicate ``<local>`` tokens in ProxyOverride
+    when other tools (Clash etc.) write their own bypass list without
+    de-duping first. Without this filter, the list grows by one entry
+    on every PCE restart, which is harmless functionally but ugly
+    and inflates the registry value indefinitely.
+    """
+    if not items:
+        return []
+    seen = set()
+    out: list = []
+    for v in items:
+        if v in seen:
+            continue
+        seen.add(v)
+        out.append(v)
+    return out
+
 STATE_DIR: Path = Path.home() / ".pce" / "state"
 STATE_PATH: Path = STATE_DIR / "system_state.json"
 
@@ -139,17 +160,47 @@ class SystemStateGuard:
     def take_over_proxy(self, host: str, port: int) -> bool:
         """Snapshot current proxy state, then enable PCE's at ``host:port``.
 
+        Idempotent: if a snapshot already exists AND the proxy is
+        already pointed at ``host:port``, this is a no-op. That guard
+        is what stops a double-click on Start from doing a redundant
+        round-trip through the proxy_toggle code (which historically
+        appended ``<local>`` on every call on some Windows setups).
+
         Returns True if the proxy was successfully enabled (or was
-        already pointing at PCE), False on enable failure. Either way
-        a snapshot has been persisted so :meth:`restore` will be able
-        to undo whatever happened.
+        already pointing at PCE), False on enable failure.
         """
         with self._lock:
+            # Idempotency short-circuit
+            if (self._snapshot is not None
+                and self._snapshot.pce_owns_proxy):
+                # Check the OS still has our setting; if so, do nothing.
+                current = _safe_get_proxy_state(self._platform)
+                if (current
+                    and current.enabled
+                    and current.host == host
+                    and current.port == int(port)):
+                    logger.debug(
+                        "take_over_proxy: already owned at %s:%s — no-op",
+                        host, port,
+                    )
+                    return True
+                logger.info(
+                    "take_over_proxy: previously owned but OS state drifted "
+                    "(now %s:%s, want %s:%s) — re-applying",
+                    current.host if current else "?",
+                    current.port if current else "?",
+                    host, port,
+                )
+
             if self._snapshot is None:
                 current = _safe_get_proxy_state(self._platform)
+                proxy_dict = current.as_dict() if current else None
+                # Dedup bypass so we don't snowball ``<local>`` etc.
+                if proxy_dict and isinstance(proxy_dict.get("bypass"), list):
+                    proxy_dict["bypass"] = _dedup_bypass(proxy_dict["bypass"])
                 self._snapshot = SystemStateSnapshot(
                     snapshotted_at=time.time(),
-                    proxy=current.as_dict() if current else None,
+                    proxy=proxy_dict,
                     pce_owns_proxy=False,
                 )
                 self._persist_locked()
@@ -198,15 +249,15 @@ class SystemStateGuard:
             target = self._snapshot.proxy or {}
             try:
                 if target.get("enabled") and target.get("host") and target.get("port"):
+                    bypass = _dedup_bypass(target.get("bypass") or [])
                     enable_system_proxy(
                         host=str(target["host"]),
                         port=int(target["port"]),
-                        bypass=list(target.get("bypass") or []) or None,
+                        bypass=bypass or None,
                     )
                     logger.info(
                         "guard restore (%s): re-enabled proxy → %s:%s (bypass=%d)",
-                        reason, target["host"], target["port"],
-                        len(target.get("bypass") or []),
+                        reason, target["host"], target["port"], len(bypass),
                     )
                 else:
                     disable_system_proxy()
