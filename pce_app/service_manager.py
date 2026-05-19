@@ -49,8 +49,15 @@ def _run_core_process():
     uvicorn.run(app, host=INGEST_HOST, port=INGEST_PORT, log_level="info")
 
 
-def _run_proxy_process():
-    """Top-level target for the mitmproxy subprocess."""
+def _run_proxy_process(upstream_args: Optional[tuple[str, ...]] = None):
+    """Top-level target for the mitmproxy subprocess.
+
+    ``upstream_args`` is an optional ``("--mode", "upstream:http://...")``
+    pair produced by :func:`pce_core.network_env.upstream_arg_for_mitmproxy`.
+    When present, mitmproxy chains its outbound traffic through the
+    upstream proxy (typically a local Clash / V2Ray / Mihomo instance)
+    so VPN users don't have to choose between PCE and their VPN.
+    """
     from mitmproxy.tools.main import mitmdump
     from pce_core.config import PROXY_LISTEN_HOST, PROXY_LISTEN_PORT
 
@@ -66,6 +73,8 @@ def _run_proxy_process():
         "--set", "flow_detail=0",
         "-s", addon_path,
     ]
+    if upstream_args:
+        args.extend(upstream_args)
     mitmdump(args)
 
 
@@ -135,6 +144,13 @@ class ServiceManager:
             "multi_hook": ServiceInfo(name="Multi-Port Model Hook", port=0),
             "clipboard": ServiceInfo(name="Clipboard Monitor", port=0),
         }
+        # User-toggleable default for VPN upstream chaining. The Control
+        # Panel's NetworkEnvPanel writes to this; start_proxy() reads it
+        # when its own ``auto_chain`` kwarg is left as None.
+        self.auto_chain_proxy: bool = True
+        # When True (default), start_proxy() asks the SystemStateGuard
+        # to take over the host's system-proxy slot. Stop reverts.
+        self.manage_system_proxy: bool = True
         self._lock = threading.Lock()
         self._callbacks: list[Callable] = []
 
@@ -179,7 +195,19 @@ class ServiceManager:
         except ImportError:
             return False
 
-    def start_proxy(self):
+    def start_proxy(self, *, auto_chain: Optional[bool] = None):
+        """Start mitmproxy, optionally chained upstream into a local VPN.
+
+        When ``auto_chain`` is None (default), the choice falls back to
+        ``self.auto_chain_proxy``. When True the network environment
+        detector runs first; if a high-confidence upstream proxy (Clash,
+        V2Ray, Mihomo, …) is found, mitmproxy starts in ``upstream:``
+        mode pointing at it.
+
+        Also, when ``self.manage_system_proxy`` is True, the
+        :class:`SystemStateGuard` snapshots the user's current system-
+        proxy slot and takes it over — :meth:`stop_service` reverts.
+        """
         if not self.proxy_available():
             with self._lock:
                 svc = self.services["proxy"]
@@ -187,7 +215,40 @@ class ServiceManager:
                 svc.error = "mitmproxy not installed (pip install mitmproxy)"
             self._notify()
             return
-        self._start_service("proxy", _run_proxy_process)
+
+        upstream_args: tuple[str, ...] = ()
+        chain = self.auto_chain_proxy if auto_chain is None else auto_chain
+        if chain:
+            try:
+                from pce_core.network_env import detect, upstream_arg_for_mitmproxy
+                env = detect()
+                slice_ = upstream_arg_for_mitmproxy(env)
+                if slice_ is not None:
+                    upstream_args = tuple(slice_)
+                    logger.info(
+                        "auto-chaining mitmproxy upstream → %s",
+                        env.best_upstream.display if env.best_upstream else "?",
+                    )
+                elif env.recommended_action == "warn_conflict":
+                    logger.warning(
+                        "enterprise TLS-inspection CA detected (%s) — "
+                        "PCE MITM may conflict. Starting proxy WITHOUT chain.",
+                        ", ".join(env.foreign_root_cas),
+                    )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("network_env detect failed: %r — starting plain", exc)
+
+        self._start_service("proxy", _run_proxy_process, args=(upstream_args,))
+
+        # Take over the system proxy slot AFTER mitmproxy starts. If the
+        # caller disabled management (e.g. headless tests), skip.
+        if self.manage_system_proxy:
+            try:
+                from .system_state_guard import get_guard
+                from pce_core.config import PROXY_LISTEN_PORT
+                get_guard().take_over_proxy("127.0.0.1", PROXY_LISTEN_PORT)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("system proxy take-over failed: %r", exc)
 
     # -- Local Model Hook --
 
@@ -253,6 +314,15 @@ class ServiceManager:
 
         self._notify()
         logger.info("Stopped %s", svc.name)
+
+        # Hand the system proxy slot back to its prior owner. Safe to
+        # call when no take-over happened — the guard is idempotent.
+        if key == "proxy" and self.manage_system_proxy:
+            try:
+                from .system_state_guard import get_guard
+                get_guard().restore(reason="stop_service")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("system proxy restore failed: %r", exc)
 
     def stop_all(self):
         for key in list(self.services.keys()):
