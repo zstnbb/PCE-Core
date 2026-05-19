@@ -43,7 +43,7 @@ from PySide6.QtGui import (
     QAction, QBrush, QColor, QFont, QIcon, QPainter, QPen, QPixmap,
 )
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QFrame, QGridLayout, QHBoxLayout,
+    QApplication, QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout,
     QHeaderView, QLabel, QListWidget, QListWidgetItem, QMainWindow, QMenu,
     QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSpacerItem,
     QStackedWidget, QStatusBar, QSystemTrayIcon, QTableWidget,
@@ -108,9 +108,12 @@ SERVICE_COLOR = {
 ASSETS_DIR = Path.home() / ".pce" / "assets"
 LOGS_DIR   = Path.home() / ".pce" / "logs"
 LOG_PATH   = LOGS_DIR / "control_panel.log"
-# Version-stamped so a sound design change auto-supersedes cached WAV.
+# Per-preset WAVs are version-stamped so a sound design change
+# auto-supersedes cached files.
 DING_VERSION = 2
-DING_PATH  = ASSETS_DIR / f"ding_v{DING_VERSION}.wav"
+DEFAULT_PRESET = "chime"
+ACTIVE_PRESET_FILE = Path.home() / ".pce" / "state" / "sound_preset.txt"
+CUSTOM_WAV_PATH = ASSETS_DIR / "custom.wav"
 
 
 # ---------------------------------------------------------------------------
@@ -141,8 +144,269 @@ def _setup_file_logging() -> None:
 # Sound — generated WAV + layered Win/Mac/Linux fallback
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Sound preset registry
+# ---------------------------------------------------------------------------
+#
+# Each entry: key → (display_name, description, generator-or-None).
+# Generators take no args and return (samples: list[float], framerate: int).
+# A ``None`` generator means "load a user-provided WAV from disk" — the
+# CUSTOM slot below.
+#
+# Sound design principles shared across presets:
+#   - 44.1 kHz mono (full audible spectrum, no muffling)
+#   - Soft attack (no audible click on onset)
+#   - Exponential decay (natural, not the synthy linear cutoff)
+#   - Peak-normalised at write time for consistent loudness
+#
+# I will NOT add sound presets that synthesize sexually-suggestive vocal
+# audio (the "moaning" meme). Users who want such a sound supply their
+# own WAV via the Custom slot — that is the user's choice and outside
+# what this code generates.
+
+
+def _gen_chime():
+    """Default — E5→B5 ascending bell with 4 partials per note."""
+    framerate = 44100; duration_s = 0.95
+    n = int(framerate * duration_s)
+    notes = ((0.00, 659.25, 0.55), (0.13, 987.77, 0.70))
+    partial_weights = (1.00, 0.45, 0.22, 0.09)
+    base_tc = 0.22; attack_s = 0.006
+    samples = [0.0] * n
+    for start, freq, amp in notes:
+        si = int(framerate * start)
+        for i in range(si, n):
+            t = (i - si) / framerate
+            env_a = (t / attack_s) ** 0.5 if t < attack_s else 1.0
+            v = 0.0
+            for k, w in enumerate(partial_weights, start=1):
+                tc = base_tc / k
+                env = math.exp(-(t - attack_s) / tc) if t > attack_s else 1.0
+                v += w * env * math.sin(2 * math.pi * freq * k * t)
+            samples[i] += v * env_a * amp / sum(partial_weights)
+    return samples, framerate
+
+
+def _gen_coin():
+    """Mario-style 2-note pickup: B5 quick → E6 longer. Retro feel via 3rd-harmonic mix."""
+    framerate = 44100; duration_s = 0.32
+    n = int(framerate * duration_s)
+    notes = ((0.00, 987.77, 0.08, 0.45), (0.07, 1318.5, 0.22, 0.65))
+    samples = [0.0] * n
+    for start, freq, dur, amp in notes:
+        si = int(framerate * start); ei = min(n, si + int(framerate * dur))
+        for i in range(si, ei):
+            t = (i - si) / framerate
+            env = math.exp(-t / (dur * 0.55))
+            v = (math.sin(2*math.pi*freq*t) + 0.35 * math.sin(2*math.pi*freq*3*t)) * env * amp
+            samples[i] += v
+    return samples, framerate
+
+
+def _gen_pop():
+    """Short percussive tap — low-passed white noise + 400Hz body tone."""
+    import random
+    framerate = 44100; duration_s = 0.10
+    n = int(framerate * duration_s)
+    samples = []
+    rng = random.Random(42)  # deterministic → same bytes every regen
+    lp = 0.0
+    for i in range(n):
+        t = i / framerate
+        noise = (rng.random() - 0.5) * 2
+        lp = lp * 0.7 + noise * 0.3
+        env = math.exp(-t / 0.022)
+        body = math.sin(2 * math.pi * 380 * t) * env * 0.35
+        samples.append(lp * env * 0.65 + body)
+    return samples, framerate
+
+
+def _gen_bell():
+    """Single sustained bell — A5 with inharmonic partials (real bell math)."""
+    framerate = 44100; duration_s = 1.6
+    n = int(framerate * duration_s)
+    freq = 880.0
+    # Bells have INHARMONIC partials — that's why they sound metallic.
+    partials = ((1.00, 1.00), (2.00, 0.55), (2.76, 0.30),
+                (5.40, 0.15), (8.93, 0.08))
+    attack_s = 0.003; base_tc = 0.55
+    samples = []
+    norm = sum(a for _, a in partials)
+    for i in range(n):
+        t = i / framerate
+        env_a = (t / attack_s) ** 0.5 if t < attack_s else 1.0
+        v = 0.0
+        for ratio, amp in partials:
+            tc = base_tc / max(1.0, ratio ** 0.5)
+            env = math.exp(-(t - attack_s) / tc) if t > attack_s else 1.0
+            v += amp * env * math.sin(2 * math.pi * freq * ratio * t)
+        samples.append(v * env_a / norm)
+    return samples, framerate
+
+
+def _gen_beep():
+    """Retro PC-speaker beep — square wave with quick decay."""
+    framerate = 44100; duration_s = 0.18
+    n = int(framerate * duration_s); freq = 800.0
+    samples = []
+    for i in range(n):
+        t = i / framerate
+        v = 0.4 if math.sin(2 * math.pi * freq * t) > 0 else -0.4
+        v *= max(0, 1 - t / duration_s) ** 0.4
+        samples.append(v)
+    return samples, framerate
+
+
+def _gen_boop():
+    """Cartoon descending tone — 900Hz → 350Hz glide, ~250ms."""
+    framerate = 44100; duration_s = 0.30
+    n = int(framerate * duration_s)
+    f_start, f_end = 900.0, 350.0
+    samples = []; phase = 0.0
+    for i in range(n):
+        t = i / framerate
+        freq = f_start + (f_end - f_start) * (t / duration_s) ** 1.3
+        phase += 2 * math.pi * freq / framerate
+        env = math.exp(-t / 0.13)
+        v = math.sin(phase) * env * 0.55
+        samples.append(v)
+    return samples, framerate
+
+
+def _gen_slide():
+    """Slide whistle UP — cartoon ascending 350→1400Hz with vibrato tail."""
+    framerate = 44100; duration_s = 0.55
+    n = int(framerate * duration_s)
+    f_start, f_end = 350.0, 1400.0
+    samples = []; phase = 0.0
+    for i in range(n):
+        t = i / framerate
+        # Curved glide — slows near the top, like a real slide whistle
+        freq = f_start + (f_end - f_start) * (t / duration_s) ** 1.6
+        phase += 2 * math.pi * freq / framerate
+        # Slight vibrato on top half
+        vib = math.sin(2 * math.pi * 7 * t) * 0.008 if t > 0.25 else 0
+        env_in = min(1.0, t * 25)
+        env_out = max(0.0, 1.0 - max(0, t - 0.45) / 0.10)
+        v = math.sin(phase + vib) * env_in * env_out * 0.5
+        samples.append(v)
+    return samples, framerate
+
+
+def _gen_honk():
+    """Goose honk — fat 220Hz fundamental + odd harmonics + wide vibrato."""
+    framerate = 44100; duration_s = 0.42
+    n = int(framerate * duration_s); base = 220.0
+    samples = []
+    for i in range(n):
+        t = i / framerate
+        freq = base * (1 + math.sin(2 * math.pi * 8.5 * t) * 0.05)
+        v = (math.sin(2*math.pi*freq*t)
+             + 0.45 * math.sin(2*math.pi*freq*3*t)
+             + 0.15 * math.sin(2*math.pi*freq*5*t))
+        if t < 0.04:
+            env = (t / 0.04) ** 0.7
+        elif t > duration_s - 0.06:
+            env = max(0, (duration_s - t) / 0.06)
+        else:
+            env = 1.0
+        samples.append(v * env * 0.32)
+    return samples, framerate
+
+
+def _gen_error():
+    """Descending tritone B5→F5 — the iconic 'uh-oh' interval."""
+    framerate = 44100; duration_s = 0.6
+    n = int(framerate * duration_s)
+    notes = ((0.00, 987.77, 0.5), (0.20, 698.46, 0.5))
+    samples = [0.0] * n
+    for start, freq, amp in notes:
+        si = int(framerate * start)
+        for i in range(si, n):
+            t = (i - si) / framerate
+            env = math.exp(-t / 0.18)
+            attack = min(1.0, t / 0.005)
+            samples[i] += math.sin(2 * math.pi * freq * t) * env * attack * amp
+    return samples, framerate
+
+
+#: Registry of synthesized + user-supplied sound presets.
+#: ``generator=None`` marks a slot that loads a user-provided file.
+SOUND_PRESETS: dict = {
+    "chime":  ("Chime",  "Two-note rising bell (E5→B5). Default — clean, calm.", _gen_chime),
+    "coin":   ("Coin",   "Retro game pickup, 8-bit-ish two notes.",              _gen_coin),
+    "pop":    ("Pop",    "Quick percussive tap, ~100ms — minimal.",              _gen_pop),
+    "bell":   ("Bell",   "Single sustained bell, inharmonic partials.",          _gen_bell),
+    "beep":   ("Beep",   "Retro PC-speaker square wave.",                        _gen_beep),
+    "boop":   ("Boop",   "Descending soft cartoon tone, 900→350 Hz.",            _gen_boop),
+    "slide":  ("Slide",  "Slide whistle ascending — cartoon style.",             _gen_slide),
+    "honk":   ("Honk",   "Goose honk — for the chaos.",                          _gen_honk),
+    "error":  ("Error",  "Descending tritone — the 'uh-oh' sound.",              _gen_error),
+    "custom": ("Custom", f"Plays whatever you drop at ~/.pce/assets/custom.wav", None),
+}
+
+
+def get_active_preset() -> str:
+    try:
+        text = ACTIVE_PRESET_FILE.read_text(encoding="utf-8").strip()
+    except (OSError, FileNotFoundError):
+        return DEFAULT_PRESET
+    return text if text in SOUND_PRESETS else DEFAULT_PRESET
+
+
+def set_active_preset(name: str) -> None:
+    if name not in SOUND_PRESETS:
+        raise ValueError(f"unknown preset: {name!r}")
+    ACTIVE_PRESET_FILE.parent.mkdir(parents=True, exist_ok=True)
+    ACTIVE_PRESET_FILE.write_text(name, encoding="utf-8")
+    logger.info("active sound preset → %s", name)
+
+
+def _write_wav(path: Path, samples: list, framerate: int) -> None:
+    """Peak-normalise + write 16-bit mono WAV. Idempotent."""
+    peak = max(abs(s) for s in samples) or 1.0
+    gain = 0.85 / peak
+    n = len(samples)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(path), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(framerate)
+        wf.writeframes(struct.pack(
+            f"<{n}h",
+            *(max(-32768, min(32767, int(s * gain * 32767))) for s in samples),
+        ))
+
+
+def _ensure_preset_wav(name: str) -> Path:
+    """Return the WAV path for ``name``, generating if missing.
+
+    For the Custom slot, returns ``CUSTOM_WAV_PATH`` if it exists; raises
+    ``FileNotFoundError`` otherwise so callers can fall back gracefully.
+    """
+    if name not in SOUND_PRESETS:
+        raise ValueError(f"unknown preset: {name!r}")
+    if name == "custom":
+        if not CUSTOM_WAV_PATH.is_file():
+            raise FileNotFoundError(
+                f"Custom WAV not found. Drop any .wav at {CUSTOM_WAV_PATH}."
+            )
+        return CUSTOM_WAV_PATH
+    out = ASSETS_DIR / f"{name}_v{DING_VERSION}.wav"
+    if out.is_file() and out.stat().st_size > 1_000:
+        return out
+    _, _, gen = SOUND_PRESETS[name]
+    samples, framerate = gen()
+    _write_wav(out, samples, framerate)
+    logger.info("preset %r generated: %s (%d bytes)",
+                name, out, out.stat().st_size)
+    return out
+
+
 def _ensure_ding_wav() -> Path:
-    """Synthesise an Apple-style notification chime into ``DING_PATH``.
+    """Backwards-compat shim — generates the default chime preset.
+
+    Apple-style two-note ascending bell.
 
     Sound design (inspired by macOS Glass / iOS notification family):
 
@@ -161,102 +425,49 @@ def _ensure_ding_wav() -> Path:
 
     Result is ~75 kB, ~900 ms long, sounds like a gentle two-note bell.
     """
-    # Cache check uses the versioned filename so a code change to the
-    # sound design auto-busts any older cached file on disk.
-    if DING_PATH.is_file() and DING_PATH.stat().st_size > 40_000:
-        return DING_PATH
-    ASSETS_DIR.mkdir(parents=True, exist_ok=True)
-
-    framerate = 44100
-    duration_s = 0.95
-    n = int(framerate * duration_s)
-
-    # Two-note arpeggio. (start_time_s, fundamental_hz, gain).
-    # E5 → B5 is a clean ascending perfect fifth. Tweak gains so the
-    # second note slightly outshines the first (matches iOS "Tri-tone"
-    # pattern where the last beat is loudest).
-    notes = (
-        (0.00, 659.25, 0.55),   # E5
-        (0.13, 987.77, 0.70),   # B5
-    )
-
-    # Harmonic partials per note: weights for f, 2f, 3f, 4f.
-    # Higher partials decay faster than the fundamental — captured by
-    # the per-partial time-constant scaling.
-    partial_weights = (1.00, 0.45, 0.22, 0.09)
-    base_decay_tc = 0.22
-    attack_s = 0.006
-
-    samples = [0.0] * n
-
-    for note_start, freq, note_amp in notes:
-        start_i = int(framerate * note_start)
-        for i in range(start_i, n):
-            t = (i - start_i) / framerate
-            # √-curve soft attack — gentler than linear, no click.
-            if t < attack_s:
-                env_attack = (t / attack_s) ** 0.5
-            else:
-                env_attack = 1.0
-
-            val = 0.0
-            for k, w in enumerate(partial_weights, start=1):
-                # Higher partials decay faster (3rd has τ/3, etc.) →
-                # bell-like spectrum that thins out over time, not a
-                # synthy buzz that stays constant.
-                tc = base_decay_tc / k
-                env = math.exp(-(t - attack_s) / tc) if t > attack_s else 1.0
-                val += w * env * math.sin(2 * math.pi * freq * k * t)
-
-            val *= env_attack * note_amp / sum(partial_weights)
-            samples[i] += val
-
-    # Peak-normalise so the WAV is consistently loud regardless of
-    # how many notes / partials are summed at any sample.
-    peak = max(abs(s) for s in samples) or 1.0
-    gain = 0.85 / peak
-
-    with wave.open(str(DING_PATH), "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(framerate)
-        wf.writeframes(struct.pack(
-            f"<{n}h",
-            *(max(-32768, min(32767, int(s * gain * 32767))) for s in samples),
-        ))
-    logger.info("ding wav generated: %s (%d bytes, v%d)",
-                DING_PATH, DING_PATH.stat().st_size, DING_VERSION)
-    return DING_PATH
+    return _ensure_preset_wav(DEFAULT_PRESET)
 
 
-def play_ding() -> bool:
-    """Best-effort short bell. Logs WHICH backend fired so we can debug.
+def play_ding(preset: Optional[str] = None) -> bool:
+    """Play a sound preset. ``preset=None`` uses the active preset.
 
     Returns True if a sound API call succeeded (the speaker still has
     to be unmuted at the OS level for the user to actually hear it).
+
+    Falls back gracefully:
+      - unknown / missing preset → default chime
+      - WAV play failure → direct tone (Win Beep / system bell)
     """
-    if sys.platform.startswith("win"):
-        # 1) Generated WAV — most reliable, bypasses system event sounds.
+    name = preset or get_active_preset()
+    try:
+        wav = _ensure_preset_wav(name)
+    except (ValueError, FileNotFoundError) as exc:
+        logger.warning("preset %r unavailable (%s) — using default", name, exc)
         try:
-            wav = _ensure_ding_wav()
-            import winsound
-            winsound.PlaySound(
-                str(wav),
-                winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT,
-            )
-            logger.debug("ding: PlaySound(WAV)")
-            return True
-        except Exception as exc:
-            logger.warning("ding WAV path failed: %r", exc)
-        # 2) Direct tone fallback — works even if PlaySound is misbehaving.
+            wav = _ensure_preset_wav(DEFAULT_PRESET)
+        except Exception as exc2:
+            logger.error("default preset also failed: %r", exc2)
+            wav = None
+
+    if sys.platform.startswith("win"):
+        if wav is not None:
+            try:
+                import winsound
+                winsound.PlaySound(
+                    str(wav),
+                    winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT,
+                )
+                logger.debug("ding: PlaySound(%s)", wav.name)
+                return True
+            except Exception as exc:
+                logger.warning("ding WAV path failed: %r", exc)
         try:
             import winsound
             winsound.Beep(880, 180)
-            logger.debug("ding: Beep tone")
+            logger.debug("ding: Beep tone fallback")
             return True
         except Exception as exc:
             logger.warning("ding Beep failed: %r", exc)
-        # 3) Last resort: SystemAsterisk alias.
         try:
             import winsound
             winsound.PlaySound(
@@ -271,6 +482,13 @@ def play_ding() -> bool:
 
     if sys.platform == "darwin":
         import subprocess
+        if wav is not None:
+            subprocess.Popen(
+                ["afplay", str(wav)],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            logger.debug("ding: afplay %s", wav.name)
+            return True
         for sound in ("Tink", "Glass", "Pop", "Funk"):
             path = Path(f"/System/Library/Sounds/{sound}.aiff")
             if path.is_file():
@@ -278,12 +496,19 @@ def play_ding() -> bool:
                     ["afplay", str(path)],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 )
-                logger.debug("ding: afplay %s", sound)
+                logger.debug("ding: afplay (system) %s", sound)
                 return True
         return False
 
     # Linux
     import shutil, subprocess
+    if wav is not None and shutil.which("paplay"):
+        subprocess.Popen(
+            ["paplay", str(wav)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        logger.debug("ding: paplay %s", wav.name)
+        return True
     for prog, arg in (
         ("paplay", "/usr/share/sounds/freedesktop/stereo/message.oga"),
         ("aplay", "/usr/share/sounds/alsa/Front_Center.wav"),
@@ -293,7 +518,7 @@ def play_ding() -> bool:
                 [prog, arg],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
-            logger.debug("ding: %s", prog)
+            logger.debug("ding: %s (system)", prog)
             return True
     try:
         sys.stdout.write("\a"); sys.stdout.flush()
@@ -829,6 +1054,169 @@ class LiveActivityList(QWidget):
 
 
 # ---------------------------------------------------------------------------
+# Sound preset picker (dropdown + preview + custom slot opener)
+# ---------------------------------------------------------------------------
+
+class SoundCard(Card):
+    """User-facing sound chooser.
+
+    Dropdown of every entry in :data:`SOUND_PRESETS` + a Preview button
+    that plays the *currently selected* preset (not necessarily the
+    saved active one — so you can audition before committing). Changes
+    are persisted immediately via :func:`set_active_preset`.
+
+    The Custom slot reveals where to drop a user-provided WAV; clicking
+    "Open assets folder" opens it in the OS file manager so the user
+    can paste any .wav they want named ``custom.wav``.
+    """
+
+    mute_toggled = Signal(bool)
+    preset_changed = Signal(str)
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(
+            "Sound",
+            subtitle="Pick a notification preset, or drop your own "
+                     "custom.wav into the assets folder.",
+            parent=parent,
+        )
+
+        # Row 1: dropdown + preview + open assets + mute
+        row = QHBoxLayout()
+        row.setSpacing(8)
+
+        row.addWidget(QLabel("Preset:"))
+
+        self._combo = QComboBox()
+        self._combo.setMinimumWidth(170)
+        for key, (display, _desc, _gen) in SOUND_PRESETS.items():
+            self._combo.addItem(display, key)
+        # Restore active preset
+        active = get_active_preset()
+        for i in range(self._combo.count()):
+            if self._combo.itemData(i) == active:
+                self._combo.setCurrentIndex(i)
+                break
+        self._combo.currentIndexChanged.connect(self._on_preset_changed)
+        row.addWidget(self._combo)
+
+        self._preview_btn = QPushButton("▶  Preview")
+        self._preview_btn.setToolTip("Play the selected preset right now.")
+        self._preview_btn.clicked.connect(self._preview)
+        row.addWidget(self._preview_btn)
+
+        self._open_btn = QPushButton("📁  Open assets folder")
+        self._open_btn.setToolTip(
+            f"Open {ASSETS_DIR} in your file manager — drop any .wav "
+            f"as 'custom.wav' to use it via the Custom preset."
+        )
+        self._open_btn.clicked.connect(self._open_assets)
+        row.addWidget(self._open_btn)
+
+        row.addStretch()
+
+        self._mute = QCheckBox("🔔  Ding on capture")
+        self._mute.setChecked(True)
+        self._mute.setToolTip(
+            "When checked, the selected preset plays for every new capture."
+        )
+        self._mute.stateChanged.connect(
+            lambda s: self.mute_toggled.emit(not bool(s))
+        )
+        row.addWidget(self._mute)
+
+        self.body_layout().addLayout(row)
+
+        # Row 2: description for the selected preset
+        self._desc = QLabel("")
+        self._desc.setStyleSheet(f"color: {INK_DIM}; font-size: 12px;")
+        self._desc.setWordWrap(True)
+        self.body_layout().addWidget(self._desc)
+
+        # Row 3: status line (last preview / custom slot state)
+        self._status = QLabel("")
+        self._status.setStyleSheet(f"color: {INK_DIM}; font-size: 11px;")
+        self.body_layout().addWidget(self._status)
+
+        self._refresh_for(active)
+
+    # -- public --
+
+    def selected_preset(self) -> str:
+        return self._combo.currentData() or DEFAULT_PRESET
+
+    # -- handlers --
+
+    def _on_preset_changed(self, _idx: int) -> None:
+        name = self.selected_preset()
+        try:
+            set_active_preset(name)
+        except ValueError:
+            return
+        self._refresh_for(name)
+        self.preset_changed.emit(name)
+
+    def _preview(self) -> None:
+        name = self.selected_preset()
+        ok = play_ding(name)
+        ts = time.strftime("%H:%M:%S")
+        if ok:
+            self._status.setText(f"previewed {name!r} at {ts}  ✓")
+            self._status.setStyleSheet(f"color: #15803d; font-size: 11px;")
+        else:
+            self._status.setText(
+                f"preview of {name!r} failed — see ~/.pce/logs/control_panel.log"
+            )
+            self._status.setStyleSheet(f"color: #b91c1c; font-size: 11px;")
+
+    def _open_assets(self) -> None:
+        import os, subprocess as sp
+        ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+        try:
+            if sys.platform == "win32":
+                os.startfile(str(ASSETS_DIR))  # type: ignore[attr-defined]
+            elif sys.platform == "darwin":
+                sp.Popen(["open", str(ASSETS_DIR)])
+            else:
+                sp.Popen(["xdg-open", str(ASSETS_DIR)])
+            logger.info("opened assets folder: %s", ASSETS_DIR)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("open assets folder failed: %r", exc)
+            QMessageBox.information(
+                self, "Assets folder",
+                f"Open this folder manually:\n\n{ASSETS_DIR}",
+            )
+
+    def _refresh_for(self, name: str) -> None:
+        entry = SOUND_PRESETS.get(name)
+        if entry is None:
+            return
+        display, desc, gen = entry
+        self._desc.setText(desc)
+        if name == "custom":
+            if CUSTOM_WAV_PATH.is_file():
+                size_kb = CUSTOM_WAV_PATH.stat().st_size / 1024
+                self._status.setText(
+                    f"custom.wav found ({size_kb:.1f} KB) — will play on capture"
+                )
+                self._status.setStyleSheet(f"color: #15803d; font-size: 11px;")
+            else:
+                self._status.setText(
+                    f"custom.wav NOT FOUND at {CUSTOM_WAV_PATH} — falls back "
+                    f"to default chime until you drop a file"
+                )
+                self._status.setStyleSheet(f"color: #b45309; font-size: 11px;")
+        else:
+            self._status.setText("")
+
+    def set_muted(self, muted: bool) -> None:
+        # Reflect external mute changes (e.g., tray menu in the future).
+        self._mute.blockSignals(True)
+        self._mute.setChecked(not muted)
+        self._mute.blockSignals(False)
+
+
+# ---------------------------------------------------------------------------
 # Page: Overview
 # ---------------------------------------------------------------------------
 
@@ -879,8 +1267,8 @@ class OverviewPage(QWidget):
         self._btn_stop.clicked.connect(self.stop_capturing_requested.emit)
         self._btn_test = QPushButton("🔊  Test Ding")
         self._btn_test.setToolTip(
-            "Play the capture sound right now to confirm your speakers "
-            "are unmuted. Independent of any actual capture."
+            "Play the active sound preset right now to confirm your "
+            "speakers are unmuted."
         )
         self._btn_test.clicked.connect(self.test_ding_requested.emit)
         self._btn_dashboard = QPushButton("Open Dashboard")
@@ -890,24 +1278,17 @@ class OverviewPage(QWidget):
         ar.addStretch()
         actions.body_layout().addLayout(ar)
 
-        mute_row = QHBoxLayout()
-        self._mute = QCheckBox("🔔  Ding when a new capture arrives")
-        self._mute.setChecked(True)
-        self._mute.setToolTip(
-            "When ON, a short bell plays every time the capture count "
-            "increases. Sound file: ~/.pce/assets/ding.wav"
-        )
-        self._mute.stateChanged.connect(
-            lambda s: self.mute_toggled.emit(not bool(s))
-        )
-        mute_row.addWidget(self._mute)
-        mute_row.addStretch()
+        # Status line for last-ding reports (used by ControlPanel.report_ding).
         self._sound_status = QLabel("")
         self._sound_status.setStyleSheet(f"color: {INK_DIM}; font-size: 11px;")
-        mute_row.addWidget(self._sound_status)
-        actions.body_layout().addLayout(mute_row)
+        actions.body_layout().addWidget(self._sound_status)
 
         root.addWidget(actions)
+
+        # -- Sound preset picker --
+        self.sound = SoundCard()
+        self.sound.mute_toggled.connect(self.mute_toggled.emit)
+        root.addWidget(self.sound)
 
         # -- Live activity --
         live = Card(
@@ -1637,8 +2018,8 @@ class ControlPanel(QMainWindow):
         # Window chrome
         self.setWindowTitle("PCE Control Panel")
         self.setWindowIcon(render_app_icon(ACCENT))
-        self.resize(1180, 800)
-        self.setMinimumSize(960, 640)
+        self.resize(1180, 880)
+        self.setMinimumSize(960, 720)
         self.setStyleSheet(_build_stylesheet())
 
         # Central: sidebar | pages
