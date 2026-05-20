@@ -66,8 +66,196 @@ def _dedup_bypass(items) -> list:
 
 STATE_DIR: Path = Path.home() / ".pce" / "state"
 STATE_PATH: Path = STATE_DIR / "system_state.json"
+EMERGENCY_PS1_PATH: Path = STATE_DIR / "EMERGENCY_RESTORE.ps1"
+EMERGENCY_CMD_PATH: Path = STATE_DIR / "EMERGENCY_RESTORE.cmd"
+EMERGENCY_PY_PATH: Path = STATE_DIR / "EMERGENCY_RESTORE.py"
 
 SNAPSHOT_SCHEMA_VERSION = 1
+
+
+# ---------------------------------------------------------------------------
+# Emergency restore scripts — written next to the snapshot whenever PCE
+# takes over the system proxy. The scripts are PURE WINDOWS / PURE STDLIB
+# so they can recover the user's machine even if:
+#   - the PCE Python environment is uninstalled
+#   - the PCE source tree is deleted
+#   - the user has never opened PCE again
+#
+# The user can find them in File Explorer at ~/.pce/state/ and double-
+# click the .cmd to restore. The Desktop also has an "Emergency Restore"
+# shortcut pointing at the .cmd.
+# ---------------------------------------------------------------------------
+
+# Embedded scripts — kept inline rather than read from disk so even a
+# partial PCE install can deploy them. Single source of truth: must
+# stay in sync with scripts/pce_restore.{ps1,py,cmd} (see those files
+# for the canonical versions).
+
+# NB: deliberately ASCII-only — CMD on legacy code pages doesn't tolerate
+# em-dashes or other Unicode in batch files.
+_EMERGENCY_CMD = (
+    "@echo off\r\n"
+    "REM PCE Emergency Restore - auto-deployed by SystemStateGuard.\r\n"
+    "REM Double-click to restore the system proxy to the pre-PCE state.\r\n"
+    "cd /d \"%~dp0\"\r\n"
+    "powershell.exe -NoProfile -ExecutionPolicy Bypass "
+    "-File \"%~dp0EMERGENCY_RESTORE.ps1\" %*\r\n"
+    "echo.\r\n"
+    "echo Press any key to close...\r\n"
+    "pause >nul\r\n"
+)
+
+_EMERGENCY_PS1 = r"""# Auto-deployed by PCE SystemStateGuard. Pure PowerShell.
+# Restores Windows system proxy to the snapshot at system_state.json.
+param([switch]$Disable, [switch]$Show)
+$ErrorActionPreference = 'Continue'
+$StateFile = "$PSScriptRoot\system_state.json"
+$Key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
+
+$winInetSig = @'
+[DllImport("wininet.dll", SetLastError = true, CharSet = CharSet.Auto)]
+public static extern bool InternetSetOption(
+    IntPtr hInternet, int dwOption, IntPtr lpBuffer, int dwBufferLength);
+'@
+function Invoke-WinINetRefresh {
+    try {
+        $t = Add-Type -MemberDefinition $winInetSig `
+                      -Name 'PCEWinINet' -Namespace 'PCE' -PassThru
+        [void]$t::InternetSetOption([IntPtr]::Zero, 39, [IntPtr]::Zero, 0)
+        [void]$t::InternetSetOption([IntPtr]::Zero, 37, [IntPtr]::Zero, 0)
+    } catch {}
+}
+function Show-Current {
+    Write-Host "Snapshot   : $StateFile"
+    if (Test-Path $StateFile) { Write-Host '             EXISTS' }
+    else { Write-Host '             (absent)' }
+    try { $ie = Get-ItemProperty -Path $Key -ErrorAction Stop } catch { return }
+    Write-Host "ProxyEnable   : $($ie.ProxyEnable)"
+    Write-Host "ProxyServer   : $($ie.ProxyServer)"
+    Write-Host "ProxyOverride : $($ie.ProxyOverride)"
+}
+function Disable-Proxy {
+    Set-ItemProperty -Path $Key -Name 'ProxyEnable' -Value 0
+    Invoke-WinINetRefresh
+    Write-Host '[OK] System proxy disabled.'
+}
+function Enable-Proxy { param([string]$H, [int]$P, [string[]]$B)
+    $seen = @{}; $kept = @()
+    foreach ($x in $B) { if (-not $seen.ContainsKey($x)) { $seen[$x]=1; $kept+=$x } }
+    Set-ItemProperty -Path $Key -Name 'ProxyEnable' -Value 1
+    Set-ItemProperty -Path $Key -Name 'ProxyServer' -Value "$($H):$P"
+    if ($kept.Count -gt 0) {
+        Set-ItemProperty -Path $Key -Name 'ProxyOverride' -Value ($kept -join ';')
+    }
+    Invoke-WinINetRefresh
+    Write-Host "[OK] System proxy restored to $($H):$P"
+}
+
+Write-Host '============================================================'
+Write-Host 'PCE Emergency Restore  (auto-deployed)'
+Write-Host '============================================================'
+Write-Host ''
+
+if ($Show) { Show-Current; exit 0 }
+if ($Disable) { Disable-Proxy; exit 0 }
+
+if (Test-Path $StateFile) {
+    Write-Host "Reading snapshot: $StateFile"
+    try { $snap = Get-Content $StateFile -Raw | ConvertFrom-Json } catch {
+        Write-Host "WARNING: snapshot unreadable: $_"
+        Disable-Proxy
+        Remove-Item $StateFile -Force -ErrorAction SilentlyContinue
+        exit 0
+    }
+    $p = $snap.proxy
+    if ($p -and $p.enabled -and $p.host -and $p.port) {
+        Write-Host "Restoring: $($p.host):$($p.port)"
+        $bp = @(); if ($p.bypass) { $bp = @($p.bypass) }
+        Enable-Proxy -H $p.host -P $p.port -B $bp
+    } else {
+        Write-Host 'Snapshot says proxy was OFF — disabling.'
+        Disable-Proxy
+    }
+    Remove-Item $StateFile -Force -ErrorAction SilentlyContinue
+    Write-Host 'Snapshot deleted.'
+    exit 0
+}
+
+Write-Host 'No snapshot. Inspecting current state...'
+try {
+    $ie = Get-ItemProperty -Path $Key -ErrorAction Stop
+    if ($ie.ProxyEnable -eq 1 -and ($ie.ProxyServer -match '127\.0\.0\.1:8080' -or
+                                     $ie.ProxyServer -match 'localhost:8080')) {
+        Write-Host "  ! Orphaned PCE proxy: $($ie.ProxyServer)"
+        Write-Host '    Disabling.'
+        Disable-Proxy
+    } else {
+        Write-Host "  Current: '$($ie.ProxyServer)' (enabled=$($ie.ProxyEnable))"
+        Write-Host '  Not a PCE setting — leaving alone.'
+    }
+} catch { Write-Host "Could not read: $_" }
+exit 0
+"""
+
+_EMERGENCY_PY_HEADER = (
+    "# Auto-deployed by PCE SystemStateGuard. Stdlib-only.\n"
+    "# If PowerShell is unavailable, run:  python EMERGENCY_RESTORE.py\n"
+    "# Canonical source: scripts/pce_restore.py in the PCE repo.\n\n"
+)
+
+
+def _deploy_emergency_scripts() -> None:
+    """Write the emergency restore scripts next to the snapshot.
+
+    Idempotent (overwrites whatever's there). Best-effort — each script
+    is written under its own try/except so one failing doesn't block
+    the others. Losing a convenience script is always preferable to
+    crashing during take-over.
+    """
+    try:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("could not create state dir %s: %r", STATE_DIR, exc)
+        return
+
+    deployed = []
+    try:
+        EMERGENCY_PS1_PATH.write_text(_EMERGENCY_PS1, encoding="utf-8")
+        deployed.append("ps1")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("ps1 deploy failed: %r", exc)
+
+    try:
+        EMERGENCY_CMD_PATH.write_bytes(_EMERGENCY_CMD.encode("ascii"))
+        deployed.append("cmd")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("cmd deploy failed: %r", exc)
+
+    try:
+        here = Path(__file__).resolve().parent.parent / "scripts" / "pce_restore.py"
+        if here.is_file():
+            EMERGENCY_PY_PATH.write_text(
+                _EMERGENCY_PY_HEADER + here.read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            deployed.append("py")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("py deploy failed: %r", exc)
+
+    logger.info("deployed emergency scripts to %s: %s", STATE_DIR, deployed)
+
+
+def _cleanup_emergency_scripts() -> None:
+    """Remove emergency scripts when PCE shuts down cleanly.
+
+    Their whole point is being available if PCE *doesn't* shut down
+    cleanly, so when it does, take them off the user's disk so they
+    don't accumulate."""
+    for path in (EMERGENCY_PS1_PATH, EMERGENCY_CMD_PATH, EMERGENCY_PY_PATH):
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 @dataclass
@@ -301,12 +489,19 @@ class SystemStateGuard:
             self._snapshot.to_path(self._path)
         except OSError as exc:
             logger.warning("could not persist snapshot to %s: %r", self._path, exc)
+        # Deploy emergency scripts so a force-killed PCE can be recovered
+        # from outside the panel — by double-clicking the .cmd in
+        # File Explorer or via the Desktop "Emergency Restore" shortcut.
+        if self._snapshot.pce_owns_proxy:
+            _deploy_emergency_scripts()
 
     def _delete_locked(self) -> None:
         try:
             self._path.unlink(missing_ok=True)
         except OSError as exc:
             logger.warning("could not delete snapshot %s: %r", self._path, exc)
+        # Snapshot gone → emergency scripts no longer needed.
+        _cleanup_emergency_scripts()
 
     def _atexit_callback(self) -> None:
         # atexit runs after threads stop — keep this dead simple.

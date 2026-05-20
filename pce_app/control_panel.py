@@ -1803,6 +1803,7 @@ class PCETrayIcon(QSystemTrayIcon):
     quit_requested = Signal()
     start_all_requested = Signal()
     stop_all_requested = Signal()
+    emergency_restore_requested = Signal()
 
     def __init__(self, parent: Optional[QObject] = None):
         super().__init__(parent)
@@ -1828,6 +1829,15 @@ class PCETrayIcon(QSystemTrayIcon):
         act_quit = QAction("Quit PCE (restores system state)", menu)
         act_quit.triggered.connect(self.quit_requested)
         menu.addAction(act_quit)
+        menu.addSeparator()
+        act_emergency = QAction("⚠  Emergency: Restore Proxy && Quit", menu)
+        act_emergency.setToolTip(
+            "Forcibly restore the system proxy NOW and exit. "
+            "Use if PCE is hung or misbehaving and other apps can't "
+            "reach the network."
+        )
+        act_emergency.triggered.connect(self.emergency_restore_requested)
+        menu.addAction(act_emergency)
         self.setContextMenu(menu)
         self.activated.connect(self._on_activated)
 
@@ -1939,6 +1949,7 @@ class ControlPanel(QMainWindow):
         self.tray.quit_requested.connect(self._real_quit)
         self.tray.start_all_requested.connect(self._start_all)
         self.tray.stop_all_requested.connect(manager.stop_all)
+        self.tray.emergency_restore_requested.connect(self._emergency_restore)
         self.tray.show()
 
         # Health dialog (lazy)
@@ -2256,6 +2267,41 @@ class ControlPanel(QMainWindow):
     def _real_quit(self) -> None:
         self._force_quit = True
         self._teardown()
+        QApplication.quit()
+
+    def _emergency_restore(self) -> None:
+        """Last-resort kill switch from the tray menu.
+
+        Forcibly restore the system proxy regardless of internal state,
+        then exit. Useful when the panel is responsive but services
+        appear stuck — clicking this guarantees the host is returned to
+        its pre-PCE state.
+        """
+        logger.warning("emergency restore triggered from tray")
+        # Show a brief confirmation balloon so the user knows it ran.
+        self.tray.showMessage(
+            "PCE Emergency Restore",
+            "Restoring system proxy and exiting…",
+            QSystemTrayIcon.Warning, 3000,
+        )
+        # Force-stop everything, then force-restore.
+        self._force_quit = True
+        try:
+            self._manager.stop_all()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("emergency: stop_all failed: %r", exc)
+        try:
+            self._guard.restore(reason="emergency_tray")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("emergency: guard.restore failed: %r", exc)
+        # Last-ditch: even if guard.restore failed, try to forcibly
+        # disable the system proxy so the host network works.
+        try:
+            from pce_core.proxy_toggle import disable_system_proxy
+            disable_system_proxy()
+            logger.info("emergency: disable_system_proxy as final safety net")
+        except Exception as exc:  # noqa: BLE001
+            logger.error("emergency: final-net disable also failed: %r", exc)
         QApplication.quit()
 
     def _teardown(self) -> None:
