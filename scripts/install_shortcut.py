@@ -29,9 +29,12 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ENTRYPOINT = REPO_ROOT / "pce.py"
+RESTORE_SCRIPT = REPO_ROOT / "scripts" / "pce_restore.cmd"
 ICON_DIR = Path.home() / ".pce" / "assets"
 ICON_PATH = ICON_DIR / "pce.ico"
+RESTORE_ICON_PATH = ICON_DIR / "pce_restore.ico"
 SHORTCUT_NAME = "PCE Control Panel.lnk"
+RESTORE_SHORTCUT_NAME = "PCE Emergency Restore.lnk"
 
 
 # ---------------------------------------------------------------------------
@@ -80,6 +83,39 @@ def find_desktop_dir() -> Path:
 # ---------------------------------------------------------------------------
 # Icon
 # ---------------------------------------------------------------------------
+
+def render_emergency_icon(out_path: Path) -> Path:
+    """Generate a red ⚠ tile for the emergency-restore shortcut."""
+    from PIL import Image, ImageDraw, ImageFont
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    size = 256
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    radius = max(2, size // 8)
+    # Apple system red — same hex used by the panel's status palette.
+    draw.rounded_rectangle(
+        [0, 0, size - 1, size - 1], radius=radius, fill="#FF3B30",
+    )
+    try:
+        font = ImageFont.truetype("seguisym.ttf", int(size * 0.55))
+    except (OSError, IOError):
+        try:
+            font = ImageFont.truetype("arialbd.ttf", int(size * 0.55))
+        except (OSError, IOError):
+            font = ImageFont.load_default()
+    # An exclamation mark — reads as warning at any size, no symbol
+    # font shenanigans.
+    txt = "!"
+    bbox = draw.textbbox((0, 0), txt, font=font)
+    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    x = (size - tw) // 2 - bbox[0]
+    y = (size - th) // 2 - bbox[1]
+    draw.text((x, y), txt, fill="white", font=font)
+    img.save(out_path, format="ICO",
+             sizes=[(16, 16), (32, 32), (48, 48), (64, 64),
+                    (128, 128), (256, 256)])
+    return out_path
+
 
 def render_pce_icon(out_path: Path) -> Path:
     """Generate a multi-resolution .ico matching the in-app P tile.
@@ -136,8 +172,16 @@ def find_interpreter() -> Path:
 # ---------------------------------------------------------------------------
 
 def install_windows_shortcut(target: Path, args: str, workdir: Path,
-                             icon: Path, link_path: Path) -> None:
+                             icon: Path, link_path: Path,
+                             description: str = "") -> None:
     """Create a .lnk via PowerShell's WScript.Shell COM object."""
+    if not description:
+        description = (
+            "PCE Control Panel - start/stop services, "
+            "watch capture lanes, manage VPN adaptation."
+        )
+    # Escape single quotes in description for the inline PS string.
+    desc_escaped = description.replace("'", "''")
     ps_script = (
         "$s = New-Object -ComObject WScript.Shell;\n"
         f"$lnk = $s.CreateShortcut('{link_path}');\n"
@@ -145,8 +189,7 @@ def install_windows_shortcut(target: Path, args: str, workdir: Path,
         f"$lnk.Arguments = '{args}';\n"
         f"$lnk.WorkingDirectory = '{workdir}';\n"
         f"$lnk.IconLocation = '{icon}';\n"
-        "$lnk.Description = 'PCE Control Panel — start/stop services, "
-        "watch capture lanes, manage VPN adaptation.';\n"
+        f"$lnk.Description = '{desc_escaped}';\n"
         "$lnk.Save();\n"
         "Write-Host 'OK';\n"
     )
@@ -191,7 +234,7 @@ def install() -> Path:
             "Are you running this from the repo root?"
         )
 
-    print(f"[1/4] Rendering icon → {ICON_PATH}")
+    print(f"[1/5] Rendering icons → {ICON_DIR}")
     try:
         render_pce_icon(ICON_PATH)
     except ImportError:
@@ -199,18 +242,27 @@ def install() -> Path:
             "      ! Pillow not installed; using letter-P fallback icon.\n"
             "        pip install Pillow  to get a polished icon."
         )
-        # We can ship without an icon — Windows will use a default.
         if not ICON_PATH.is_file():
             ICON_PATH.parent.mkdir(parents=True, exist_ok=True)
-            ICON_PATH.write_bytes(b"")  # placeholder
+            ICON_PATH.write_bytes(b"")
+
+    # Emergency restore icon — separate red ⚠ tile so users can tell
+    # them apart on the desktop at a glance.
+    try:
+        render_emergency_icon(RESTORE_ICON_PATH)
+    except ImportError:
+        if not RESTORE_ICON_PATH.is_file():
+            RESTORE_ICON_PATH.write_bytes(b"")
 
     interp = find_interpreter()
-    print(f"[2/4] Interpreter      → {interp}")
+    print(f"[2/5] Interpreter      → {interp}")
 
     desktop = find_desktop_dir()
     desktop.mkdir(parents=True, exist_ok=True)
     link_path = desktop / SHORTCUT_NAME
-    print(f"[3/4] Shortcut path    → {link_path}")
+    restore_link_path = desktop / RESTORE_SHORTCUT_NAME
+    print(f"[3/5] Shortcut path    → {link_path}")
+    print(f"[4/5] Emergency restore → {restore_link_path}")
 
     if sys.platform == "win32":
         install_windows_shortcut(
@@ -220,9 +272,29 @@ def install() -> Path:
             icon=ICON_PATH,
             link_path=link_path,
         )
+        # The emergency restore shortcut points at the .cmd wrapper —
+        # NOT at python or the .py file — because:
+        #  (1) the .cmd works even if Python is uninstalled
+        #  (2) the .cmd shows a console window with the result, which
+        #      is exactly what we want for a recovery tool the user
+        #      runs in a panic
+        if RESTORE_SCRIPT.is_file():
+            install_windows_shortcut(
+                target=RESTORE_SCRIPT,
+                args="",
+                workdir=REPO_ROOT,
+                icon=RESTORE_ICON_PATH if RESTORE_ICON_PATH.is_file() else ICON_PATH,
+                link_path=restore_link_path,
+                description=(
+                    "PCE Emergency Restore - undo PCE's system-proxy "
+                    "takeover. Use if your computer can't reach the "
+                    "network after a PCE crash."
+                ),
+            )
+            print(f"      [OK] emergency restore installed")
+        else:
+            print(f"      ! restore .cmd not found at {RESTORE_SCRIPT}")
     elif sys.platform == "darwin":
-        # macOS: drop a .command shellscript; double-clicking it
-        # launches PCE in Terminal.
         cmd_path = desktop / "PCE Control Panel.command"
         cmd_path.write_text(
             f'#!/bin/sh\nexec "{interp}" "{ENTRYPOINT}" "$@"\n',
@@ -230,6 +302,14 @@ def install() -> Path:
         )
         cmd_path.chmod(0o755)
         link_path = cmd_path
+        # macOS emergency restore: invoke python script via shell
+        restore_path = desktop / "PCE Emergency Restore.command"
+        restore_path.write_text(
+            f'#!/bin/sh\nexec "{interp}" '
+            f'"{REPO_ROOT / "scripts" / "pce_restore.py"}" "$@"\n',
+            encoding="utf-8",
+        )
+        restore_path.chmod(0o755)
     else:
         install_linux_desktop_file(
             target=interp,
@@ -247,8 +327,15 @@ def install() -> Path:
 def uninstall() -> bool:
     desktop = find_desktop_dir()
     removed = False
-    for name in (SHORTCUT_NAME, "PCE Control Panel.desktop",
-                 "PCE Control Panel.command"):
+    candidates = (
+        SHORTCUT_NAME,
+        "PCE Control Panel.desktop",
+        "PCE Control Panel.command",
+        RESTORE_SHORTCUT_NAME,
+        "PCE Emergency Restore.desktop",
+        "PCE Emergency Restore.command",
+    )
+    for name in candidates:
         path = desktop / name
         if path.exists():
             path.unlink()
