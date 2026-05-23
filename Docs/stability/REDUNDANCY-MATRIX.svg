@@ -2,7 +2,7 @@
 <style>  .title{font-size:18px;font-weight:700;fill:#1f2937}  .subtitle{font-size:12px;fill:#6b7280}  .section{font-size:13px;font-weight:600;fill:#374151}  .scenario-id{font-size:13px;font-weight:500;fill:#1f2937;font-family:"JetBrains Mono",monospace}  .scenario-label{font-size:11px;fill:#6b7280}  .status-text{font-size:12px;font-weight:600}  .leg-glyph{font-size:14px;font-weight:700;font-family:"Segoe UI Symbol","Apple Color Emoji",sans-serif}  .leg-source{font-size:9px;fill:#9ca3af;font-family:"JetBrains Mono",monospace}  .footer{font-size:11px;fill:#9ca3af}  .phase-b{font-size:9px;font-weight:600;fill:#7c3aed}</style>
 <rect x="0" y="0" width="1100" height="654" fill="#ffffff"/>
 <text class="title" x="40" y="36">PCE Redundancy Matrix</text>
-<text class="subtitle" x="40" y="56">computed at 2026-05-22 06:02 UTC · 0/13 redundant · window 24h</text>
+<text class="subtitle" x="40" y="56">computed at 2026-05-23 05:36 UTC · 0/13 redundant · window 24h</text>
 <text class="subtitle" x="40" y="74">STRICT MODE — 13/13 P0 ≥ 3 V-GREEN required for v1.1.6</text>
 <line x1="40" y1="94" x2="1060" y2="94" stroke="#e5e7eb" stroke-width="1"/>
 <text class="section" x="40" y="114">P0 Web (5)</text>
